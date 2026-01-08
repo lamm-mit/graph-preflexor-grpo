@@ -1,4 +1,4 @@
-# Graph-Native Reasoning Training Pipeline: Graph-PRefLexOR 
+# Graph-GRPO: Graph-Native Reasoning Training Pipeline (Graph-PRefLexOR)
 
 Train language models to reason through structured knowledge graphs before answering questions. This pipeline uses ORPO (preference learning) followed by Graph-GRPO (graph reinforcement learning) to teach models a graph-based reasoning process.
 
