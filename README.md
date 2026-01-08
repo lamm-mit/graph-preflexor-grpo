@@ -202,6 +202,18 @@ Each split with matching names (e.g., `train`, `validation`) is concatenated in 
 
 Teaches the model to prefer structured reasoning over shallow answers. Loads dataset from Hub, pushes model to Hub.
 
+**Dataset format:** Uses `prompt`, `chosen`, and `rejected` columns (not `messages`). The script converts to messages format internally.
+
+| Column | Description | Required for |
+|--------|-------------|--------------|
+| `prompt` | User question | ORPO & SFT |
+| `chosen` | Full assistant completion with structured reasoning | ORPO & SFT |
+| `rejected` | Weaker, shallow 1-3 sentence answer | ORPO only |
+
+**Example datasets:**
+- [lamm-mit/graph_reasoning_10K](https://huggingface.co/datasets/lamm-mit/graph_reasoning_10K) (10K examples)
+- [lamm-mit/graph_reasoning_1K](https://huggingface.co/datasets/lamm-mit/graph_reasoning_1K) (1K examples)
+
 ```bash
 python src/run_orpo_graph.py \
   --base_model meta-llama/Llama-3.2-3B-Instruct \
@@ -224,6 +236,13 @@ python src/run_orpo_graph.py \
 ### Step 3: Graph-GRPO Training (Reinforcement Learning)
 
 Refines the model using reward signals. Loads ORPO model and dataset from Hub, pushes final model to Hub.
+
+**Dataset format:** Graph-GRPO requires `prompt` and `answer` columns (not the `messages` format). The chat template is applied internally.
+
+| Column | Description |
+|--------|-------------|
+| `prompt` | The question/input |
+| `answer` | Gold/reference answer (used by judge for scoring) |
 
 ```bash
 python src/run_grpo_graph.py \
