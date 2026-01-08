@@ -1179,8 +1179,39 @@ python src/merge_models.py \
 
 ### References
 
-- [PREFLEXOR] (https://arxiv.org/abs/2410.12375) - PRefLexOR Model 
-- [GRAPH-PREFLEXOR] (https://arxiv.org/abs/2501.08120) - Graph-PRefLexOR Model
+- [PRefLexOR](https://arxiv.org/abs/2410.12375) - PRefLexOR Model 
+- [Graph-PRefLexOR](https://arxiv.org/abs/2501.08120) - Graph-PRefLexOR Model
 - [TIES-Merging](https://arxiv.org/abs/2306.01708) - Trim, Elect Sign & Merge
 - [DARE](https://arxiv.org/abs/2311.03099) - Drop And REscale
 - [MergeKit](https://github.com/arcee-ai/mergekit) - Comprehensive merging toolkit
+
+```bibtex
+@article{Buehler2025PRefLexOR,
+  author       = {Buehler, Markus J.},
+  title        = {PRefLexOR: preference-based recursive language modeling for exploratory optimization of reasoning and agentic thinking},
+  journal      = {npj Artificial Intelligence},
+  volume       = {1},
+  number       = {4},
+  year         = {2025},
+  publisher    = {Springer Nature},
+  doi          = {10.1038/s44387-025-00003-z},
+  url          = {https://doi.org/10.1038/s44387-025-00003-z},
+  issn         = {2731-990X},
+  received     = {2024-11-01},
+  accepted     = {2025-03-22},
+  published    = {2025-05-14},
+  keywords     = {Complex networks, Computational biology and bioinformatics}
+}
+
+@article{Buehler2025GraphPRefLexOR,
+  author       = {Buehler, Markus J.},
+  title        = {In Situ Graph Reasoning and Knowledge Expansion Using Graph-PRefLexOR},
+  journal      = {Advanced Intelligent Discovery},
+  year         = {2025},
+  publisher    = {Wiley},
+  doi          = {10.1002/aidi.202500006},
+  url          = {https://doi.org/10.1002/aidi.202500006},
+  note         = {Research Article, Open Access},
+  published    = {2025-06-09}
+}
+```
