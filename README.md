@@ -849,9 +849,9 @@ Good reasoning graphs have multiple internal nodes, not just premises → conclu
 
 ---
 
-## Tips
+## Suggestions:
 
-1. **Start small**: Test with 256-512 examples before scaling up
+1. **Start small**: Test with 256-512 examples before scaling up (example datasets with 1k and 10K size are provided)
 2. **Monitor eval loss**: Stop ORPO if eval loss diverges
 3. **Quality > Quantity**: High-quality teacher outputs matter more than volume
 4. **Resume on crash**: Use `--resume` for dataset generation
@@ -859,7 +859,56 @@ Good reasoning graphs have multiple internal nodes, not just premises → conclu
 
 ---
 
-## Inference / Example Usage
+# Full example `lamm-mit/Graph-Preflexor-8b_12292025`
+
+## Training 
+
+Training run ORPO, then Graph-GRPO:
+
+```bash
+python ./src/run_orpo_graph.py
+--base_model Qwen/Qwen3-8B
+--dataset lamm-mit/graph_reasoning_1K
+--output_dir ./orpo-graph
+--epochs 1 --lr 5e-5 --batch_size 2
+--save_steps 100 --max_length 2048
+--eval_steps 100
+--push_to_hub
+--hub_model_id lamm-mit/orpo-graph
+--hf_token $HF_TOKEN
+```
+
+Test warm-start model:
+
+```bash
+python ./src/test_model.py --model ./orpo-graph
+```
+
+Graph-GRPO phase to ultimately produce `lamm-mit/Graph-Preflexor-8b_12292025`: 
+
+```bash
+python ./src/run_grpo_graph.py
+--base_model_dir lamm-mit/orpo-graph
+--dataset lamm-mit/graph_reasoning_1K
+--output_dir ./model/Graph-Preflexor-8b_12292025
+--judge_model grok-4-1-fast-non-reasoning
+--judge_api_key $GROK_API_KEY
+--judge_base_url https://api.x.ai/v1
+--weight_correctness 0.30
+--weight_format 0.15
+--weight_graph_utility 0.25
+--weight_graph_networkx 0.10
+--weight_graph_diversity 0.10
+--weight_graph_structure 0.10
+--num_generations 8 --per_device_train_batch_size 1 --gradient_accumulation_steps 8
+--learning_rate 5e-6 --epochs 3
+--max_completion_length 3500
+--push_to_hub
+--hub_model_id lamm-mit/lamm-mit/Graph-Preflexor-8b_12292025
+--hf_token $HF_TOKEN --use_vllm --vllm_gpu_memory_utilization 0.4
+```
+
+## Inference / Example Usage for 
 
 For a complete interactive example including graph visualization, see the [Colab notebook](Notebooks/Colab_graph_reasoning.ipynb).
 
