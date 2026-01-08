@@ -54,6 +54,13 @@ Path B (SFT):   Dataset ──▶ SFT (supervised)  ──▶ Graph-GRPO (RL)   
 
 ## Setup
 
+### Installation
+
+```bash
+git clone https://github.com/lamm-mit/graph-preflexor-grpo.git
+cd graph-preflexor-grpo
+```
+
 ### Export Secrets
 
 ```bash
