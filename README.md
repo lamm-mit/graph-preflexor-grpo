@@ -52,6 +52,25 @@ Path A (ORPO):  Dataset ──▶ ORPO (preference) ──▶ Graph-GRPO (RL)   
 Path B (SFT):   Dataset ──▶ SFT (supervised)  ──▶ Graph-GRPO (RL)   # Uses chosen only, faster
 ```
 
+## Released Models & Datasets
+
+### Pre-trained Models
+
+| Model | Base Model | Description |
+|-------|------------|-------------|
+| [lamm-mit/Graph-Preflexor-8b_12292025](https://huggingface.co/lamm-mit/Graph-Preflexor-8b_12292025) | Qwen-8B | 8B parameter graph reasoning model |
+| [lamm-mit/Graph-Preflexor-3b_08012026](https://huggingface.co/lamm-mit/Graph-Preflexor-3b_08012026) | Llama-3.2-3B-Instruct | 3B parameter model (non-reasoning Instruct base) |
+| [lamm-mit/Graph-Preflexor-Qwen-1.7b_08012026](https://huggingface.co/lamm-mit/Graph-Preflexor-Qwen-1.7b_08012026) | Qwen-1.7B | Lightweight 1.7B parameter model |
+
+### Training Datasets
+
+| Dataset | Size | Description |
+|---------|------|-------------|
+| [lamm-mit/graph_reasoning_10K](https://huggingface.co/datasets/lamm-mit/graph_reasoning_10K) | 10K examples | Full training dataset |
+| [lamm-mit/graph_reasoning_1K](https://huggingface.co/datasets/lamm-mit/graph_reasoning_1K) | 1K examples | Smaller dataset for quick experiments |
+
+---
+
 ## Setup
 
 ### Installation
