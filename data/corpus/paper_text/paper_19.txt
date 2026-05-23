@@ -1,0 +1,21 @@
+ABSTRACT: Carbon capture and related gas separation
+processes are critical tools in our efforts to combat climate change.
+While polymer membranes are seen as a central construct to
+achieve these goals, their performance needs further improvement
+to meet current sustainability goals. It is in this context that
+membranes composed of polymer-grafted nanoparticles (GNPs)
+become highly germane. Previous work has shown that gas
+transport in pure GNP membranes can be strongly enhanced
+relative to that in the corresponding neat polymer. Additionally, we
+found that larger gases display greater degrees of permeability
+enhancement than smaller ones. There is currently no clear
+understanding of these two underpinning facts, and to address this issue, we have characterized the activation energy driving the
+permeability of multiple gases in several GNP membranes. Our results show that gases smaller than a critical size display the same
+activation energy as in the native polymer�any enhancement therefore is associated with changes in local gas/chain dynamics, e.g.,
+the speeding up of polymer dynamics due to the local stretching in a brush conformation. Our results are consistent with the notion
+that small gases are present in the whole polymer layer. Conversely, larger gases show substantially lower activation energies and, in
+contrast to the neat polymer, exhibit essentially no dependence on penetrant size. Sorption measurements illustrate that this is a
+result of the enhanced solubility of larger gases in GNPs, relative to that in the pure polymer, which is reflected in their significantly
+more favorable enthalpies of solvation. Larger gases thus preferentially sorb into the interstitial spaces in the GNP assembly, thereby
+resulting in even higher permeability enhancements in the GNP layers relative to smaller gases. GNPs, therefore, provide us with
+multiple handles to control gas transport, a fact that offers critical insights into their utility for gas separations.

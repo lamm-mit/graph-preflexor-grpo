@@ -1,0 +1,25 @@
+ABSTRACT: Matrix-free nanocomposites made from polymer-grafted nano-
+particles (PGN) represent a paradigm shift in materials science because they
+greatly improve nanoparticle dispersion and offer greater tunability over
+rheological and mechanical properties in comparison to neat polymers. Utilizing
+the full potential of PGNs requires a deeper understanding of how polymer graft
+length, density, and chemistry influence interfacial interactions between particles.
+There has been great progress in describing these effects with molecular dynamics
+(MD). However, the limitations of the length and time scales of MD make it
+prohibitively costly to study systems involving more than a few PGNs, even with
+bead−spring coarse-grained models. Moreover, it remains unclear how to
+properly address shortcomings of these models in describing the rate-dependent
+constitutive response of polymers in a chemistry-specific fashion. Here, we
+address some of these challenges by proposing a new modeling paradigm for PGNs using a strain-energy mapping framework
+involving potential of mean force (PMF) calculations. In this approach, each nanoparticle is coarse grained into a representative
+particle with chains treated implicitly, namely, the implicit chain particle model (ICPM). Using a chemistry-specific coarse-grained
+molecular dynamics (CG-MD) model of poly(methyl methacrylate) as a testbed, we derive the effective interaction between
+particles arranged in a close-packed lattice configuration by matching bulk dilation and compression strain-energy densities up to
+failure. We establish an iterative optimization scheme to fine tune PMFs in the ICPM to accurately match the stress−strain behaviors
+during dilation and compression tests. The strain-rate dependence of the mechanical work done is quantified to reveal that the
+interparticle potential can be expressed with a strain-rate-dependent energy well depth that culminates in a simple power-law
+Cowper−Symonds strain hardening model. Given the aggressive degree of coarse graining (∼1:10 000) involved, the scope and
+limitations of the ICPM are cautiously discussed. Overall, the ICPM increases the computational speed by approximately 5−6 orders
+of magnitude compared to the CG-MD models. This novel framework is foundational for particle-based simulations of PGNs and
+their blends and accelerates the understanding and predictions of emergent properties of PGN materials.
+■

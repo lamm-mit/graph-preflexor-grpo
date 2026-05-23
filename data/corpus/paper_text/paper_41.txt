@@ -1,0 +1,9 @@
+A persistent challenge in molecular modeling of thermoset polymers is capturing the effects of chemical composition and degree of
+crosslinking (DC) on dynamical and mechanical properties with high computational ef ﬁciency. We established a coarse-graining (CG)
+approach combining the energy renormalization method with Gaussian process surrogate models of molecular dynamics simulations.
+This allows a machine-learning informed functional calibration of DC-dependent CG forceﬁeld parameters. Taking versatile epoxy resins
+consisting of Bisphenol A diglycidyl ether combined with curing agent of either 4,4-Diaminodicyclohexylmethane or polyoxypropylene
+diamines, we demonstrated excellent agreement between all-atom and CG predictions for density, Debye-Waller factor, Young ’s
+modulus, and yield stress at any DC. We further introduced a surrogate model-enabled simpliﬁcation of the functional forms of 14 non-
+bonded calibration parameters by quantifying the uncertainty of a candidate set of calibration functions. The framework established
+provides an efﬁcient methodology for chemistry-speciﬁc, large-scale investigations of the dynamics and mechanics of epoxy resins.

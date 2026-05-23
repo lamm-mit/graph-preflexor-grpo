@@ -1,0 +1,42 @@
+ABSTRACT: Distinct deformation mechanisms that emerge in
+nanoscale enable the nanostructured materials to exhibit outstanding
+speciﬁc mechanical properties. Here, we present superior micro-
+structure- and strain-rate-dependent speci ﬁc penetration energy (up to
+∼3.8 MJ kg
+−1) in semicrystalline poly(vinylidene ﬂuoride-co-triﬂuoro-
+ethylene) (P(VDF-TrFE)) thin ﬁlms subjected to high-velocity (100
+ms −1 to 1 km s −1) microprojectile (diameter: 9.2 μm) impacts. The
+geometric-conﬁnement-induced nanostructural evolutions enable the
+sub-100 nm thick P(VDF-TrFE) ﬁlms to achieve high speci ﬁc
+penetration energy with high strain delocalization across the broad
+impact velocity range, superior to both bulk protective materials and
+previously reported nanomaterials. This high speci ﬁc penetration
+energy arises from the substantial stretching of the two-dimensionally
+oriented highly mobile polymer chains that engage abundant viscoelastic and viscoplastic deformation mechanisms that are further
+enhanced by the intermolecular dipole −dipole interactions. These key ﬁndings provide insights for using nanostructured
+semicrystalline polymers in the development of lightweight, high-performance soft armors for extreme engineering applications.
+
+In summary, we experimentally demonstrated the superior
+dynamic performance of ultrathin P(VDF-TrFE) ﬁlms using an
+advanced LIPIT technique and correlated their Ep* and strain
+delocalization performance to the material ’sf a b r i c a t i o n
+processes and their nanostructural evolution for the ﬁrst
+time. The highest Ep* achieved for ultrathin P(VDF-TrFE)
+ﬁlm is signi ﬁcantly higher than that of macroscopic protective
+materials and previously studied nanomaterials. Geometric
+conﬁnement in ultrathin ﬁlms hinders the crystallization
+process and facilitates the polymer chains to orient parallel
+to the ﬁlm surface. With the contribution of those highly
+mobile two-dimensionally oriented polymer chains, extensive
+viscoelastic and viscoplastic deformation occurs during
+projectile penetration. The cumulative e ﬀects of relatively
+stronger vdW forces from the dipole −dipole interactions
+between polar C −F bonds in polymer chains oriented along
+the stretching direction further strengthens and toughens the
+P(VDF-TrFE) thin ﬁlms. Along with local adiabatic heating
+within the strike region at high velocities, these deformation
+processes e ﬀectively dissipate the kinetic energy of the
+supersonic projectile. Our study opens novel design pathways
+for fabricating lightweight, soft armor materials with superior
+dynamic performance by employing nanoscale semicrystalline
+polymeric ﬁlms with tailored micro/nanostructures.

@@ -1,0 +1,729 @@
+{
+  "table_of_contents": [
+    {
+      "title": "RSC Advances",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          40.53400503778337,
+          53.701171875
+        ],
+        [
+          165.296875,
+          53.701171875
+        ],
+        [
+          165.296875,
+          69.697265625
+        ],
+        [
+          40.53400503778337,
+          69.697265625
+        ]
+      ]
+    },
+    {
+      "title": "A molecular dynamics investigation on the cross-\nlinking and physical properties of epoxy-based\nmaterials\u2020",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          171.14357682619647,
+          134.25
+        ],
+        [
+          544.2065491183879,
+          134.25
+        ],
+        [
+          544.2065491183879,
+          185.859375
+        ],
+        [
+          171.14357682619647,
+          185.859375
+        ]
+      ]
+    },
+    {
+      "title": "Introduction",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          41.28463476070529,
+          407.25
+        ],
+        [
+          123.10327455919395,
+          407.25
+        ],
+        [
+          123.10327455919395,
+          418.564453125
+        ],
+        [
+          41.28463476070529,
+          418.564453125
+        ]
+      ]
+    },
+    {
+      "title": "Simulation details",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          41.28463476070529,
+          672.0
+        ],
+        [
+          156.8816120906801,
+          672.0
+        ],
+        [
+          156.8816120906801,
+          682.5
+        ],
+        [
+          41.28463476070529,
+          682.5
+        ]
+      ]
+    },
+    {
+      "title": "Forcefields",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          41.033203125,
+          690.0
+        ],
+        [
+          86.32241813602015,
+          690.0
+        ],
+        [
+          86.32241813602015,
+          698.876953125
+        ],
+        [
+          41.033203125,
+          698.876953125
+        ]
+      ]
+    },
+    {
+      "title": "Cross-linking process",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          302.50377833753146,
+          641.748046875
+        ],
+        [
+          390.54296875,
+          641.748046875
+        ],
+        [
+          390.54296875,
+          651.75
+        ],
+        [
+          302.50377833753146,
+          651.75
+        ]
+      ]
+    },
+    {
+      "title": "Additional equilibration process",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          301.201171875,
+          295.5
+        ],
+        [
+          433.1133501259446,
+          295.5
+        ],
+        [
+          433.1133501259446,
+          304.5
+        ],
+        [
+          301.201171875,
+          304.5
+        ]
+      ]
+    },
+    {
+      "title": "Elastic modulus calculation",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          40.53400503778337,
+          403.5
+        ],
+        [
+          152.3778337531486,
+          403.5
+        ],
+        [
+          152.3778337531486,
+          412.470703125
+        ],
+        [
+          40.53400503778337,
+          412.470703125
+        ]
+      ]
+    },
+    {
+      "title": "Results and discussions",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          41.28463476070529,
+          208.330078125
+        ],
+        [
+          192.911838790932,
+          208.330078125
+        ],
+        [
+          192.911838790932,
+          219.0
+        ],
+        [
+          41.28463476070529,
+          219.0
+        ]
+      ]
+    },
+    {
+      "title": "Structural properties",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          40.53400503778337,
+          291.357421875
+        ],
+        [
+          125.35516372795969,
+          291.357421875
+        ],
+        [
+          125.35516372795969,
+          300.0
+        ],
+        [
+          40.53400503778337,
+          300.0
+        ]
+      ]
+    },
+    {
+      "title": "Elastic properties",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          40.53400503778337,
+          476.25
+        ],
+        [
+          112.33203125,
+          476.25
+        ],
+        [
+          112.33203125,
+          485.595703125
+        ],
+        [
+          40.53400503778337,
+          485.595703125
+        ]
+      ]
+    },
+    {
+      "title": "Conclusions",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          302.50377833753146,
+          563.25
+        ],
+        [
+          382.8211586901763,
+          563.25
+        ],
+        [
+          382.8211586901763,
+          574.5
+        ],
+        [
+          302.50377833753146,
+          574.5
+        ]
+      ]
+    },
+    {
+      "title": "Acknowledgements",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          40.53400503778337,
+          191.25
+        ],
+        [
+          169.64231738035264,
+          191.25
+        ],
+        [
+          169.64231738035264,
+          204.521484375
+        ],
+        [
+          40.53400503778337,
+          204.521484375
+        ]
+      ]
+    },
+    {
+      "title": "References",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          41.28463476070529,
+          287.16796875
+        ],
+        [
+          114.09571788413098,
+          287.16796875
+        ],
+        [
+          114.09571788413098,
+          297.83203125
+        ],
+        [
+          41.28463476070529,
+          297.83203125
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          101
+        ],
+        [
+          "Span",
+          63
+        ],
+        [
+          "Text",
+          10
+        ],
+        [
+          "Footnote",
+          4
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          124
+        ],
+        [
+          "Span",
+          105
+        ],
+        [
+          "Text",
+          9
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Equation",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          82
+        ],
+        [
+          "Span",
+          31
+        ],
+        [
+          "PageHeader",
+          4
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          94
+        ],
+        [
+          "TableCell",
+          80
+        ],
+        [
+          "Span",
+          41
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          156
+        ],
+        [
+          "Line",
+          105
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Equation",
+          3
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "SectionHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          92
+        ],
+        [
+          "Span",
+          61
+        ],
+        [
+          "TableCell",
+          60
+        ],
+        [
+          "Text",
+          8
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Equation",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          115
+        ],
+        [
+          "Span",
+          109
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          143
+        ],
+        [
+          "Span",
+          129
+        ],
+        [
+          "ListItem",
+          39
+        ],
+        [
+          "PageHeader",
+          4
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "ListGroup",
+          2
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data\\paper_19"
+}

@@ -1,0 +1,39 @@
+Epoxy-based materials are extensively used in industry due to their excellent mechanical and thermal
+stability. As the epoxy products are getting smaller and smaller nowadays, there are di ﬃ culties arising
+from the material processing and measurement, which need to be carefully considered in the design
+stage. SU-8 photoresist, which is commonly used in micro-electro-mechanical systems (MEMS), is
+chosen as a representative of epoxy-based materials in this study. Here, we propose an e ﬀective
+dynamic cross-linking algorithm, which can be used to construct the SU-8 epoxy network with cross-
+linking degree higher than 80%. Using an equilibration process incorporating successive pressure
+controls, the density of the cross-linked structure can be accurately obtained. By performing the
+dynamic deformations in the molecular dynamics simulations, elastic properties of the equilibrated SU-8
+photoresist can be determined, which are in good agreement with the experimental measurements. The
+good predictions of the physical properties demonstrate a strong mechanical stability of the SU-8
+structure at the nano-scale. The dynamic cross-linking algorithm described in the present study can be
+applied in other polymeric material investigations involving the cross-linked network model through
+homopolymerization.
+
+Conclusions
+In this study, MD investigations on the cross-linking and
+physical properties of SU-8 epoxy photoresist are performed
+under three chosen force elds ( i.e. CVFF, Dreiding and PCFF).
+Using an e ﬀective dynamic cross-linking algorithm, three SU-8
+epoxy networks are constructed with cross-linking degrees
+higher than 80%. Aer equilibration process incorporating high
+pressure control, the densities of the cross-linked structure are
+adjusted to levels corresponding to the existing value. Elastic
+properties of the equilibrated SU-8 photoresists are measured
+by means of computational dynamic deformations. The calcu-
+lated mechanical properties of the constructed SU-8 epoxy
+network are in accord with the various experimental
+observables, including Young's modulus, bulk modulus, shear
+modulus and Poisson's ratio.
+Our dynamic cross-linking algorithm is believed to be
+applicable to general cross-linked epoxy-based materials which
+under homopolymerization. The physical properties obtained
+in this study demonstrate the high Young's modulus of SU-8
+photoresist, which is favorable in engineering applications
+from nano- to micro-scale. It is envisioned that our work will be
+benecial to the design, synthesis and applications of epoxy-
+based materials, especially the predictions of structural stability
+and long term material performance.

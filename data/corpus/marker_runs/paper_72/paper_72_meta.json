@@ -1,0 +1,1213 @@
+{
+  "table_of_contents": [
+    {
+      "title": "Chemical gradients in human enamel\ncrystallites",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          38.28211586901763,
+          47.1201171875
+        ],
+        [
+          473.6473551637279,
+          47.1201171875
+        ],
+        [
+          473.6473551637279,
+          102.7373046875
+        ],
+        [
+          38.28211586901763,
+          102.7373046875
+        ]
+      ]
+    },
+    {
+      "title": "Article",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          38.123046875,
+          25.87744140625
+        ],
+        [
+          85.68899536132812,
+          25.87744140625
+        ],
+        [
+          85.68899536132812,
+          41.78240966796875
+        ],
+        [
+          38.123046875,
+          41.78240966796875
+        ]
+      ]
+    },
+    {
+      "title": "Online content",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          38.99609375,
+          388.16162109375
+        ],
+        [
+          109.92400360107422,
+          388.16162109375
+        ],
+        [
+          109.92400360107422,
+          399.79290771484375
+        ],
+        [
+          38.99609375,
+          399.79290771484375
+        ]
+      ]
+    },
+    {
+      "title": "Article",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          38.123046875,
+          26.263671875
+        ],
+        [
+          85.68899536132812,
+          26.263671875
+        ],
+        [
+          85.68899536132812,
+          41.78240966796875
+        ],
+        [
+          38.123046875,
+          41.78240966796875
+        ]
+      ]
+    },
+    {
+      "title": "Methods",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          39.287109375,
+          45.18896484375
+        ],
+        [
+          91.02100372314453,
+          45.18896484375
+        ],
+        [
+          91.02100372314453,
+          59.23565673828125
+        ],
+        [
+          39.287109375,
+          59.23565673828125
+        ]
+      ]
+    },
+    {
+      "title": "Consumables",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          39.578125,
+          67.2041015625
+        ],
+        [
+          94.34000396728516,
+          67.2041015625
+        ],
+        [
+          94.34000396728516,
+          78.02935791015625
+        ],
+        [
+          39.578125,
+          78.02935791015625
+        ]
+      ]
+    },
+    {
+      "title": "Preparation of enamel sections",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          39.287109375,
+          219.76513671875
+        ],
+        [
+          163.78839111328125,
+          219.76513671875
+        ],
+        [
+          163.78839111328125,
+          228.529541015625
+        ],
+        [
+          39.287109375,
+          228.529541015625
+        ]
+      ]
+    },
+    {
+      "title": "Scanning electron microscopy (SEM)",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          38.99609375,
+          477.76708984375
+        ],
+        [
+          186.12725830078125,
+          477.76708984375
+        ],
+        [
+          186.12725830078125,
+          486.52935791015625
+        ],
+        [
+          38.99609375,
+          486.52935791015625
+        ]
+      ]
+    },
+    {
+      "title": "Transmission electron microscopy (TEM)",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          38.99609375,
+          551.92333984375
+        ],
+        [
+          203.39755249023438,
+          551.92333984375
+        ],
+        [
+          203.39755249023438,
+          561.7793426513672
+        ],
+        [
+          38.99609375,
+          561.7793426513672
+        ]
+      ]
+    },
+    {
+      "title": "STEM-EDS",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          305.275390625,
+          164.92041015625
+        ],
+        [
+          347.647216796875,
+          164.92041015625
+        ],
+        [
+          347.647216796875,
+          174.77935791015625
+        ],
+        [
+          305.275390625,
+          174.77935791015625
+        ]
+      ]
+    },
+    {
+      "title": "Cryo-STEM-EELS",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          305.857421875,
+          230.779541015625
+        ],
+        [
+          373.955078125,
+          230.779541015625
+        ],
+        [
+          373.955078125,
+          239.279541015625
+        ],
+        [
+          305.857421875,
+          239.279541015625
+        ]
+      ]
+    },
+    {
+      "title": "X-ray absorption spectroscopy (XAS)",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          306.1417236328125,
+          391.25146484375
+        ],
+        [
+          453.64984130859375,
+          391.25146484375
+        ],
+        [
+          453.64984130859375,
+          400.52935791015625
+        ],
+        [
+          306.1417236328125,
+          400.52935791015625
+        ]
+      ]
+    },
+    {
+      "title": "Atom probe tomography (APT)",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          38.4140625,
+          208.95068359375
+        ],
+        [
+          163.57589721679688,
+          208.95068359375
+        ],
+        [
+          163.57589721679688,
+          217.779541015625
+        ],
+        [
+          38.4140625,
+          217.779541015625
+        ]
+      ]
+    },
+    {
+      "title": "Hydrothermal syntheses",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          38.4140625,
+          703.32568359375
+        ],
+        [
+          138.36488342285156,
+          703.32568359375
+        ],
+        [
+          138.36488342285156,
+          712.2793426513672
+        ],
+        [
+          38.4140625,
+          712.2793426513672
+        ]
+      ]
+    },
+    {
+      "title": "Powder X-ray diffraction",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          304.984375,
+          358.80810546875
+        ],
+        [
+          404.19696044921875,
+          358.80810546875
+        ],
+        [
+          404.19696044921875,
+          368.2793273925781
+        ],
+        [
+          304.984375,
+          368.2793273925781
+        ]
+      ]
+    },
+    {
+      "title": "Single crystal X-ray diffraction",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          306.1418151855469,
+          496.30615234375
+        ],
+        [
+          428.375,
+          496.30615234375
+        ],
+        [
+          428.375,
+          508.02935791015625
+        ],
+        [
+          306.1418151855469,
+          508.02935791015625
+        ]
+      ]
+    },
+    {
+      "title": "Inductively coupled plasma mass spectrometry (ICP-MS)",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          306.1418151855469,
+          626.07958984375
+        ],
+        [
+          531.9765625,
+          626.07958984375
+        ],
+        [
+          531.9765625,
+          637.0293426513672
+        ],
+        [
+          306.1418151855469,
+          637.0293426513672
+        ]
+      ]
+    },
+    {
+      "title": "Density functional theory (DFT) calculations",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          305.56640625,
+          712.59521484375
+        ],
+        [
+          484.130126953125,
+          712.59521484375
+        ],
+        [
+          484.130126953125,
+          723.0293426513672
+        ],
+        [
+          305.56640625,
+          723.0293426513672
+        ]
+      ]
+    },
+    {
+      "title": "Article",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          38.4140625,
+          26.24170616113744
+        ],
+        [
+          86.32241813602015,
+          26.24170616113744
+        ],
+        [
+          86.32241813602015,
+          37.48815165876777
+        ],
+        [
+          38.4140625,
+          37.48815165876777
+        ]
+      ]
+    },
+    {
+      "title": "Lattice strain as a function of composition",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          37.531486146095716,
+          229.42748815165876
+        ],
+        [
+          207.92443324937028,
+          229.42748815165876
+        ],
+        [
+          207.92443324937028,
+          239.462890625
+        ],
+        [
+          37.531486146095716,
+          239.462890625
+        ]
+      ]
+    },
+    {
+      "title": "Finite-element modelling",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          37.531486146095716,
+          412.3696682464455
+        ],
+        [
+          143.37027707808562,
+          412.3696682464455
+        ],
+        [
+          143.37027707808562,
+          421.37744140625
+        ],
+        [
+          37.531486146095716,
+          421.37744140625
+        ]
+      ]
+    },
+    {
+      "title": "Reporting summary",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          38.28211586901763,
+          530.29443359375
+        ],
+        [
+          121.60201511335012,
+          530.29443359375
+        ],
+        [
+          121.60201511335012,
+          539.8293838862559
+        ],
+        [
+          38.28211586901763,
+          539.8293838862559
+        ]
+      ]
+    },
+    {
+      "title": "Data availability",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          38.28211586901763,
+          582.5658767772511
+        ],
+        [
+          117.84886649874055,
+          582.5658767772511
+        ],
+        [
+          117.84886649874055,
+          591.5630331753554
+        ],
+        [
+          38.28211586901763,
+          591.5630331753554
+        ]
+      ]
+    },
+    {
+      "title": "Code availability",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          38.28211586901763,
+          647.0454976303317
+        ],
+        [
+          119.35012594458438,
+          647.0454976303317
+        ],
+        [
+          119.35012594458438,
+          656.20556640625
+        ],
+        [
+          38.28211586901763,
+          656.20556640625
+        ]
+      ]
+    },
+    {
+      "title": "Additional information",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          304.984375,
+          65.27294921875
+        ],
+        [
+          370.171875,
+          65.27294921875
+        ],
+        [
+          370.171875,
+          71.60943603515625
+        ],
+        [
+          304.984375,
+          71.60943603515625
+        ]
+      ]
+    },
+    {
+      "title": "",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          14.55078125,
+          62.9033203125
+        ],
+        [
+          236.88671875,
+          62.9033203125
+        ],
+        [
+          236.88671875,
+          90.0380859375
+        ],
+        [
+          14.55078125,
+          90.0380859375
+        ]
+      ]
+    },
+    {
+      "title": "Reporting Summary",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          15.58329963684082,
+          116.5880126953125
+        ],
+        [
+          191.26539611816406,
+          116.5880126953125
+        ],
+        [
+          191.26539611816406,
+          138.5784912109375
+        ],
+        [
+          15.58329963684082,
+          138.5784912109375
+        ]
+      ]
+    },
+    {
+      "title": "Software and code",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          16.587890625,
+          475.26953125
+        ],
+        [
+          122.43148803710938,
+          475.26953125
+        ],
+        [
+          122.43148803710938,
+          489.7461853027344
+        ],
+        [
+          16.587890625,
+          489.7461853027344
+        ]
+      ]
+    },
+    {
+      "title": "Data",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          16.87890625,
+          130.740234375
+        ],
+        [
+          43.281429290771484,
+          130.740234375
+        ],
+        [
+          43.281429290771484,
+          145.3695068359375
+        ],
+        [
+          16.87890625,
+          145.3695068359375
+        ]
+      ]
+    },
+    {
+      "title": "Reporting for specific materials, systems and methods",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          15.58329963684082,
+          587.5223541259766
+        ],
+        [
+          449.9564208984375,
+          587.5223541259766
+        ],
+        [
+          449.9564208984375,
+          607.5137481689453
+        ],
+        [
+          15.58329963684082,
+          607.5137481689453
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          76
+        ],
+        [
+          "Line",
+          74
+        ],
+        [
+          "Text",
+          13
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Picture",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          82
+        ],
+        [
+          "Line",
+          76
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          115
+        ],
+        [
+          "Span",
+          79
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          79
+        ],
+        [
+          "Span",
+          68
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          386
+        ],
+        [
+          "Line",
+          134
+        ],
+        [
+          "Caption",
+          4
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          508
+        ],
+        [
+          "Line",
+          128
+        ],
+        [
+          "ListItem",
+          41
+        ],
+        [
+          "Reference",
+          37
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "ListGroup",
+          2
+        ],
+        [
+          "SectionHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          276
+        ],
+        [
+          "Line",
+          127
+        ],
+        [
+          "Text",
+          11
+        ],
+        [
+          "SectionHeader",
+          9
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          272
+        ],
+        [
+          "Line",
+          127
+        ],
+        [
+          "Text",
+          13
+        ],
+        [
+          "SectionHeader",
+          6
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 8,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          203
+        ],
+        [
+          "Span",
+          139
+        ],
+        [
+          "ListItem",
+          21
+        ],
+        [
+          "Reference",
+          21
+        ],
+        [
+          "Text",
+          9
+        ],
+        [
+          "SectionHeader",
+          6
+        ],
+        [
+          "Equation",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 9,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          36
+        ],
+        [
+          "Line",
+          14
+        ],
+        [
+          "Text",
+          5
+        ],
+        [
+          "SectionHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 10,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          119
+        ],
+        [
+          "Line",
+          48
+        ],
+        [
+          "TableCell",
+          42
+        ],
+        [
+          "Text",
+          15
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "Form",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 11,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          123
+        ],
+        [
+          "TableCell",
+          66
+        ],
+        [
+          "Line",
+          52
+        ],
+        [
+          "Text",
+          9
+        ],
+        [
+          "ListItem",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Form",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data\\paper_72"
+}

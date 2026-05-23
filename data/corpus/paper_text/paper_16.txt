@@ -1,0 +1,95 @@
+CONCLUSIONS
+In our previous publication on DGEBA/PACM/D2000 blended
+epoxies,26 we demonstrated that the room temperature ballistic
+impact resistance for the blended formulations was improved
+relative to the stoichiometric DGEBA/PACM or DGEBA/D2000
+neat materials. Specifically, the DGEBA/PACM/D2000 blends
+were optically transparent yet, dynamically heterogeneous with
+two glass transitions including a rigid and flexible phase. In par-
+ticular for these blends the impact performance was highest
+when the blend morphology was near a phase inversion point
+and exhibited a small characteristic length scale.
+In this study, we expand on this previous research to systemati-
+cally examine a detailed series of blended epoxy formulations
+composed of DGEBA that is crosslinked with a mixture of a
+rigid cycloaliphatic diamine (PACM) and a flexible polypropyl-
+ene glycol based diamine (Jeffamine), where the Jeffamine
+molecular weight was varied from 230, 400, 2000, and 4000 g/
+mole. W e examined the influence of the flexible Jeffamine
+molecular weight and composition on the mechanical and ther-
+mal properties of the cured blends, as well as dynamic and
+structural heterogeneity in these materials with a specific cure
+protocol. In particular we demonstrated the following key
+points:
+/C15 The magnitude of the dynamic heterogeneity was con-
+trolled by controlling the molecular weight of the Jeff-
+amine and therefore the effective DT
+g for the blend system ,
+where DTg is defined as the difference between the neat stoi-
+chiometric DGEBA/PACM Tg and DGEBA/Jeffamine Tg.A
+single Tg was observed for DGEBA/PACM/D230 and
+DGEBA/PACM/D400 mixtures having DTg’s of 80 8C and
+130 8C, respectively. However, the DGEBA/PACM/D2000
+blends ( DTg /C24 205 8C) were dynamically heterogeneous,
+exhibiting two distinct Tg’s, corresponding to a high Tg
+PACM rich phase and a low Tg D2000 rich phase. With the
+DGEBA/PACM/D2000 blends both the high Tg phase and
+low Tg phase exhibited a shift in Tg relative to the neat
+DGEBA/PACM and DGEBA/D2000, due to mixing between
+the rigid and soft phases. The DGEBA/PACM/D4000 mix-
+tures exhibited the greatest dynamic heterogeneity ( DT
+g /C24
+225), and the PACM and D4000 components appear to be
+strongly phase separated, with only minimal changes in the
+component T
+g’s with composition, demonstrating minimal
+mixing between the two phases.
+/C15 The ballistic impact resistance of the blended epoxies was
+strongly dependent on the extent of dynamic heterogeneity.
+Specifically, for the non-heterogeneous single T
+g DGEBA/
+PACM/D230 and DGEBA/PACM/D400 blends, the tempera-
+ture dependent ballistic penetration resistance simply corre-
+lated with the difference between the impact temperature and
+the resin T
+g. These heterogeneous blends behaved similarly to
+non-blended epoxy resins 36 by exhibiting a sharp rise in pen-
+etration resistance when the measurement temperature is
+approximately 60 8C below the T
+g. For the most dynamically
+heterogeneous DGEBA/PACM/D4000 blends, the ballistic per-
+formance was found to generally follow a rule of mixtures,
+and exhibited minimal improvements as a function of blend
+composition, likely due to the large length scale of the phase
+separation coupled with the poor intermixing between the
+high T
+g and low Tg phase in these blends. In contrast, the
+dynamically heterogeneous DGEBA/PACM/D2000 blends,
+which were optically transparent, exhibited a strong deviation
+from rule of mixtures, with substantial improvements in the
+ballistic impact resistance relative to the neat components
+when the composition of the amine phase was approximately
+50%.
+/C15 Dynamically heterogeneous epoxy blends with a small scale
+structure offers the potential for new transparent resin for-
+mulations with impact resistance that can be improved
+over military operational temperature ranges. The dynami-
+cally heterogeneous DGEBA/PACM/D2000 blends with an
+amine composition near 50% exhibited improved impact per-
+formance relative to model structural resins over military
+operational temperature ranges. The improved impact per-
+formance was accompanied by a stronger temperature
+dependent modulus. However, over most of the military tem-
+perature range the DGEBA/PACM/D2000 blends exhibited a
+similar modulus to the single T
+g blends or a model structural
+resin. Based on these results we conclude that homogeneous
+epoxy formulation composed of blended monomers offers
+minimal potential to exhibit improved impact performance
+and follow the same temperature dependent trends as single
+T
+g non-blended formulations. However, dual glass transition
+blends, with a controlled DTg between the individual compo-
+nents, offers the potential to improve impact resistance in
+extreme military temperature ranges as long as a ductile and
+rigid phase are both present at the impact temperature.

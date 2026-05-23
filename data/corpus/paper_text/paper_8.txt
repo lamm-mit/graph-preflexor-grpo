@@ -1,0 +1,46 @@
+Polymeric ﬁlms with greater impact and ballistic resistanc e are highly desired for numerous applications, but molecul ar
+conﬁgurations that best address this need remain subject to debate. We study the resistance to ballistic impact of thin
+polymer ﬁlms using coarse-grained molecular dynamics simu lations, investigating melts of linear polymer chains and
+star polymers with varying number (2 ≤ f ≤ 16) and degree of polymerization (10 ≤ M ≤ 50) of the arms. We show
+that increasing the number of arms f or the length of the arms M both result in greater speciﬁc penetration energy within
+the parameter ranges studied. Greater interpenetration of chains in stars with larger f allows energy to be dissipated
+predominantly through rearrangement of the stars internal ly, rather than chain sliding. During ﬁlm deformation, star s
+with large f show higher energy absorption rates soon after contact with the projectile, whereas stars with larger M
+have a delayed response where dissipation arises primarily from chain sliding, which results in signiﬁcant back face
+deformation. Our results suggest that stars may be advantag eous for tuning energy dissipation mechanisms of ultra-thi n
+ﬁlms. These ﬁndings set the stage for a topology-based strat egy for the design of impact-resistant polymer ﬁlms.
+version accepted on Extreme Mechanics Letters
+
+4. CONCLUSIONS
+There is a growing interest in impact-resistant materials,
+and thin ﬁlms in particular, but a theoretical knowledge of t he
+mechanisms involved in energy dissipation is still lacking and
+there is vast room for improvement in the design space of new
+materials using computations. In the present paper, we show
+that an increase in complexity of the molecular architectur e
+can increase the impact resistance of thin polymer ﬁlms with
+minimal effort. We simulate thin polymer ﬁlms composed of
+melts of star polymers with varying number of arms f and
+length of the arms M. We show that the energy absorbed by
+the ﬁlm during a projectile-impact test at extreme deformation
+rates increases with increasing number of arms. We report an
+increased performance of up to 16% between star polymers
+with large f and linear polymer chains, paving the way for a
+topology-controlled protocol to increase the impact resis tance
+of thin polymer ﬁlms. In general, we observe that for both
+higher f and M, increasing the molecular weight and size of
+the molecules, less energy goes into intermolecular exchanges
+during the projectile penetration. Conversely, more energ y is
+stored into intramolecular rearrangements and material kinetic
+energy, which we associate with a higher polymer mass being
+extruded from the ﬁlm during the impact. While longer lin-
+ear chains have higher penetration energy because they keep
+pulling on the bullet after the penetration of the ﬁlm, star
+polymers have immediate higher stopping power, an advan-
+tage for ultra-thin ﬁlms applications. More in-depth studi es of
+our ﬁnding will allow to tune and optimize these mechanisms
+for varying impact conditions (like different radius or vel oc-
+ity of the projectile). These investigations will deepen ou r
+understanding of the role of polymer topology under extreme
+deformations and will pave the way for applications such as
+improved body armors and impact-resistant coatings.

@@ -1,0 +1,63 @@
+abstract
+Thermal and volumetric properties of mixed epoxy networks were characterized with molecular dy-
+namics simulation. Atomistically detailed models of epoxy networks of diglycidyl ether of bisphenol
+(DGEBA) cured with stoichiometric binary mixtures of a ﬂexible cross-linker poly(oxypropylene) diamine
+(POP) and a stiff cross-linker 4,4
+0-methylenebis(cyclohexylamine) (MCA), having molecular weights of
+1987 and 210 g/mol respectively, were prepared. Epoxy networks formed by ﬁve different compositions
+of the cross-linkers ranging from pure POP to pure MCA were constructed, and a network topology
+analysis was carried out to verify that each network chain was connected to all other chains by a path of
+bonded molecules. The glass transition temperature ( Tg), coefﬁcient of volume thermal expansion (CVTE),
+heat capacity and thermal conductivity of these network structures were determined as a function of the
+network composition. The simulated values of these properties are compared with predictions from
+theories, empirical correlations and experiments from the literature. In general, it is observed that an
+increase in the mass fraction of MCA leads to an increase in the T
+g and a decrease in the CVTE;
+furthermore, the breadth of the transition as exhibited by the change in the speci ﬁc volume, CVTE, and
+heat capacity increases with an increase in the MCA content. The differences in the ﬂexibility of the
+network components were analyzed using a number of quantitative measures. Using these results, a
+molecular mechanism is proposed for the observation of the network composition dependence of the
+breadth of the glass transition in these systems.
+© 2015 Elsevier Ltd. All rights reserved.
+
+4. Conclusions
+We have built detailed atomistic models of cross-linked net-
+works formed by the epoxy monomer DGEBA and a mixture of two
+cross-linkers, a ﬂexible POP and a stiff MCA. Mixed networks of ﬁve
+compositions were prepared by varying the relative amounts of
+POP and MCA. An analysis of the network topology was performed
+to ensure that no local clusters exist, i.e., that all network junctions
+in the system were connected by a path spanning bonded mole-
+cules. The model structures were analyzed to determine a number
+of volumetric and thermal properties as a function of the network
+composition: volume-temperature behavior across the glass tran-
+sition, the glass transition temperature, the coef ﬁcient of volume
+thermal expansion, the heat capacity and the thermal conductivity.
+These simulated values were determined solely by the network
+topology and the intermolecular interactions in these systems. The
+values of Tg determined from simulations were compared with
+those predicted by a mixing rule, theories from the literature, and
+experiments.
+
+Our results, especially for the volumetric thermal expansion and
+heat capacity, show a general trend that as the system temperature
+is lowered, the transition from the rubbery to the glassy values is
+sharper for systems with a higher fraction of the ﬂexible cross-
+linker POP, while the transition is weaker and broader for the
+systems with the higher fraction of the stiff cross-linker MCA. The
+origin of this behavior was traced to differences in the ﬂexibility of
+the cross-linker molecules. Speci ﬁcally, it was determined through
+a number of quantitative measures that the POP molecule exhibited
+a signi ﬁcant size change with temperature, whereas DGEBA
+showed a smaller size change and the MCA molecule did not exhibit
+any size change with temperature. As a result, the networks con-
+sisting of only MCA cross-linkers must rely solely on the DGEBA
+molecules to accommodate the large volume change experienced
+at temperatures above the glass transition, thus resulting in a
+broader transition. Our results show that the ﬂexibility of the cross-
+linker has a signi ﬁcant effect on the thermal and volumetric
+properties of the cross-linked network, especially on the breadth of
+the glass transition. It is expected that this molecular characteristic
+will also cause a signi ﬁcant impact on the mechanical properties of
+these network systems; this study will be the topic of a forth-
+coming publication.

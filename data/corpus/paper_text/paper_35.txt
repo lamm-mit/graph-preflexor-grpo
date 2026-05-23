@@ -1,0 +1,40 @@
+ABSTRACT: Polymer-grafted nanoparticles (PGNs) in matrix-
+free nanocomposites offer unique opportunities for highly loaded
+nanocomposites and superior mechanical performance compared
+to neat polymers. However, increasing Young’s modulus with high
+nanoparticle volume fractions generally reduces toughness. This
+study uses coarse-grained molecular dynamics simulations to
+examine how grafted chain length, grafting density, and nano-
+particle size affect the high strain rate mechanical performance of
+glassy PGN systems. Young’s modulus generally increases with the
+inorganic volume fraction but deviates across grafting densities due
+to steric hindrance near the PGN core, causing stiffening. Sparsely
+grafted PGNs demonstrate superior toughness due to the release of nanoconfinement in the polymer brush. This reduction in
+confinement enables high interdigitation, facilitating effective inter-PGN entanglements that drive strain hardening and enhance
+toughness. Finally, two primary fracture mechanisms, disentanglement and chain scission, are attributed to enabling sustained energy
+dissipation during large deformations, promoting PGN toughness.
+KEYWORDS: polymer-grafted nanoparticles, Young’s modulus, toughness, nanoconfinement, entanglements
+
+■
+CONCLUSION
+This study provides a detailed analysis of how key design
+parameters (grafted chain length, grafting density, and
+nanoparticle size) modulate the mechanical properties of
+matrix-free glassy polymer-grafted nanoparticle (PGN) sys-
+tems. High nanoparticle volume fractions generally enhance
+Young’s modulus but reduce toughness. This trend deviates
+across grafting densities due to steric hindrance near the
+nanoparticle core, which induces chain stretching and limits
+segmental mobility. Topological analysis reveals that reducing
+grafting density alleviates nanoconfinement, promoting PGN
+interdigitation and toughness, while increasing nanoparticle
+volume fraction which can enhance modulus. Finally,
+entanglement evolution during deformation reveals that the
+primary mechanisms underlying PGN toughness are disen-
+tanglement and chain scission. These processes enable energy
+absorption through frictional dissipation and load redistrib-
+ution, promoting stress delocalization and enhancing material
+toughness. These findings reveal the key factors that govern the
+balance between stiffness and toughness in PGN design,
+providing valuable guidance for the development of high-
+performance nanocomposites.

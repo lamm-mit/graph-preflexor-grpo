@@ -1,0 +1,13 @@
+[
+  {
+    "file_name": "predicting-the-effect-of-hardener-composition-on-the-mechanical-and-fracture-properties-of-epoxy-resins-using-molecular.pdf",
+    "file_stem": "predicting-the-effect-of-hardener-composition-on-the-mechanical-and-fracture-properties-of-epoxy-resins-using-molecular",
+    "source_pdf": "/home/palsubhadeep/Github/Reasoning_comparison/raw_paper/predicting-the-effect-of-hardener-composition-on-the-mechanical-and-fracture-properties-of-epoxy-resins-using-molecular.pdf",
+    "title": "Interestingly, the Ashby plots reveal that epoxies with intermediate-length Jeffamine chains (D800 and D2000) outperform other systems, as the toughness enhancement from flexible Jeffamine chains and the stiffness due to",
+    "doi": "10.1021/acs.macromol.2c02577",
+    "extracted_chars": 46965,
+    "summary_chars": 20891,
+    "model": "gpt-5-mini",
+    "max_pages": null
+  }
+]

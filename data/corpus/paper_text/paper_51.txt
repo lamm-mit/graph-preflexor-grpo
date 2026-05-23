@@ -1,0 +1,19 @@
+ABSTRACT: Understanding the interactions between polymer-grafted nano-
+particles is imperative to predict the macroscale mechanical properties of the
+nanocomposites they form. Molecular dynamics simulations capture the interfacial
+eﬀects of grafting on structure and mobility, but directly linking these features to
+macroscale constitutive relations for nanocomposites remains challenging. As a step
+toward addressing this challenge, we develop a computational framework to predict
+the e ﬀective pairwise interparticle interactions between polymer-grafted nano-
+particles with di ﬀerent design parameters, that is, polymer chain length, grafting
+density, and polymer chemistry. Using coarse-grained molecular dynamics
+simulations, we evaluate the potential of mean force between two nanoparticles
+by varying their radial distance under uniaxial deformations, from which an e ﬀective
+interaction can be derived. We ﬁnd that the repulsive part of the interaction can be
+expressed as an exponential repulsion term, whereas the attractive part is best
+captured using a sigmoidal form. The empirical constants of these equations depend
+linearly on the chain length and quadratically on the grafting density. To ensure that the ﬁnite rate of deformation does not a ﬀect our
+conclusions, we also take into account the strain rate dependence of the e ﬀective interaction, using a Cowper −Symonds model to
+extrapolate the zero-rate limit of our results. With the development of this interatomic potential between the nanoparticles, we
+propose a mesoscopic model for nanoparticle assemblies that circumvents the need to explicitly simulate polymer chains,
+signiﬁcantly improving the computational e ﬃ ciency by extending the spatiotemporal scales by 6 −7 orders of magnitude.

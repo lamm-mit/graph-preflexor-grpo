@@ -1,0 +1,40 @@
+a b s t r a c t
+Recent microscale ballistic experiments have revealed that multilayer graphene membranes exhibit
+exceptionally high ballistic limit velocity and specific penetration energy. A key feature contributing to
+the exceptional performance of these systems is the cone wave that develops at impact, which propagates
+radially at a very high speed for ultra-light and stiff graphene membranes, distributing the kinetic energy
+of the projectile away from the impact zone. Current theories on ballistic impact consider infinitely
+wide membranes, and atomistic simulations involve very small projectiles and specimen dimensions,
+and thus cannot ascertain whether microscale ballistics observations are scalable and size-independent.
+Here, we discover a particular size effect due to the reflection of cone wave that has not been previously
+observed or considered. We present molecular dynamics simulations showing that there exists a critical
+membrane size below which the cone wave reflections from the boundaries induce perforation; a phe-
+omenon that is particularly relevant for microballistic testing of graphene membranes. We present an
+analytical relationship, verified by simulation data, which predicts the critical membrane size simply as a
+function of the projectile size, membrane thickness and the ratio of the projectile and membrane densities.
+Our findings provide timely guidance for future microscale experiments and atomistic simulations for
+accurate characterization of the impact performance of 2D nanomaterials.
+
+4. Conclusions
+The cone wave developed in the wake of impact upon mem-
+brane materials dissipates the kinetic energy of the projectile by
+propagating away from the impact zone on one hand, but on the
+other hand, when it has enough time to return from the fixed
+boundary, it reduces the projectile proof capability of the mem-
+brane. To the best of our knowledge, for the first time, we observe
+and study the cone wave reflection induced size effect of graphene
+membrane under ballistic impact through simulations and theo-
+retical models. The proposed theoretical analysis fills the gap for
+finite membrane behavior during projectile impact process. The
+critical relationship between the membrane size and the projectile
+size is found to depend only upon the density ratio of the projec-
+tile and the membrane and the membrane thickness. The study
+reveals that in the microballistic experiments, when the sample is
+ultra-thin and the lateral sample span is small, the reflected wave
+would play its own effect on the failure of samples, and that its
+effect would be maximum for circular free-standing membrane
+geometries. Future microballistic experiments could shed light
+on the behavior of different thin membrane materials including
+polycrystalline systems with grain boundaries. The critical size
+relationship obtained here provides guidance for future ballistic
+barrier geometric designs.

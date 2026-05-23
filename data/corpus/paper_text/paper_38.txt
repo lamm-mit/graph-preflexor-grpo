@@ -1,0 +1,57 @@
+ABSTRACT: Improving the toughness of brittle epoxy while
+keeping its high strength-to-weight ratio is challenging, as these
+two properties work against each other. Fracture processes are
+difficult to ascertain with experiments, as they occur at nanoscopic
+lengths and time scales and require higher efficiency than what can
+be attained with atomistic simulations. To overcome this challenge,
+we utilize a recently developed chemistry specific coarse-grained
+model to examine two different hardeners, diamine 4,4′-methylene-
+bis(cyclohexylamine) (PACM) and propylene oxide diamine
+(Jeffamine), to cure bisphenol A diglycidyl ether (DGEBA) at
+varying stoichiometries and understand how hardener composition
+influences the elasticity, yield strength, and fracture toughness of
+epoxy resins. The results indicate that PACM mainly contributes to
+the modulus and that long Jeffamine chains increase fracture
+toughness by making the epoxy ductile, whereas short Jeffamine chains significantly improve the yield strength. Longer Jeffamines
+also lead to larger voids and the formation of fibrils that carry a significant amount of stress and contribute to toughness.
+Interestingly, the Ashby plots reveal that epoxies with intermediate-length Jeffamine chains (D800 and D2000) outperform other
+systems, as the toughness enhancement from flexible Jeffamine chains and the stiffness due to PACM help to overcome the
+strength−toughness trade-off. Our modeling framework and findings establish a path toward resin design from predictive multiscale
+models with no empirical input and reveal new insights into the molecular failure mechanisms of epoxy resins.
+
+■
+CONCLUSION
+In this paper, we successfully implemented the chemistry
+specific CG-MD based framework and discussed the effect of
+using a mixed hardener on the various mechanical and
+structural properties of epoxy resins. The fracture energy is
+predicted from molecular simulations employing continuum
+scale theory. Moreover, we are able to find an optimal
+Jeffamine chain, D800, which has not been studied before or
+used commercially and which performs better than others.
+Our findings illustrate the competing effect of two hardeners,
+PACM and Jeffamine. The model predicts higher elastic
+modulus and yield strength for epoxies with higher PACM
+percentages. On the other hand, Jeffamine contributes to
+extensibility, especially longer Jeffamine chains. This leads to
+larger failure strain and thus higher fracture energy. Short
+Jeffamine chains promote higher yield strength arising from the
+uniformity of the networks. We dig deeper to understand the
+failure mechanisms from the molecular viewpoint. Bond
+scission and void formations were prominent in every epoxy
+composition. We find that the majority of the scissions
+happened during strain hardening in the system. Epoxies with
+longer Jeffamine chain show an increase in void size and
+number of voids at post-yield. We also discover that the change
+in mechanical properties depends on material properties as
+well as the network architecture of the cross-links. High
+fracture toughness is observed for longer Jeffamine chain
+epoxies. The computed K
+Ic
+value exhibited good agreement
+with recent experimental results, thus demonstrating the
+predictive power of the framework. We presented a
+comparison between strength and toughness using Ashby plots
+which reveals that the epoxies with D800 and D2000 perform
+better than others. This can be further extended to study
+disulfide based epoxy resins and hardeners.

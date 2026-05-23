@@ -1,0 +1,24 @@
+ABSTRACT: Matrix-free polymer-grafted nanocrystals,
+called assembled hairy nanoparticles (aHNPs), can
+signiﬁcantly enhance the thermomechanical performance
+of nanocomposites by overcoming nanoparticle dispersion
+challenges and achieving stronger interfacial interactions
+through grafted polymer chains. However, e ﬀective
+strategies to improve both the mechanical sti ﬀness and
+toughness of aHNPs are lacking given the general
+conﬂicting nature of these two properties and the large
+number of molecular parameters involved in the design of
+aHNPs. Here, we propose a computational framework that combines multiresponse Gaussian process metamodeling and
+coarse-grained molecular dynamics simulations to establish design strategies for achieving optimal mechanical properties
+of aHNPs within a parametric space. Taking poly(methyl methacrylate) grafted to high-aspect-ratio cellulose nanocrystals
+as a model nanocomposite, our multiobjective design optimization framework reveals that the polymer chain length and
+grafting density are the main in ﬂuencing factors governing the mechanical properties of aHNPs, in comparison to the
+nanoparticle size and the polymer −nanoparticle interfacial interactions. In particular, the Pareto frontier, that marks the
+upper bound of mechanical properties within the design parameter space, can be achieved when the weight percentage of
+nanoparticles is above around 60% and the grafted chains exceed the critical length scale governing transition into the
+semidilute brush regime. We show that theoretical scaling relationships derived from the Daoud −Cotton model capture
+the dependence of the critical length scale on graft density and nanoparticle size. Our established modeling framework
+provides valuable insights into the mechanical behavior of these hairy nanoparticle assemblies at the molecular level and
+allows us to establish guidelines for nanocomposite design.
+KEYWORDS: assembled hairy nanoparticles, coarse-grained molecular dynamics, multiresponse Gaussian process modeling,
+mechanical properties, Pareto frontier

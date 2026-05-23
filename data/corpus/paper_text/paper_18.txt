@@ -1,0 +1,29 @@
+Brillouin light spectroscopy is used to measure the elastic moduli of spherical polymer-grafted
+nanoparticle (GNP) melts as a function of chain length at fixed grafting density ( 0.47 chains=nm2) and
+nanoparticle radius (8 nm). While the moduli follow a rule of mixtures (Wood ’s law) for long chains, they
+display enhanced elasticity and anomalous dissipation for graft chains <100 kDa. GNP melts with long
+polymers at high σ have a dry zone near the GNP core, surrounded by a region where the grafts can
+interpenetrate with chain fragments from adjacent GNPs. We propose that the departures from Wood ’s law
+for short chains are due to the effectively larger silica volume fraction in the region where sound propagates
+—this is caused by the short, interpenetrated chain fragments being pushed out of the way. We thus
+conclude that transport mechanisms (of gas, ions, sound, thermal phonons) in GNP melts are radically
+different if interpenetrated chain segments can be “pushed out of the way” or not. This provides a facile new
+means for manipulating the properties of these materials.
+
+The picture that emerges is radically different from the
+current understanding of such nanocomposites. A simple
+application of Wood ’s law to a three-layer model suggests
+that the dry zone has a higher modulus than the neat
+polymer. Rather, we believe that sound propagation appa-
+rently predominantly occurs through the NP cores and the
+dry layer (in series), with a M
+dry=Mp slightly less than 1.
+The most important conclusion here is that the departures
+from Wood’s law predictions at low graft chain length are
+due to the effectively larger silica volume fraction in the
+region where sound propagates. This is caused by the
+interpenetrated chains filling interstitial spaces and becom-
+ing less relevant to the BLS experiments. This provides a
+new framework to manipulate the engineering properties of
+this class of materials and represents the novel contribution
+of this work.

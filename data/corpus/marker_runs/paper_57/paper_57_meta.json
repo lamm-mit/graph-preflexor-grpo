@@ -1,0 +1,1043 @@
+{
+  "table_of_contents": [
+    {
+      "title": "Large Deformation Mechanisms, Plasticity, and Failure of an Individual Collagen Fibril With Different Mineral Content",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          42.0,
+          91.5
+        ],
+        [
+          481.5,
+          92.8125
+        ],
+        [
+          481.5,
+          149.25
+        ],
+        [
+          42.0,
+          149.25
+        ]
+      ]
+    },
+    {
+      "title": "ABSTRACT",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          48.75,
+          246.7265625
+        ],
+        [
+          98.25,
+          246.7265625
+        ],
+        [
+          98.25,
+          255.75
+        ],
+        [
+          48.75,
+          255.75
+        ]
+      ]
+    },
+    {
+      "title": "Introduction",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          42.75,
+          462.0
+        ],
+        [
+          105.8642578125,
+          462.0
+        ],
+        [
+          105.8642578125,
+          471.41015625
+        ],
+        [
+          42.75,
+          471.41015625
+        ]
+      ]
+    },
+    {
+      "title": "Materials and Methods",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          309.181640625,
+          255.75
+        ],
+        [
+          426.75,
+          255.75
+        ],
+        [
+          426.75,
+          265.67578125
+        ],
+        [
+          309.181640625,
+          265.67578125
+        ]
+      ]
+    },
+    {
+      "title": "Fibril model geometry",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          309.181640625,
+          276.75
+        ],
+        [
+          407.25,
+          276.75
+        ],
+        [
+          407.25,
+          286.171875
+        ],
+        [
+          309.181640625,
+          286.171875
+        ]
+      ]
+    },
+    {
+      "title": "Coarse-grain model parameterization",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          42.75,
+          329.87109375
+        ],
+        [
+          203.25,
+          329.87109375
+        ],
+        [
+          203.25,
+          339.0
+        ],
+        [
+          42.75,
+          339.0
+        ]
+      ]
+    },
+    {
+      "title": "Modeling procedure",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          46.5,
+          300.09375
+        ],
+        [
+          135.0,
+          300.09375
+        ],
+        [
+          135.0,
+          309.75
+        ],
+        [
+          46.5,
+          309.75
+        ]
+      ]
+    },
+    {
+      "title": "Visualization and data analysis",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          308.6015625,
+          301.5
+        ],
+        [
+          441.75,
+          301.5
+        ],
+        [
+          441.75,
+          310.921875
+        ],
+        [
+          308.6015625,
+          310.921875
+        ]
+      ]
+    },
+    {
+      "title": "Results and Discussion",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          309.4716796875,
+          469.08984375
+        ],
+        [
+          424.5,
+          469.08984375
+        ],
+        [
+          424.5,
+          478.5
+        ],
+        [
+          309.4716796875,
+          478.5
+        ]
+      ]
+    },
+    {
+      "title": "Mechanisms of elastic and inelastic deformation of mineralized collagen fibrils",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          42.75,
+          130.5
+        ],
+        [
+          263.25,
+          130.5
+        ],
+        [
+          263.25,
+          151.98046875
+        ],
+        [
+          42.75,
+          151.98046875
+        ]
+      ]
+    },
+    {
+      "title": "Mineral-induced fibril contraction",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          42.6357421875,
+          333.0
+        ],
+        [
+          167.25,
+          333.0
+        ],
+        [
+          167.25,
+          341.0859375
+        ],
+        [
+          42.6357421875,
+          341.0859375
+        ]
+      ]
+    },
+    {
+      "title": "Improvement of collagen fibril's elastic behavior by mineralization",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          303.380859375,
+          311.25
+        ],
+        [
+          546.75,
+          311.25
+        ],
+        [
+          546.75,
+          319.5
+        ],
+        [
+          303.380859375,
+          319.5
+        ]
+      ]
+    },
+    {
+      "title": "Load transfer from mineral to collagen",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          308.8916015625,
+          475.27734375
+        ],
+        [
+          455.25,
+          475.27734375
+        ],
+        [
+          455.25,
+          483.78515625
+        ],
+        [
+          308.8916015625,
+          483.78515625
+        ]
+      ]
+    },
+    {
+      "title": "Molecular slippage and mineral-collagen sliding",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          308.021484375,
+          639.24609375
+        ],
+        [
+          489.0,
+          639.24609375
+        ],
+        [
+          489.0,
+          648.75
+        ],
+        [
+          308.021484375,
+          648.75
+        ]
+      ]
+    },
+    {
+      "title": "Mineral crystal dissociation as an energy dissipation mechanism",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          305.25,
+          298.93359375
+        ],
+        [
+          544.5,
+          298.93359375
+        ],
+        [
+          544.5,
+          308.25
+        ],
+        [
+          305.25,
+          308.25
+        ]
+      ]
+    },
+    {
+      "title": "Collagen fibril stiffening enhanced by large mineral densities",
+      "heading_level": null,
+      "page_id": 6,
+      "polygon": [
+        [
+          303.380859375,
+          496.93359375
+        ],
+        [
+          531.0,
+          496.93359375
+        ],
+        [
+          531.0,
+          506.25
+        ],
+        [
+          303.380859375,
+          506.25
+        ]
+      ]
+    },
+    {
+      "title": "Crosslinks and mineralization",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          42.75,
+          639.0
+        ],
+        [
+          168.75,
+          639.0
+        ],
+        [
+          168.75,
+          648.0
+        ],
+        [
+          42.75,
+          648.0
+        ]
+      ]
+    },
+    {
+      "title": "Strengthening, toughening, and damage confinement",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          303.380859375,
+          573.75
+        ],
+        [
+          540.0,
+          573.75
+        ],
+        [
+          540.0,
+          582.78515625
+        ],
+        [
+          303.380859375,
+          582.78515625
+        ]
+      ]
+    },
+    {
+      "title": "Conclusion and Perspectives",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          46.40625,
+          580.46484375
+        ],
+        [
+          190.5,
+          580.46484375
+        ],
+        [
+          190.5,
+          589.5
+        ],
+        [
+          46.40625,
+          589.5
+        ]
+      ]
+    },
+    {
+      "title": "Disclosures",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          309.75,
+          391.74609375
+        ],
+        [
+          368.25,
+          391.74609375
+        ],
+        [
+          368.25,
+          402.0
+        ],
+        [
+          309.75,
+          402.0
+        ]
+      ]
+    },
+    {
+      "title": "Acknowledgments",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          309.75,
+          447.0
+        ],
+        [
+          404.25,
+          447.0
+        ],
+        [
+          404.25,
+          456.75
+        ],
+        [
+          309.75,
+          456.75
+        ]
+      ]
+    },
+    {
+      "title": "References",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          309.75,
+          599.02734375
+        ],
+        [
+          366.0,
+          599.02734375
+        ],
+        [
+          366.0,
+          609.0
+        ],
+        [
+          309.75,
+          609.0
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          88
+        ],
+        [
+          "Span",
+          31
+        ],
+        [
+          "Text",
+          11
+        ],
+        [
+          "Footnote",
+          4
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Picture",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          80
+        ],
+        [
+          "Span",
+          13
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          123
+        ],
+        [
+          "Span",
+          91
+        ],
+        [
+          "Text",
+          17
+        ],
+        [
+          "Equation",
+          7
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          85
+        ],
+        [
+          "TableCell",
+          40
+        ],
+        [
+          "Span",
+          38
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "Footnote",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          98
+        ],
+        [
+          "Span",
+          36
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          96
+        ],
+        [
+          "Span",
+          42
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          147
+        ],
+        [
+          "Span",
+          71
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          157
+        ],
+        [
+          "Span",
+          20
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 8,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          119
+        ],
+        [
+          "Span",
+          71
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 9,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          148
+        ],
+        [
+          "Span",
+          39
+        ],
+        [
+          "Text",
+          11
+        ],
+        [
+          "ListItem",
+          10
+        ],
+        [
+          "SectionHeader",
+          4
+        ],
+        [
+          "PageFooter",
+          3
+        ],
+        [
+          "ListGroup",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 10,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          409
+        ],
+        [
+          "Line",
+          137
+        ],
+        [
+          "ListItem",
+          46
+        ],
+        [
+          "ListGroup",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Text",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data\\paper_57"
+}

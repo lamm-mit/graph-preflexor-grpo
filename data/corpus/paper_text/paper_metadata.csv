@@ -1,0 +1,52 @@
+filename,title,doi,text
+many-body-effects-in-nanocrystal-superlattices-departure-from-sphere-packing-explains-stability-of-binary-phases.pdf,"Many-Body E ﬀects in Nanocrystal Superlattices: Departure from
+Sphere Packing Explains Stability of Binary Phases",10.1021/jacs.5b00839,"ABSTRACT: This work analyzes the role of hydrocarbon ligands in the self-assembly
+of nanocrystal (NC) superlattices. Typical NCs, composed of an inorganic core of
+radius R and a layer of capping ligands with length L, can be described as soft spheres
+with softness parameter L/R. Using particle tracking measurements of transmission
+electron microscopy images, we ﬁnd that close-packed NCs, like their hard-sphere
+counterparts, ﬁll space at approximately 74% density independent of softness. We
+uncover deformability of the ligand capping layer that leads to variable e ﬀective NC
+size in response to the coordination environment. This e ﬀect plays an important role
+in the packing of particles in binary nanocrystal superlattices (BNSLs). Measurements
+on BNSLs composed of NCs of varying softness in several coordination geometries
+indicate that NCs deform to produce dense BNSLs that would otherwise be low-
+density arrangements if the particles remained spherical. Consequently, rationalizing
+the mixing of two NC species during BNSL self-assembly need not employ complex
+energetic interactions. We summarize our analysis in a set of packing rules. These ﬁndings contribute to a general understanding
+of entropic e ﬀects during crystallization of deformable objects (e.g., nanoparticles, micelles, globular proteins) that can adapt
+their shape to the local coordination environment.
+
+■ CONCLUSIONS
+This work has characterized the contribution of surface ligands
+to the self-assembly of NC superlattices. We have laid the
+conceptual foundation for describing dense arrangements of
+deformable spheres and used it to rationalize the complex zoo
+of BNSL phases as entropy-driven crystallization of soft objects.
+We anticipate that these ﬁndings should apply to other
+deformable objects (e.g., micelles, vesicles, and globular
+proteins)."
+influence-of-softness-on-the-stability-of-binary-colloidal-crystals.pdf,"Inﬂuence of Softness on the Stability of Binary
+Colloidal Crystals",10.1021/acsnano.9b04274,"ABSTRACT: Mixtures of two types of nanoparticles can self-
+assemble into a wide variety of binary colloidal crystals (also called
+binary nanoparticle superlattices), which are interesting for their
+structural diversity and potential applications. Although so-called
+packing modelswhich usually treat the particles as “hard” with only
+excluded volume interactions seem to explain many reported dense
+crystalline phases, these models often fail to predict the right
+structure. Here, we examine the role of soft repulsive interparticle
+interactions on binary colloidal crystals comprising two sizes of
+spherical particles; such “softness” can arise due to ligand shells or
+screened electrostatics. We determine the ground state phase diagram
+of binary systems of particles interacting with an additive inverse
+power law potential using a basin hopping algorithm to calculate the
+enthalpy of an extremely large pool of candidate structures. We ﬁnd
+that a surprisingly small amount of softness can destabilize dense packings in favor of less densely packed structures,
+which provides further evidence that considerations beyond packing are necessary for describing many of the observed
+phases of binary colloidal crystals. Importantly, we ﬁnd that several of the phases stabilized by softness, which are
+characterized by relatively few interparticle contacts and a tendency for local icosahedral order, are more likely to be
+observed experimentally than those predicted by packing models. We also report a previously unknown dense AB
+4 phase
+and conduct free energy calculations to examine how the stability of several crystals will vary with temperature. Our
+results further our understanding of why particular binary colloidal crystals form and will be useful as a reference for
+experimentalists working with softly repulsive colloids."

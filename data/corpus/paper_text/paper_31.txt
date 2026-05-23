@@ -1,0 +1,33 @@
+ABSTRACT: Polymer-grafted nanoparticle (GNP) membranes show increased gas permeability relative to pure polymer
+analogs, with this e ﬀect evidently tunable through systematic variations in the grafted polymer chain length and grafting density.
+Additionally, these materials show less deleterious aging e ﬀects relative to the pure polymer. To better understand these issues,
+we explore the solid-state mechanical properties of GNP layers using quartz crystal microbalance (QCM) spectroscopy, which
+operates under conditions ( ≈5 MHz) that we believe are relevant to gas transport. The GNP ’s high-frequency storage moduli
+exhibit a characteristic increase with increasing nanoparticle (NP) core loading, consistent with past work on the reinforcement
+of polymers physically well mixed with bare NPs. However, these GNPs show a substantial, nonmonotonic decrease in loss as a
+function of chain length (at ﬁxed grafting density), with the loss minimum corresponding to the chain length with the maximum
+gas permeability. We speculate that this feature corresponds to a dynamical transition, where the GNP membranes go from a
+jammed solid (colloid-like) to liquid-like (polymer-controlled) behavior with increasing chain length.
+
+In summary, we investigated the high-frequency shear
+properties of pure GNPs and their relation to tunable gas
+transport enhancement. While the measured shear moduli of
+the GNPs increase with increasing NP loading, as may be
+expected, the loss moduli are suppressed relative to that of
+the pure polymer. Furthermore, this suppression is found to
+be nonmonotonic as a function of chain molecular weight and
+to be directly correlated with the observed changes in gas
+transport, potentially implying a common origin for these
+phenomena. We hypothesize that both phenomena are related
+to the penetrability of the grafted polymer corona; the chains
+are noninterpenetrating for su ﬃ ciently short chains and high
+grafting densities, resulting in increased gas di ﬀusion and an
+overall sti ﬀer brush in the GNPs. This e ﬀect is reduced for
+longer chain lengths and lower grafting densities, as the chains
+are able to interpenetrate, and thus, the GNPs exhibit gas
+transport and mechanical properties more akin to pure
+polymer with dispersed NPs. Future work will be aimed at
+developing a means to universally relate the properties of
+GNPs with varying grafting parameters, including the chain M
+n
+and σ.

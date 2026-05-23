@@ -1,0 +1,50 @@
+ABSTRACT: Matrix-free assemblies of polymer-grafted nanoparticles (PGNs)
+enable mechanically robust materials for a variety of structural, electronic, and
+optical applications. Recent quasi-static mechanical studies have identi ﬁed the
+key parameters that enhance canopy entanglement and promote plasticity of the
+PGNs below T
+g. Here we experimentally explore the high-strain-rate shock
+impact behavior of polystyrene grafted NPs and compare their energy absorption
+capabilities to that of homopolystyrene for ﬁlm thicknesses ranging from 75 to
+550 nm and for impact velocities from 350 to 800 m/s. Modeling reveals that the
+initial shock compression results in a rapid temperature increase at the impact
+site. The uniformity of this heating is consistent with observations of greater
+kinetic energy absorption per mass ( E
+p*) of thinner ﬁlms due to extensive visco-
+plastic deformation of molten ﬁlm around the penetration site. Adiabatic heating is insu ﬃ cient to raise the temperature at the
+exit surface of the thickest ﬁlms resulting in increased strain localization at the impact periphery with less melt elongation. The
+extent and distribution of entanglements also in ﬂuence Ep*. Structurally, each NP acts as a giant cross-link node, coupling
+surrounding nodes via the number of canopy chains per NP and the nature and number of entanglements between canopies
+anchored to di ﬀerent NPs. Load sharing via this dual network, along with geometrical factors such as ﬁlm thickness, lead to
+extreme Ep* arising from the sequence of instantaneous adiabatic shock heating followed by visco-plastic drawing of the ﬁlm by
+the projectile. These observations elucidate the critical factors necessary to create robust polymer-nanocomposite
+multifunctional ﬁlms.
+
+CONCLUSIONS
+The variation of the entanglement density throughout the ﬁlm,
+the number of entanglements per canopy, and the total length
+of the tethered chains all positively in ﬂuence the energy
+absorbing abilities. Herein, the nodal nanoparticle cross-links
+in SiO
+2−PS231 apparently result in more polymer draw
+around the periphery of the impact site due to the larger
+number of e ﬀective entanglements between near-neighbor
+PGNs than the nodal Fe
+3O4 network in Fe 3O4−PS250
+comprised of longer chains (250 kg/mol vs. 231 kg/mol) but
+with smaller cores with many fewer chains grafted per node.
+However, there is likely a diminishing return for increasing
+core and canopy size to increase melt strength at these strain
+rates due to the eventual onset of bond breakage either by
+scission of entangled chains or by bond fracture at the
+polymer−NP interface. Thus, the interplay of nanoparticle
+shape, size, volume fraction, polymer graft density, and
+polymer entanglement length on local segment mobility, as
+well as their in ﬂuence on the number and spatial distribution
+of entanglements and the nodal nanoparticle network combine
+together to determine the energy dissipation, melt viscosity
+and tenacity. Overall, the ability to blend nanoparticle
+functionality with polymer responsivity under these extreme
+shock events suggests substantial opportunities for multifunc-
+tional protection systems to enhance a wide range of
+technologies.

@@ -1,0 +1,49 @@
+ABSTRACT: Recent nanoscale ballistic tests have shown the
+applicability of nanomaterials for ballistic protection but have raised
+questions regarding the nanoscale structure −property relationships
+that contribute to the ballistic response. Herein, we report on
+multimillion-atom reactive molecular dynamics simulations of the
+supersonic impact, penetration, and failure of polyethylene (PE) and
+polystyrene (PS) ultrathin ﬁlms. The simulated speci ﬁc penetration
+energy ( E
+p*) versus impact velocity predicts to within 15% the
+experimentally determined Ep* for PS. For impact velocities less than
+1k ms −1, a crazing/petalling failure mode is observed due to chain
+disentanglement, transitioning to fragmentation coupled with large
+amounts of adiabatic heating at velocities greater than 1 km s
+−1.
+Interestingly, the high entanglement density of PE provides enhanced
+penetration resistance at low velocities, whereas increased adiabatic heating in PS promotes greater penetration resistance at elevated
+velocities. By understanding nanoscale mechanisms of energy absorption, nanomaterials can be designed to provide superior
+penetration resistance.
+KEYWORDS: Molecular Dynamics, Energy Absorption, LIPIT, Ballistic Impact, Adiabatic Heating, Thin Film
+
+To conclude, ballistic impacts of PE and PS thin ﬁlms are
+studied via large-scale MD simulations to investigate the
+dissipated energy, deformation and fracture response, and
+temperature and pressure evolutions during impact. Several
+factors were validated against LIPIT experiments, including
+E
+p*, entanglement in ﬂuence, and fracture behavior. Entangle-
+ment density, MFC, and chain mobility were shown to be
+inﬂuential factors on the ballistic behavior but require further
+investigation to establish the complex relationships. Adiabatic
+heating induces large temperature rises during impact,
+especially in PS, causing PS to transition into the rubbery
+phase, enhancing chain mobility. PE exhibited no bond
+scission during impact and deformed via mechanisms of
+chain pullout (via ρ
+e and MFC). On the other hand, PS
+exhibited increasing bond scission with increasing impact
+velocity (high MFC), possibly contributing to greater E
+p*
+values at elevated impact speeds. At hypervelocity, a regime
+not yet achievable via LIPIT, large magnitudes of E
+p* were
+observed for both PE and PS rivalling that of MLG. In
+combination with experiments, these simulations provide
+insights into the underlying molecular failure mechanisms
+associated with nanoscale ballistic impacts and provide a useful
+simulation tool for the design and development of impact
+resistance nanomaterials.
+■ ASSOCIATED CONTENT

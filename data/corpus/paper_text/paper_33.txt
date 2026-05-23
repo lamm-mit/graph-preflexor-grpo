@@ -1,0 +1,40 @@
+ABSTRACT: Polymer-inorganic nanocomposites based on poly-
+mer-grafted nanocrystals (PGNCs) are enabling technologically
+relevant applications owing to their unique physical, chemical, and
+mechanical properties. While diverse PGNC superstructures have
+been realized through evaporation-driven self-assembly, this
+approach presents multifaceted challenges in experimentally probing
+and controlling assembly kinetics. Here, we report a kinetically
+controlled assembly of binary superstructures from a homogeneous
+disordered PGNC mixture utilizing solvent vapor annealing (SVA).
+Using a NaZn
+13-type superstructure as a model system, we
+demonstrate that varying the solvent vapor pressure during SVA
+allows for exquisite control of the rate and extent of PGNC
+assembly, providing access to nearly complete kinetic pathways of
+binary PGNC crystallization. Characterization of kinetically arrested intermediates reveals that assembly follows a multistep
+crystallization pathway involving spinodal-like preordering of PGNCs prior to NaZn
+13 nucleation. Our work opens up new avenues
+for the synthesis of multicomponent PGNC superstructures exhibiting multifunctionalities and emergent properties through a
+thorough understanding of kinetic pathways.
+
+In conclusion, we show that, using SVA, the structure
+evolution of homogeneous disordered mixtures of PGNCs to
+ordered superstructures can be halted on-demand and analyzed
+in detail. We establish that controlling the solvent vapor
+pressure during SVA allows for exquisite control over the rate
+and extent of PGNC assembly. Analysis of kinetically arrested
+intermediates uncovers that the crystallization of NaZn
+13-type
+superstructures follows a multistep crystallization pathway
+involving spinodal-like preordering of small PGNCs prior to
+NaZn
+13 nucleation, and the development of NaZn 13-type order
+precedes superstructure densi ﬁcation. We envision that the
+SVA approach is applicable to fabricating other complex
+PGNC superstructures including quasicrystalline assemblies. 50
+Our work not only provides an e ﬀective means of forming
+multicomponent PGNC superstructures but also paves the way
+toward better understanding and ultimately controlling the
+kinetic pathways and superstructure selections for PGNC
+assemblies.

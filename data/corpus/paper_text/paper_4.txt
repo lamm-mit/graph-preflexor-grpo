@@ -1,0 +1,28 @@
+abstract
+Thermoset polymers are used for a wide range of application from large airframes to microelectronics
+and fundamental understanding of the development of their 3D network during cure and its relationship
+to thermo-mechanical properties is of fundamental and applied interest. Experimental characterization
+of network properties, such as the density of crosslinked chains, involves the use of approximate models
+with uncertain parameters leading, consequently, to uncertainties in resulting properties. We use mo-
+lecular dynamics to simulate the cure of two thermoset epoxy systems, characterize the evolution of its
+network topology and establish relationships to the stiffness, yield stress and glass transition temper-
+ature. Relating the predicted crosslink density with experimental measurements of rubber elasticity
+indicates that these polymers behave somewhere between an af ﬁne and phantom networks; the pro-
+portionality constant extracted between rubber modulus and crosslink density can be used for similar
+systems to experimentally extract network characteristics.
+
+8. Conclusions
+We used molecular dynamics-based simulations of the curing of
+thermoset polymers to characterize the evolution of their molec-
+ular structure. The algorithm developed enables us to quantify the
+molecular weight in crosslinked, dangling and free chains. Inter-
+estingly even at 85% conversion a non-negligible fraction of the
+polymer is not part of the network, indicating that the traditional
+relationship between crosslinked density and molecular weight
+cannot be used and our simulations provide more appropriate re-
+lationships. Further, combining simulation and experimental re-
+sults we establish relationships between crosslinked density and
+rubber modulus that indicate that these systems behave some-
+where between an af ﬁne and phantom networks. This relationship
+should be useful to experimentally extract network information for
+similar systems.

@@ -1,0 +1,2169 @@
+{
+  "table_of_contents": [
+    {
+      "title": "GRAPHAGENTS: KNOWLEDGE GRAPH\u2013GUIDED AGENTIC AI\nFOR CROSS-DOMAIN MATERIALS DESIGN",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          82.4765625,
+          97.7230224609375
+        ],
+        [
+          529.5234375,
+          97.7230224609375
+        ],
+        [
+          529.5234375,
+          134.8634033203125
+        ],
+        [
+          82.4765625,
+          134.8634033203125
+        ]
+      ]
+    },
+    {
+      "title": "Isabella A. Stewart",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          164.953125,
+          183.69140625
+        ],
+        [
+          254.50465393066406,
+          183.69140625
+        ],
+        [
+          254.50465393066406,
+          194.63409423828125
+        ],
+        [
+          164.953125,
+          194.63409423828125
+        ]
+      ]
+    },
+    {
+      "title": "Yu-Chuan Hsu",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          155.390625,
+          245.1796875
+        ],
+        [
+          227.3802947998047,
+          245.1796875
+        ],
+        [
+          227.3802947998047,
+          255.54010009765625
+        ],
+        [
+          155.390625,
+          255.54010009765625
+        ]
+      ]
+    },
+    {
+      "title": "Tarjei Paule Hage",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          384.29296875,
+          184.078125
+        ],
+        [
+          472.1629638671875,
+          184.078125
+        ],
+        [
+          472.1629638671875,
+          194.63409423828125
+        ],
+        [
+          384.29296875,
+          194.63409423828125
+        ]
+      ]
+    },
+    {
+      "title": "Markus J. Buehler",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          376.224609375,
+          245.5775146484375
+        ],
+        [
+          465.275390625,
+          245.5775146484375
+        ],
+        [
+          465.275390625,
+          255.54010009765625
+        ],
+        [
+          376.224609375,
+          255.54010009765625
+        ]
+      ]
+    },
+    {
+      "title": "ABSTRACT",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          275.818359375,
+          361.4041442871094
+        ],
+        [
+          334.7141418457031,
+          361.4041442871094
+        ],
+        [
+          334.7141418457031,
+          373.3593444824219
+        ],
+        [
+          275.818359375,
+          373.3593444824219
+        ]
+      ]
+    },
+    {
+      "title": "1 Introduction",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          71.71875,
+          642.086181640625
+        ],
+        [
+          154.8136749267578,
+          642.086181640625
+        ],
+        [
+          154.8136749267578,
+          654.0413818359375
+        ],
+        [
+          71.71875,
+          654.0413818359375
+        ]
+      ]
+    },
+    {
+      "title": "1.1 Model Framework",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          70.5,
+          73.4765625
+        ],
+        [
+          174.75,
+          73.4765625
+        ],
+        [
+          174.75,
+          82.5
+        ],
+        [
+          70.5,
+          82.5
+        ]
+      ]
+    },
+    {
+      "title": "1.2 Outline of the Paper",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          72.017578125,
+          256.5
+        ],
+        [
+          181.5,
+          256.5
+        ],
+        [
+          181.5,
+          266.0625
+        ],
+        [
+          72.017578125,
+          266.0625
+        ]
+      ]
+    },
+    {
+      "title": "Multi-Agent System Roadmap",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          77.994140625,
+          359.25
+        ],
+        [
+          208.5,
+          359.25
+        ],
+        [
+          208.5,
+          368.25
+        ],
+        [
+          77.994140625,
+          368.25
+        ]
+      ]
+    },
+    {
+      "title": "2 Results and Discussion",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          72.017578125,
+          654.71484375
+        ],
+        [
+          207.0,
+          654.71484375
+        ],
+        [
+          207.0,
+          664.5
+        ],
+        [
+          72.017578125,
+          664.5
+        ]
+      ]
+    },
+    {
+      "title": "2.1 Design of the Agentic System",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          71.71875,
+          679.46484375
+        ],
+        [
+          218.25,
+          679.46484375
+        ],
+        [
+          218.25,
+          689.25
+        ],
+        [
+          71.71875,
+          689.25
+        ]
+      ]
+    },
+    {
+      "title": "Agent Profiles",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          75.90234375,
+          74.25
+        ],
+        [
+          140.2402801513672,
+          74.25
+        ],
+        [
+          140.2402801513672,
+          83.91937255859375
+        ],
+        [
+          75.90234375,
+          83.91937255859375
+        ]
+      ]
+    },
+    {
+      "title": "User\u2013Planner Interaction",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          77.994140625,
+          114.85546875
+        ],
+        [
+          184.6112823486328,
+          114.85546875
+        ],
+        [
+          184.6112823486328,
+          124.31805419921875
+        ],
+        [
+          77.994140625,
+          124.31805419921875
+        ]
+      ]
+    },
+    {
+      "title": "Evaluator Response",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          77.09765625,
+          302.02734375
+        ],
+        [
+          164.4996337890625,
+          302.02734375
+        ],
+        [
+          164.4996337890625,
+          311.9441223144531
+        ],
+        [
+          77.09765625,
+          311.9441223144531
+        ]
+      ]
+    },
+    {
+      "title": "2.2 Hypothesis Generation with Heuristic Knowledge Graph Traversal Algorithms",
+      "heading_level": null,
+      "page_id": 5,
+      "polygon": [
+        [
+          70.5234375,
+          416.49609375
+        ],
+        [
+          429.468017578125,
+          416.49609375
+        ],
+        [
+          429.468017578125,
+          426.85009765625
+        ],
+        [
+          70.5234375,
+          426.85009765625
+        ]
+      ]
+    },
+    {
+      "title": "Creative GraphWeave Agent Using Shortest Simple Path Algorithm\nExtracted material keywords: ['tensile strength at 20-30 MPa', 'friction coefficient in range 0.1 to 0.3', 'thermal\nstability in range 250-400\u00b0C', 'dimensional stability at temperatures below 300\u00b0C', 'durability in biomedical tubing\napplications with exposure to sterilization processes and varying temperatures during medical procedures']\nMatched nodes: ['Tensile strength', 'friction coefficient', 'temperature stability', 'temperature stability', 'Biological\ndurability']\nPath between Tensile strength, friction coefficient found as ['Tensile strength', 'adhesion', 'friction coefficient']\nPath between Tensile strength, temperature stability found as ['Tensile strength', 'microstructure', 'temperature\nstability']\nPath between Tensile strength, temperature stability found as ['Tensile strength', 'microstructure', 'temperature\nstability']\nPath between Tensile strength, Biological durability found as ['Tensile strength', 'mechanical properties', 'High\ntemperature heat treatment', 'Biological durability']\nPath between friction coefficient, temperature stability found as ['friction coefficient', 'temperature stability']\nPath between friction coefficient, temperature stability found as ['friction coefficient', 'temperature stability']\nPath between friction coefficient, Biological durability found as ['friction coefficient', 'mechanical properties', 'High\ntemperature heat treatment', 'Biological durability']\nPath between temperature stability, temperature stability found as ['temperature stability']\nPath between temperature stability, Biological durability found as ['temperature stability', 'Perovskite solar cells\n(PSC)', 'Manufacturing process', 'High temperature heat treatment', 'Biological durability']\nPath between temperature stability, Biological durability found as ['temperature stability', 'Perovskite solar cells\n(PSC)', 'Manufacturing process', 'High temperature heat treatment', 'Biological durability']\nPath found ratio = 1.0\n\u2013-\nPlease consider these knowledge graph relationships:\nTensile strength measures mechanical properties. Tensile strength implies good adhesion. mechanical properties includes\nTensile strength. mechanical properties is evaluated by adhesion. mechanical properties includes friction coefficient.\nmechanical properties correlated to microstructure. High temperature heat treatment improves Biological durability.\nHigh temperature heat treatment reduces mechanical properties. temperature stability affects during Fade Test friction\ncoefficient. microstructure affects temperature stability. microstructure affects mechanical properties. microstructure\naffects friction coefficient. microstructure affects Tensile strength. adhesion affects mechanical properties. adhesion\naffects friction coefficient. Perovskite solar cells (PSC) lacksProperty temperature stability. Perovskite solar cells\n(PSC) requires Manufacturing process. friction coefficient changes to friction coefficient. friction coefficient has a\npositive relationship with adhesion. friction coefficient influenced by mechanical properties. Manufacturing process\ninvolves High temperature heat treatment.",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          71.71875,
+          75.796875
+        ],
+        [
+          535.5,
+          75.796875
+        ],
+        [
+          535.5,
+          372.796875
+        ],
+        [
+          71.71875,
+          372.796875
+        ]
+      ]
+    },
+    {
+      "title": "Generated Hypothesis as a Result of Shortest Simple Path Algorithm",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          77.6953125,
+          76.5703125
+        ],
+        [
+          371.8565673828125,
+          76.5703125
+        ],
+        [
+          371.8565673828125,
+          86.092041015625
+        ],
+        [
+          77.6953125,
+          86.092041015625
+        ]
+      ]
+    },
+    {
+      "title": "Hypothesis:",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          78.47599792480469,
+          96.29296875
+        ],
+        [
+          119.21534729003906,
+          96.29296875
+        ],
+        [
+          119.21534729003906,
+          104.073486328125
+        ],
+        [
+          78.47599792480469,
+          104.073486328125
+        ]
+      ]
+    },
+    {
+      "title": "2.2.1 Depth-First Search (DFS) Path Between Nodes",
+      "heading_level": null,
+      "page_id": 8,
+      "polygon": [
+        [
+          71.12109375,
+          636.1465148925781
+        ],
+        [
+          300.5519714355469,
+          636.1465148925781
+        ],
+        [
+          300.5519714355469,
+          646.1091156005859
+        ],
+        [
+          71.12109375,
+          646.1091156005859
+        ]
+      ]
+    },
+    {
+      "title": "Generated Hypothesis as a Result of Top-N Shortest Simple Path Algorithm (N=5)",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          77.25,
+          75.75
+        ],
+        [
+          426.0,
+          75.75
+        ],
+        [
+          426.0,
+          85.5
+        ],
+        [
+          77.25,
+          85.5
+        ]
+      ]
+    },
+    {
+      "title": "Hypothesis:",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          78.591796875,
+          97.06640625
+        ],
+        [
+          118.634765625,
+          97.06640625
+        ],
+        [
+          118.634765625,
+          104.02734375
+        ],
+        [
+          78.591796875,
+          104.02734375
+        ]
+      ]
+    },
+    {
+      "title": "Foreseeable Implementation Challenges:",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          75.90234375,
+          270.75
+        ],
+        [
+          221.25,
+          270.0
+        ],
+        [
+          221.25,
+          280.37109375
+        ],
+        [
+          75.90234375,
+          280.37109375
+        ]
+      ]
+    },
+    {
+      "title": "Generated Hypothesis as a Result of Depth-First Search (DFS) Algorithm\nA novel, PFAS-free composite material is proposed for biomedical tubing applications, consisting of a blend of natural\nbiopolymers (such as cellulose nanofibers or chitosan) reinforced with Multi-walled carbon nanotubes (MWCNTs) and\nfunctionalized with TiO2 nanoparticles. This formulation integrates the components into a stable system by leveraging the\nbiocompatibility, flexibility, and protein adsorption properties of natural biopolymers, the mechanical reinforcement and\nelectrical conductivity provided by MWCNTs, and the improved microstructure, corrosion resistance, and biocompatibility\nimparted by TiO2. The expected synergistic effects include enhanced tensile strength, temperature stability, and chemical\nresistance, making this composite a viable alternative to PFAS-based materials in demanding biomedical applications.\nJustification:\n1. Mechanical Performance: The incorporation of MWCNTs is expected to significantly enhance the tensile strength\nand toughness of the composite, potentially exceeding 100 MPa, which is comparable to or better than many PFAS-based\nmaterials.\n2. Thermal Stability: The presence of TiO2 nanoparticles can improve the thermal stability of the composite by enhancing\nits microstructure, allowing it to maintain its integrity over a wide temperature range, which is crucial for biomedical\napplications where sterilization and variable environmental conditions are common.\n3. Biocompatibility and Protein Adsorption: Natural biopolymers provide inherent biocompatibility and support cell\ngrowth, while TiO2 has been shown to be biocompatible and can interact with proteins in a way that may enhance the\ncomposite's overall biological performance.\nExpected Material Properties for Experimental Evaluation:\n- Mechanical performance: Tensile strength = 120 MPa, Modulus = 5 GPa\n- Thermal behavior: Tg = 180^{\\circ}C, Thermal stability up to 200^{\\circ}C - Transport properties: Gas permeability < 10^{-13} m^3/m/s/Pa and WVTR < 0.1 g/m^2/day.\n- Chemical stability/resistance: Resistant to common biomedical solvents and cleaning agents\n- Surface/interfacial properties: Friction coefficient = 0.2, Contact angle = 60\u00b0 (indicating moderate hydrophilicity)\n- Biological compatibility: Non-cytotoxic, supports cell attachment and growth\nForeseeable Implementation Challenges:\n1. Scalability and Uniformity: Achieving uniform dispersion of MWCNTs and TiO2 nanoparticles within the natural\nbiopolymer matrix on a large scale could be challenging\nCost and Availability: The cost of high-quality MWCNTs and TiO2 nanoparticles, along with the potential complexity of\nthe fabrication process, might limit the economic viability of this composite for some applications.\n3. Regulatory Approval: Biomedical applications require rigorous testing and regulatory approval, which can be\ntime-consuming and costly.\nKnowledge Graph Reasoning Path(s) Used:\nThe reasoning path involved connections between natural biopolymers (e.g., cellulose nanofibers, chitosan) and their properties such as biocompatibility, flexibility, and protein adsorption; MWCNTs and their effects on mechanical\nperformance, electrical conductivity, and friction coefficient; TiO2 nanoparticles and their influence on microstructure,\ncorrosion resistance, thermal stability, and biocompatibility. The path also considered the importance of temperature\nstability, chemical resistance, and cytotoxicity in biomedical applications, leading to the formulation of a composite\nthat addresses these requirements without the use of PFAS or fluorine-containing materials.",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          74.25,
+          154.6875
+        ],
+        [
+          534.3046875,
+          154.6875
+        ],
+        [
+          534.3046875,
+          495.0
+        ],
+        [
+          74.25,
+          495.0
+        ]
+      ]
+    },
+    {
+      "title": "2.2.2 Breadth-First Search (BFS) with Semantic Stop",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          70.5,
+          534.75
+        ],
+        [
+          306.0,
+          534.75
+        ],
+        [
+          306.0,
+          545.66015625
+        ],
+        [
+          70.5,
+          545.66015625
+        ]
+      ]
+    },
+    {
+      "title": "Generated Hypothesis as a Result of Breadth-First Search (BFS) with Semantic Stop 'Silk'\nHypothesis:\nA novel, PFAS-free composite material is proposed for biomedical tubing applications, consisting of a silk fibroin (SF)\nmatrix reinforced with titanium dioxide (TiO2) nanoparticles and integrated into a eutectogel system. This composite\nleverages the biocompatibility and hydrogen bonding capabilities of SF, the resistance and friction-reducing properties of\nTiO2, and the temperature stability of eutectogels. The formulation integrates these components through a sol-gel process,\nwhere TiO2 nanoparticles are dispersed within a silk fibroin solution, which is then cast into a film or tubing form. The\neutectogel component enhances the thermal stability and mechanical strength of the composite. This material system is\nexpected to exhibit improved tensile strength, flexibility, and resistance to degradation under various environmental\nconditions, making it a viable alternative to PFAS-based materials in biomedical applications.\nJustification:\n1. Biocompatibility and Non-toxicity: The use of silk fibroin as the matrix material ensures biocompatibility, which\nis crucial for biomedical tubing applications. TiO2 nanoparticles are also known for their biocompatibility, further\nsupporting the safety of this composite. 2. Mechanical Strength and Flexibility: The reinforcement of SF with TiO2\nnanoparticles is expected to enhance the tensile strength and modulus of the composite while maintaining its flexibility,\nwhich is essential for tubing applications that require both durability and pliability. 3. Thermal Stability and\nResistance: The incorporation of eutectogels into the composite provides enhanced thermal stability, allowing the\nmaterial to perform consistently across a range of temperatures. TiO2's resistance properties also contribute to the\noverall stability of the material against environmental stresses.\nExpected Material Properties for Experimental Evaluation:\n- Mechanical performance: Tensile strength \\geq 50 MPa, modulus \\approx 1 GPa, toughness > 10 MJ/m^3 - Thermal behavior: Glass\ntransition temperature (T_q) around 200\u00b0C, thermal stability up to 250\u00b0C - Transport properties: Gas permeability\n< 10^{-17} m<sup>3</sup>\u00b7m/m<sup>2</sup>\u00b7s\u00b7Pa, water vapor transmission rate (WVTR) \\approx 10^{-5} g/m<sup>2</sup>\u00b7day - Chemical stability/resistance: Resistant to\npH variations (pH 3-10), stable in aqueous environments and against common biomedical solvents - Surface/interfacial\n60^{\\circ} indicating moderate hydrophilicity - Biological\n{\\tt properties:} \\  \\  {\\tt Friction} \\  \\  {\\tt coefficient} \\ <\n0.1, contact angle \\approx\ncompatibility: Non-cytotoxic, biodegradable with a degradation rate compatible with the application's requirements\nForeseeable Implementation Challenges:\n1. Scalability and uniformity: Achieving uniform dispersion of TiO2 nanoparticles within the silk fibroin matrix on a\nlarge scale could be challenging. 2. Cost-Effectiveness: The production cost of this composite, especially considering\nthe purification and processing of silk fibroin and the synthesis of eutectogels, might be higher than traditional\nmaterials. 3. Regulatory Approval: New biomedical materials must undergo rigorous testing and regulatory approval\nprocesses, which can be time-consuming and costly.\nKnowledge Graph Reasoning Path(s) Used:\nThe hypothesis was developed by following the connections between silk fibroin (enabling hydrogen bonding, stabilizing\nemulsions), TiO2 (reducing friction coefficient, biocompatibility), and eutectogels (exhibiting temperature stability,\nbiocompatibility). The relationships between these components, such as the effect of pH on emulsion stability, hydrogen\nbonding, and the role of heat treatment in enhancing tensile strength and dimensional stability, were crucial in\ndesigning a composite that integrates these materials synergistically to replace PFAS-based systems in biomedical tubing\napplications.",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          72.9140625,
+          311.6953125
+        ],
+        [
+          534.75,
+          311.6953125
+        ],
+        [
+          534.75,
+          653.5546875
+        ],
+        [
+          72.9140625,
+          653.5546875
+        ]
+      ]
+    },
+    {
+      "title": "Creative GraphWeave Agent Using Breadth-First Search (BFS) with Semantic Stop at 'Silk'",
+      "heading_level": null,
+      "page_id": 12,
+      "polygon": [
+        [
+          77.6953125,
+          118.11468505859375
+        ],
+        [
+          462.5859375,
+          118.11468505859375
+        ],
+        [
+          462.5859375,
+          127.23046875
+        ],
+        [
+          77.6953125,
+          127.23046875
+        ]
+      ]
+    },
+    {
+      "title": "2.3 Ablation Study",
+      "heading_level": null,
+      "page_id": 13,
+      "polygon": [
+        [
+          70.5,
+          221.25
+        ],
+        [
+          160.5,
+          221.25
+        ],
+        [
+          160.5,
+          232.03125
+        ],
+        [
+          70.5,
+          232.03125
+        ]
+      ]
+    },
+    {
+      "title": "3 Conclusion and Future Directions",
+      "heading_level": null,
+      "page_id": 15,
+      "polygon": [
+        [
+          71.12109375,
+          460.9561767578125
+        ],
+        [
+          262.530029296875,
+          460.9561767578125
+        ],
+        [
+          262.530029296875,
+          472.911376953125
+        ],
+        [
+          71.12109375,
+          472.911376953125
+        ]
+      ]
+    },
+    {
+      "title": "4 Materials and Methods",
+      "heading_level": null,
+      "page_id": 16,
+      "polygon": [
+        [
+          72.0,
+          620.68359375
+        ],
+        [
+          208.81532287597656,
+          620.68359375
+        ],
+        [
+          208.81532287597656,
+          633.1783447265625
+        ],
+        [
+          72.0,
+          633.1783447265625
+        ]
+      ]
+    },
+    {
+      "title": "4.1 Knowledge Graphs for Enhanced Agent Reasoning",
+      "heading_level": null,
+      "page_id": 16,
+      "polygon": [
+        [
+          71.12109375,
+          647.5915069580078
+        ],
+        [
+          311.37890625,
+          647.5915069580078
+        ],
+        [
+          311.37890625,
+          657.5541076660156
+        ],
+        [
+          71.12109375,
+          657.5541076660156
+        ]
+      ]
+    },
+    {
+      "title": "4.2 Selected Models, Hosting, and Supporting Libraries",
+      "heading_level": null,
+      "page_id": 17,
+      "polygon": [
+        [
+          70.5234375,
+          332.2344970703125
+        ],
+        [
+          314.9977111816406,
+          332.2344970703125
+        ],
+        [
+          314.9977111816406,
+          342.19708251953125
+        ],
+        [
+          70.5234375,
+          342.19708251953125
+        ]
+      ]
+    },
+    {
+      "title": "4.3 In-House Tools for Knowledge Graph Retrieval",
+      "heading_level": null,
+      "page_id": 17,
+      "polygon": [
+        [
+          70.5234375,
+          647.6915283203125
+        ],
+        [
+          295.75,
+          647.6915283203125
+        ],
+        [
+          295.75,
+          657.6541290283203
+        ],
+        [
+          70.5234375,
+          657.6541290283203
+        ]
+      ]
+    },
+    {
+      "title": "4.4 Corpus Development",
+      "heading_level": null,
+      "page_id": 18,
+      "polygon": [
+        [
+          71.12109375,
+          224.296875
+        ],
+        [
+          183.9995574951172,
+          224.296875
+        ],
+        [
+          183.9995574951172,
+          234.32513427734375
+        ],
+        [
+          71.12109375,
+          234.32513427734375
+        ]
+      ]
+    },
+    {
+      "title": "4.5 Knowledge Graph Construction Pipeline",
+      "heading_level": null,
+      "page_id": 18,
+      "polygon": [
+        [
+          70.5234375,
+          530.8154907226562
+        ],
+        [
+          267.84478759765625,
+          530.8154907226562
+        ],
+        [
+          267.84478759765625,
+          540.7781066894531
+        ],
+        [
+          70.5234375,
+          540.7781066894531
+        ]
+      ]
+    },
+    {
+      "title": "4.5.1 Intra-Paper Extraction",
+      "heading_level": null,
+      "page_id": 18,
+      "polygon": [
+        [
+          70.5234375,
+          584.9655151367188
+        ],
+        [
+          200.8125,
+          584.9655151367188
+        ],
+        [
+          200.8125,
+          595.16015625
+        ],
+        [
+          70.5234375,
+          595.16015625
+        ]
+      ]
+    },
+    {
+      "title": "4.5.2 Cross-Paper Alignment and Merge",
+      "heading_level": null,
+      "page_id": 19,
+      "polygon": [
+        [
+          70.5234375,
+          205.734375
+        ],
+        [
+          250.64932250976562,
+          205.734375
+        ],
+        [
+          250.64932250976562,
+          216.0340576171875
+        ],
+        [
+          70.5234375,
+          216.0340576171875
+        ]
+      ]
+    },
+    {
+      "title": "Acknowledgments",
+      "heading_level": null,
+      "page_id": 21,
+      "polygon": [
+        [
+          71.12109375,
+          72.31640625
+        ],
+        [
+          165.55078125,
+          72.31640625
+        ],
+        [
+          165.55078125,
+          84.7423095703125
+        ],
+        [
+          71.12109375,
+          84.7423095703125
+        ]
+      ]
+    },
+    {
+      "title": "Author Contributions",
+      "heading_level": null,
+      "page_id": 21,
+      "polygon": [
+        [
+          71.12109375,
+          191.63214111328125
+        ],
+        [
+          183.08773803710938,
+          191.63214111328125
+        ],
+        [
+          183.08773803710938,
+          203.58734130859375
+        ],
+        [
+          71.12109375,
+          203.58734130859375
+        ]
+      ]
+    },
+    {
+      "title": "Competing Interests",
+      "heading_level": null,
+      "page_id": 21,
+      "polygon": [
+        [
+          72.0,
+          299.56915283203125
+        ],
+        [
+          175.7113494873047,
+          299.56915283203125
+        ],
+        [
+          175.7113494873047,
+          311.52435302734375
+        ],
+        [
+          72.0,
+          311.52435302734375
+        ]
+      ]
+    },
+    {
+      "title": "Code and Data Availability",
+      "heading_level": null,
+      "page_id": 21,
+      "polygon": [
+        [
+          72.0,
+          352.9601745605469
+        ],
+        [
+          209.8434600830078,
+          352.9601745605469
+        ],
+        [
+          209.8434600830078,
+          364.9153747558594
+        ],
+        [
+          72.0,
+          364.9153747558594
+        ]
+      ]
+    },
+    {
+      "title": "References",
+      "heading_level": null,
+      "page_id": 21,
+      "polygon": [
+        [
+          71.71875,
+          428.16912841796875
+        ],
+        [
+          127.54386138916016,
+          428.16912841796875
+        ],
+        [
+          127.54386138916016,
+          440.12432861328125
+        ],
+        [
+          71.71875,
+          440.12432861328125
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          147
+        ],
+        [
+          "Line",
+          50
+        ],
+        [
+          "SectionHeader",
+          7
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "PageHeader",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          156
+        ],
+        [
+          "Line",
+          54
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          75
+        ],
+        [
+          "Span",
+          12
+        ],
+        [
+          "SectionHeader",
+          5
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          156
+        ],
+        [
+          "Line",
+          57
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Picture",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "PictureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          116
+        ],
+        [
+          "Line",
+          49
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "ListItem",
+          3
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          119
+        ],
+        [
+          "Line",
+          50
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          54
+        ],
+        [
+          "Span",
+          13
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          149
+        ],
+        [
+          "Line",
+          65
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 8,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          218
+        ],
+        [
+          "Line",
+          68
+        ],
+        [
+          "ListItem",
+          12
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "ListGroup",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 9,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          76
+        ],
+        [
+          "Span",
+          34
+        ],
+        [
+          "ListItem",
+          12
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "ListGroup",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 10,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          66
+        ],
+        [
+          "Span",
+          59
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 11,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          68
+        ],
+        [
+          "Line",
+          60
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 12,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          158
+        ],
+        [
+          "Line",
+          67
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Code",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 13,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "TableCell",
+          58
+        ],
+        [
+          "Line",
+          43
+        ],
+        [
+          "Span",
+          11
+        ],
+        [
+          "Text",
+          5
+        ],
+        [
+          "Table",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 14,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          45
+        ],
+        [
+          "TableCell",
+          42
+        ],
+        [
+          "Span",
+          7
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 15,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          112
+        ],
+        [
+          "Line",
+          56
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 16,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          71
+        ],
+        [
+          "Line",
+          32
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Reference",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 17,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          145
+        ],
+        [
+          "Line",
+          51
+        ],
+        [
+          "TableCell",
+          9
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 18,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          144
+        ],
+        [
+          "Line",
+          52
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Code",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 19,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          89
+        ],
+        [
+          "Line",
+          26
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Code",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "Equation",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 20,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          227
+        ],
+        [
+          "TableCell",
+          112
+        ],
+        [
+          "Line",
+          59
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 21,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          182
+        ],
+        [
+          "Line",
+          46
+        ],
+        [
+          "ListItem",
+          8
+        ],
+        [
+          "SectionHeader",
+          5
+        ],
+        [
+          "Reference",
+          5
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 22,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          296
+        ],
+        [
+          "Line",
+          55
+        ],
+        [
+          "ListItem",
+          21
+        ],
+        [
+          "Reference",
+          12
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 23,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          182
+        ],
+        [
+          "Line",
+          35
+        ],
+        [
+          "ListItem",
+          15
+        ],
+        [
+          "Reference",
+          14
+        ],
+        [
+          "PageHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data\\paper_12"
+}

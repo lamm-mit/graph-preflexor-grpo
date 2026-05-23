@@ -1,0 +1,71 @@
+ABSTRACT: We present a versatile systematic two-bead-per-
+monomer coarse-grain modeling strategy for simulating the
+thermomechanical behavior of methacrylate polymers at length
+and time scales far exceeding atomistic simulations. We
+establish generic bonded interaction parameters via Boltzmann
+inversion of probability distributions obtained from the
+common coarse-grain bead center locations of ﬁve di ﬀerent
+methacrylate polymers. Distinguishing features of each
+monomer side-chain group are captured using Lennard-Jones
+nonbonded potentials with parameters speci ﬁed to match the
+density and glass-transition temperature values obtained from
+all-atomistic simulations. The developed force ﬁeld is validated
+using Flory −Fox scaling relationships, self-di ﬀusion coeﬃ cients
+of monomers, and modulus of elasticity for p(MMA). Our approach establishes a transferable, e ﬃ cient, and accurate scale-
+bridging strategy for investigating the thermomechanics of copolymers, polymer blends, and nanocomposites.
+
+4. CONCLUSIONS
+We have presented a systematic methodology for generating a
+thermomechanically consistent coarse-grain model and have
+applied it to establish the universal parameters for methacrylate-
+based polymers. The appealing transferable features of this CG
+model arises from the choice of the locations for coarse-grain
+bead centers, as well as by leveraging the common backbone
+structure across the methacrylate monomers chosen, which
+gives rise to universal bonded and nonbonded parameters along
+the consistent backbone. The all-atomistic bonded distributions
+for each homopolymer system show similar trends and can be
+ﬁtted with simple analytical functions. We use the Iterative
+Boltzmann Method to optimize the averaged CG bonded
+potential terms to match the target all-atomistic average
+distributions starting from the highest energy contributing
+bond-length interaction to the lowest energy contributing
+dihedral angles. Simply customizing the nonbonded parameters
+and masses for the side-chain beads captures certain unique
+monomer characteristics. We ﬁnd that this method can be used
+to tune the model to precisely match the density and glass
+transition behavior of each of the atomistic homopolymer
+models without explicit charge or hydrogen bonding terms. We
+verify the validity of the model by demonstrating that the
+Flory−Fox ﬁtting constants of the molecular weight dependent
+T
+g are well correlated between the all-atomistic and coarse-
+grained simulations. Additionally, elastic constants of the CG
+model obtained for p(MMA) match experimental values for
+this system.
+The key contributions of our methodology and its
+signiﬁcance can be summarized as follows. First, by decreasing
+the number of degrees of freedom and using simple analytical
+potentials, we are able to achieve a CG model that can run 150
+to 700 times faster than the all-atomistic model, for example, on
+the basis of a 300 monomer methacrylate system. Second, by
+choosing common methacrylate monomers as a focus group of
+tremendous importance in polymer science, we provide a
+convincing approach for establishing transferable CG models
+for subclasses of polymers that have common backbone
+features and diverse material properties arising from side-
+chain functionality. The simultaneous prediction of this set of
+structural, dynamic, and thermomechanical objectives has not
+been previously achieved with CG models of engineering
+polymers that typically are parametrized for a single
+homopolymer. Third, the comparative nature of the method-
+ology identi ﬁes universal backbone attributes of a range of
+methacrylate monomers and is readily applicable to copolymer
+systems without the need to introduce new interface bonded
+parameters due to our universal de ﬁnition of backbone and
+side-chain force centers and potential terms. The versatility of
+our model makes it particularly useful for the design of
+nanoelectronics, nanocomposites and thin ﬁlms based on
+copolymer materials where sequence and composition e ﬀects
+remain to be fully understood and cannot be easily probed with
+all-atom simulations or experiments.

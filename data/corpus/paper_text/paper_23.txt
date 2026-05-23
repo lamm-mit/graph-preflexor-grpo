@@ -1,0 +1,74 @@
+The influence of chain-level network architecture ( i.e., topology) on mechanics was explored for
+unentangled polymer networks using a blend of coarse- grained molecular simulations and graph-theoretic
+concepts. A simple extension of the Watts–Strogatz model is proposed to control the graph properties
+of the network such that the corresponding physical properties can be studied with simulations. The
+architecture of polymer networks assembled with a dynamic curing approach were compared with the
+extended Watts–Strogatz model, and found to agree s urprisingly well. The final cured structures of
+the dynamically-assembled networks were nearly an intermediate between lattice and random connections
+due to restrictions imposed by the finite length of t he chains. Further, the uni-axial stress response,
+character of the bond breaking, and non-affine displa cements of fully-cured glassy networks were analyzed
+as a function of the degree of disorder i n the network architecture. It is shown that the architecture strongly
+affects the network stability, flow stress, onset of b ond breaking, and ultimate stress while leaving the
+modulus and yield point nearly unchanged. The result s show that internal restrictions imposed by the
+network architecture alter the chain-level response through changes to the crosslink dynamics in the flow
+regime and through the degree of coordinated chain failure at the ultimate stress. The properties considered
+here are shown to be sensitive to even incremental chan ges to the architecture and, therefore, the overall
+network architecture, beyond simp le defects, is predicted to be a meaningful physical parameter in the
+mechanics of glassy polymer networks.
+
+V. Conclusions
+The connectivity of polymer networks was explored as a meso-
+scale structural parameter of the material. For this purpose,
+a simple non-dynamical model to generate polymer networks
+was developed with the goal of synthetically controlling the
+network topology. The new model was based in the well-known
+Watts–Strogatz model, but with restrictions to make the resulting
+structures compatible with polymer networks. Specifically, the
+network structures produced by the model allow only topo-
+logically close connections to form between crosslinker beads
+to account for the finite length of linear chains, and respect the
+chemical functionality of crosslinker beads. Generating struc-
+tures in this way allowed the chain connectivity to be smoothly
+varied from ordered to disordered network structures while
+maintaining an otherwise ideal network without defects and at
+full cure. Surprisingly, we found that much of the topological
+character of networks created with independent simulations
+of dynamical curing could be captured by this restricted
+Watts–Strogatz model, even for differing chemical interactions,
+thermodynamic conditions, and synthesis procedures. The networks
+from the W–S model and dynamic method were shown to have
+similar ‘clustering profiles’, where the first four terms of the profile
+were captured well by the model.
+Systematically altering the chain connectivity did not change
+the density or linear mechanical properties of the glassy
+networks until a critical number of edge swap moves, after
+which the network abruptly became unstable. However, the
+flow stress, the strain at the onset of bond breaking, and the
+ultimate stress were smoothly changed as the network structure
+became increasingly disordered. In the flow stress regime, a
+mechanism was proposed in which the disordered network
+connections enhanced the non-aﬃne motions of the crosslink
+junctions, resulting in increased plasticity and higher stress.
+It is proposed this result is similar to the eﬀect of non-aﬃnity in
+other contexts where the irregular neighborhood at the atomic
+scale increases dissipation and reduces elasticity. The onset of
+chain scission began at high strains in ordered networks, and
+decreased monotonically as disorder was introduced. This
+eﬀect was rationalized by demonstrating that the strain at the
+initial chain scission in the diﬀerent network structures can be
+collapsed onto a single value corresponding to B1.7 of the
+strain of the shortest covalent paths through the network.
+Further, chain scission in the ordered structures was delayed
+until almost the same strain as the ultimate stress, thereby
+forcing many of the extended chains to break simultaneously
+and strongly increase the ultimate stress.
+Polymer network structures must occur between the lattice
+and randomly-connected states. Critically, these results predict
+the structure of real networks to fall along a region in which
+the ultimate stress and other mechanical measures are very
+sensitive to changes in the connected structure of the chains.
+Therefore, our results suggest experimental control of network
+architectures as a potentially powerful design parameter to
+enhance mechanical performance and, conversely, that polymer
+networks used in molecular simulations could give spurious
+results in the absence of realistic connected structures.

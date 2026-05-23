@@ -1,0 +1,26 @@
+ABSTRACT: To develop structure−property relationships for
+cross-linked thermosetting polymers, it is crucial to better
+understand key factors that control their segmental dynamics
+and macroscopic properties. Here, we employ a coarse-grained
+(CG) polymer model to systematically explore the combined effect
+of varying the cohesive energy (ε) and cross-link density (c) on the
+segmental relaxation time and mechanical properties for a model
+cross-linked glass-forming thermoset material. We find that
+increasing c increases both the glass transition temperature T
+g
+and fragility of glass formation, while the fragility decreases with an
+increase in ε. These competing effects of ε and c on fragility are
+practically important since fragility determines the overall temper-
+ature width of the glass formation over which the non-Arrhenius temperature dependence is observed. Our simulation results show
+that the basic mechanical properties (i.e., bulk and shear moduli) of cross-linked thermosets are mainly influenced by ε. More
+interestingly, the macroscopic mechanical properties are found to be strongly correlated with the Debye−Waller parameter ⟨u
+2
+⟩, a
+measure of material “stiffness” at a molecular level. In particular, the distribution of local molecular stiffness, 1/⟨u
+2
+⟩, exhibits a nearly
+universal Gaussian distribution at a fixed reduced temperature T/T
+g
+. Our work reveals the key and competitive roles of cohesive
+energy and cross-link density in controlling the segmental dynamics, large scale, and local mechanical properties of cross-linked
+thermosets, providing an understanding that should be useful in the molecular design of these materials.

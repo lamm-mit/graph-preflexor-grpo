@@ -1,0 +1,1205 @@
+{
+  "table_of_contents": [
+    {
+      "title": "Physical characterization of functionalized spider silk: electronic and sensing properties",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          46.53904282115869,
+          92.5048828125
+        ],
+        [
+          481.1536523929471,
+          92.5048828125
+        ],
+        [
+          481.1536523929471,
+          178.8427734375
+        ],
+        [
+          46.53904282115869,
+          178.8427734375
+        ]
+      ]
+    },
+    {
+      "title": "Abstract",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          46.53904282115869,
+          429.6337890625
+        ],
+        [
+          85.267578125,
+          429.6337890625
+        ],
+        [
+          85.267578125,
+          439.3695458593054
+        ],
+        [
+          46.53904282115869,
+          439.3695458593054
+        ]
+      ]
+    },
+    {
+      "title": "1. Introduction",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          46.53904282115869,
+          171.853515625
+        ],
+        [
+          119.35012594458438,
+          171.853515625
+        ],
+        [
+          119.35012594458438,
+          182.1959038290294
+        ],
+        [
+          46.53904282115869,
+          182.1959038290294
+        ]
+      ]
+    },
+    {
+      "title": "2. Experimental details",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          304.0050377833753,
+          292.413178984862
+        ],
+        [
+          415.09823677581863,
+          292.413178984862
+        ],
+        [
+          415.09823677581863,
+          302.59375
+        ],
+        [
+          304.0050377833753,
+          302.59375
+        ]
+      ]
+    },
+    {
+      "title": "2.1. Samples",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          303.2544080604534,
+          314.5166015625
+        ],
+        [
+          357.2997481108312,
+          314.5166015625
+        ],
+        [
+          357.2997481108312,
+          323.9038290293856
+        ],
+        [
+          303.2544080604534,
+          323.9038290293856
+        ]
+      ]
+    },
+    {
+      "title": "2.2. Solvent exposure",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          304.0050377833753,
+          638.0605520926091
+        ],
+        [
+          391.8287153652393,
+          638.0605520926091
+        ],
+        [
+          391.8287153652393,
+          649.1787109375
+        ],
+        [
+          304.0050377833753,
+          649.1787109375
+        ]
+      ]
+    },
+    {
+      "title": "2.3. Iodine doping",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          46.53904282115869,
+          481.35707925200353
+        ],
+        [
+          121.60201511335012,
+          481.35707925200353
+        ],
+        [
+          121.60201511335012,
+          491.71484375
+        ],
+        [
+          46.53904282115869,
+          491.71484375
+        ]
+      ]
+    },
+    {
+      "title": "2.4. PVA coating",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          46.53904282115869,
+          682.8916015625
+        ],
+        [
+          116.34760705289672,
+          682.8916015625
+        ],
+        [
+          116.34760705289672,
+          692.0445235975067
+        ],
+        [
+          46.53904282115869,
+          692.0445235975067
+        ]
+      ]
+    },
+    {
+      "title": "2.5. Electron microscopy",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          303.8203125,
+          67.8369140625
+        ],
+        [
+          405.34005037783373,
+          67.8369140625
+        ],
+        [
+          405.34005037783373,
+          77.22707034728406
+        ],
+        [
+          303.8203125,
+          77.22707034728406
+        ]
+      ]
+    },
+    {
+      "title": "2.6. Raman spectroscopy",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          303.8203125,
+          207.68833481745324
+        ],
+        [
+          406.09068010075566,
+          207.68833481745324
+        ],
+        [
+          406.09068010075566,
+          218.3115234375
+        ],
+        [
+          303.8203125,
+          218.3115234375
+        ]
+      ]
+    },
+    {
+      "title": "2.7. Electrical conductivity",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          303.2544080604534,
+          287.9145146927872
+        ],
+        [
+          415.09823677581863,
+          287.9145146927872
+        ],
+        [
+          415.09823677581863,
+          297.2490234375
+        ],
+        [
+          303.2544080604534,
+          297.2490234375
+        ]
+      ]
+    },
+    {
+      "title": "2.8. Gold sputtering deposition and four-terminal resistance measurements",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          302.65625,
+          710.4375
+        ],
+        [
+          547.2090680100755,
+          710.4375
+        ],
+        [
+          547.2090680100755,
+          731.7827248441674
+        ],
+        [
+          302.65625,
+          731.7827248441674
+        ]
+      ]
+    },
+    {
+      "title": "2.9. Cryogenic measurements",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          46.271484375,
+          640.1337890625
+        ],
+        [
+          166.63979848866498,
+          640.1337890625
+        ],
+        [
+          166.63979848866498,
+          649.307212822796
+        ],
+        [
+          46.271484375,
+          649.307212822796
+        ]
+      ]
+    },
+    {
+      "title": "2.10. <sup>1</sup>H-<sup>13</sup>C CP-MAS-NMR",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          303.2544080604534,
+          413.1273374888691
+        ],
+        [
+          426.35768261964733,
+          413.1273374888691
+        ],
+        [
+          426.35768261964733,
+          423.8779296875
+        ],
+        [
+          303.2544080604534,
+          423.8779296875
+        ]
+      ]
+    },
+    {
+      "title": "2.11. FTIR",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          303.2544080604534,
+          615.567230632235
+        ],
+        [
+          349.7934508816121,
+          615.567230632235
+        ],
+        [
+          349.7934508816121,
+          626.1552734375
+        ],
+        [
+          303.2544080604534,
+          626.1552734375
+        ]
+      ]
+    },
+    {
+      "title": "3. Results and discussion",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          46.53904282115869,
+          68.22974176313446
+        ],
+        [
+          165.13853904282115,
+          68.22974176313446
+        ],
+        [
+          165.13853904282115,
+          77.97684772929652
+        ],
+        [
+          46.53904282115869,
+          77.97684772929652
+        ]
+      ]
+    },
+    {
+      "title": "3.1. Properties of neat and I_2-doped spider silk",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          46.53904282115869,
+          154.4541406945681
+        ],
+        [
+          237.19899244332493,
+          154.4541406945681
+        ],
+        [
+          237.19899244332493,
+          164.95102404274266
+        ],
+        [
+          46.53904282115869,
+          164.95102404274266
+        ]
+      ]
+    },
+    {
+      "title": "3.2. Properties and applications of gold-sputtered silk",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          46.53904282115869,
+          722.0356188780053
+        ],
+        [
+          264.22166246851384,
+          722.0356188780053
+        ],
+        [
+          264.22166246851384,
+          731.7827248441674
+        ],
+        [
+          46.53904282115869,
+          731.7827248441674
+        ]
+      ]
+    },
+    {
+      "title": "3.3. <sup>1</sup>H-<sup>13</sup>C CP-MAS-NMR analysis of functionalized neat spider silk",
+      "heading_level": null,
+      "page_id": 7,
+      "polygon": [
+        [
+          302.07421875,
+          550.3365983971505
+        ],
+        [
+          545.7078085642318,
+          551.3291015625
+        ],
+        [
+          545.7078085642318,
+          573.5796972395369
+        ],
+        [
+          302.07421875,
+          573.5796972395369
+        ]
+      ]
+    },
+    {
+      "title": "3.4. FTIR spectroscopy of spider silk",
+      "heading_level": null,
+      "page_id": 9,
+      "polygon": [
+        [
+          304.111328125,
+          698.1197052001953
+        ],
+        [
+          451.61199951171875,
+          698.1197052001953
+        ],
+        [
+          451.61199951171875,
+          708.3818359375
+        ],
+        [
+          304.111328125,
+          708.3818359375
+        ]
+      ]
+    },
+    {
+      "title": "3.5. Qualitative I_2-spider silk interaction model",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          302.65625,
+          107.96794300979519
+        ],
+        [
+          496.91687657430725,
+          107.96794300979519
+        ],
+        [
+          496.91687657430725,
+          117.71504897595726
+        ],
+        [
+          302.65625,
+          117.71504897595726
+        ]
+      ]
+    },
+    {
+      "title": "4. Conclusions",
+      "heading_level": null,
+      "page_id": 10,
+      "polygon": [
+        [
+          303.529296875,
+          610.3187889581478
+        ],
+        [
+          373.81360201511336,
+          610.3187889581478
+        ],
+        [
+          373.81360201511336,
+          619.5771484375
+        ],
+        [
+          303.529296875,
+          619.5771484375
+        ]
+      ]
+    },
+    {
+      "title": "Acknowledgment",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          305.12603759765625,
+          345.95880126953125
+        ],
+        [
+          387.341796875,
+          345.95880126953125
+        ],
+        [
+          387.341796875,
+          356.9178161621094
+        ],
+        [
+          305.12603759765625,
+          356.9178161621094
+        ]
+      ]
+    },
+    {
+      "title": "References",
+      "heading_level": null,
+      "page_id": 11,
+      "polygon": [
+        [
+          305.12603759765625,
+          494.7668151855469
+        ],
+        [
+          356.04156494140625,
+          494.7668151855469
+        ],
+        [
+          356.04156494140625,
+          505.725830078125
+        ],
+        [
+          305.12603759765625,
+          505.725830078125
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          68
+        ],
+        [
+          "Span",
+          51
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "ListItem",
+          4
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          108
+        ],
+        [
+          "Span",
+          101
+        ],
+        [
+          "Text",
+          9
+        ],
+        [
+          "SectionHeader",
+          4
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          110
+        ],
+        [
+          "Line",
+          108
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "SectionHeader",
+          6
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Picture",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "PictureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          113
+        ],
+        [
+          "Span",
+          98
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "SectionHeader",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          133
+        ],
+        [
+          "Span",
+          131
+        ],
+        [
+          "Text",
+          5
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          56
+        ],
+        [
+          "Span",
+          49
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          141
+        ],
+        [
+          "Span",
+          81
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 7,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          126
+        ],
+        [
+          "Span",
+          88
+        ],
+        [
+          "Text",
+          11
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 8,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Line",
+          60
+        ],
+        [
+          "Span",
+          26
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Figure",
+          2
+        ],
+        [
+          "Caption",
+          2
+        ],
+        [
+          "Text",
+          2
+        ],
+        [
+          "FigureGroup",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 9,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          302
+        ],
+        [
+          "Line",
+          74
+        ],
+        [
+          "Text",
+          5
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 10,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          148
+        ],
+        [
+          "Line",
+          131
+        ],
+        [
+          "Text",
+          7
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 11,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          325
+        ],
+        [
+          "Line",
+          74
+        ],
+        [
+          "ListItem",
+          17
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Text",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 12,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          131
+        ],
+        [
+          "Line",
+          24
+        ],
+        [
+          "ListItem",
+          11
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "PageFooter",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ],
+        [
+          "Reference",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data\\paper_76"
+}

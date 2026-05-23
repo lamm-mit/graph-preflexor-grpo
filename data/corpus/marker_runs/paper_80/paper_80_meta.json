@@ -1,0 +1,775 @@
+{
+  "table_of_contents": [
+    {
+      "title": "Engineered Spider Silk Protein-Based\nComposites for Drug Delivery<sup>a</sup>",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          44.0859375,
+          74.935546875
+        ],
+        [
+          424.5,
+          74.935546875
+        ],
+        [
+          424.5,
+          125.40234375
+        ],
+        [
+          44.0859375,
+          125.40234375
+        ]
+      ]
+    },
+    {
+      "title": "1. Introduction",
+      "heading_level": null,
+      "page_id": 0,
+      "polygon": [
+        [
+          44.3759765625,
+          448.46630859375
+        ],
+        [
+          123.0,
+          448.46630859375
+        ],
+        [
+          123.0,
+          459.0
+        ],
+        [
+          44.3759765625,
+          459.0
+        ]
+      ]
+    },
+    {
+      "title": "2. Experimental Section",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          60.6181640625,
+          484.7873229980469
+        ],
+        [
+          182.0269317626953,
+          484.7873229980469
+        ],
+        [
+          182.0269317626953,
+          495.746337890625
+        ],
+        [
+          60.6181640625,
+          495.746337890625
+        ]
+      ]
+    },
+    {
+      "title": "2.1. Materials",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          60.0380859375,
+          503.52099609375
+        ],
+        [
+          118.0345458984375,
+          503.52099609375
+        ],
+        [
+          118.0345458984375,
+          515.1953430175781
+        ],
+        [
+          60.0380859375,
+          515.1953430175781
+        ]
+      ]
+    },
+    {
+      "title": "2.2. Film Preparation",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          59.748046875,
+          687.03662109375
+        ],
+        [
+          149.080078125,
+          687.03662109375
+        ],
+        [
+          149.080078125,
+          696.4992446899414
+        ],
+        [
+          59.748046875,
+          696.4992446899414
+        ]
+      ]
+    },
+    {
+      "title": "2.3. Thermogravimetric Analysis (TGA)",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          312.662109375,
+          235.89404296875
+        ],
+        [
+          476.244140625,
+          235.89404296875
+        ],
+        [
+          476.244140625,
+          245.2237548828125
+        ],
+        [
+          312.662109375,
+          245.2237548828125
+        ]
+      ]
+    },
+    {
+      "title": "2.4. X-Ray Diffraction (XRD)",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          309.76171875,
+          307.388671875
+        ],
+        [
+          429.875732421875,
+          307.388671875
+        ],
+        [
+          429.875732421875,
+          316.94024658203125
+        ],
+        [
+          309.76171875,
+          316.94024658203125
+        ]
+      ]
+    },
+    {
+      "title": "2.5. Tensile Testing",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          311.501953125,
+          390.35302734375
+        ],
+        [
+          393.90740966796875,
+          390.35302734375
+        ],
+        [
+          393.90740966796875,
+          401.4127502441406
+        ],
+        [
+          311.501953125,
+          401.4127502441406
+        ]
+      ]
+    },
+    {
+      "title": "2.6. Water Contact Angle Measurements",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          312.08203125,
+          475.99365234375
+        ],
+        [
+          481.46484375,
+          475.99365234375
+        ],
+        [
+          481.46484375,
+          486.1119384765625
+        ],
+        [
+          312.08203125,
+          486.1119384765625
+        ]
+      ]
+    },
+    {
+      "title": "2.7. In Vitro Degradation Studies",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          312.08203125,
+          570.8023376464844
+        ],
+        [
+          450.1745300292969,
+          570.8023376464844
+        ],
+        [
+          450.1745300292969,
+          579.7686309814453
+        ],
+        [
+          312.08203125,
+          579.7686309814453
+        ]
+      ]
+    },
+    {
+      "title": "2.8. Drug Loading and Release Studies",
+      "heading_level": null,
+      "page_id": 1,
+      "polygon": [
+        [
+          312.662109375,
+          643.5393371582031
+        ],
+        [
+          471.7734680175781,
+          643.5393371582031
+        ],
+        [
+          471.7734680175781,
+          652.62744140625
+        ],
+        [
+          312.662109375,
+          652.62744140625
+        ]
+      ]
+    },
+    {
+      "title": "2.9. In Vitro Cell Adhesion Studies",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          44.0859375,
+          136.8720703125
+        ],
+        [
+          189.0,
+          136.8720703125
+        ],
+        [
+          189.0,
+          146.25
+        ],
+        [
+          44.0859375,
+          146.25
+        ]
+      ]
+    },
+    {
+      "title": "3. Results and Discussion",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          44.9560546875,
+          252.71630859375
+        ],
+        [
+          175.5,
+          252.71630859375
+        ],
+        [
+          175.5,
+          261.75
+        ],
+        [
+          44.9560546875,
+          261.75
+        ]
+      ]
+    },
+    {
+      "title": "3.1. Film Preparation and Characterization",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          44.666015625,
+          278.25
+        ],
+        [
+          225.0,
+          278.25
+        ],
+        [
+          225.0,
+          287.25
+        ],
+        [
+          44.666015625,
+          287.25
+        ]
+      ]
+    },
+    {
+      "title": "3.2. In Vitro Degradation Studies",
+      "heading_level": null,
+      "page_id": 2,
+      "polygon": [
+        [
+          294.9697265625,
+          325.5
+        ],
+        [
+          435.0,
+          325.5
+        ],
+        [
+          435.0,
+          335.25
+        ],
+        [
+          294.9697265625,
+          335.25
+        ]
+      ]
+    },
+    {
+      "title": "3.3. Drug Loading and Release Studies",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          60.328125,
+          625.7947540283203
+        ],
+        [
+          219.48959350585938,
+          625.7947540283203
+        ],
+        [
+          219.48959350585938,
+          634.7610473632812
+        ],
+        [
+          60.328125,
+          634.7610473632812
+        ]
+      ]
+    },
+    {
+      "title": "3.4. In Vitro Cell Adhesion Studies",
+      "heading_level": null,
+      "page_id": 3,
+      "polygon": [
+        [
+          313.2421875,
+          349.82666015625
+        ],
+        [
+          457.1015625,
+          349.82666015625
+        ],
+        [
+          457.1015625,
+          359.7999267578125
+        ],
+        [
+          313.2421875,
+          359.7999267578125
+        ]
+      ]
+    },
+    {
+      "title": "4. Conclusion",
+      "heading_level": null,
+      "page_id": 4,
+      "polygon": [
+        [
+          297.580078125,
+          570.5069122314453
+        ],
+        [
+          366.27935791015625,
+          570.5069122314453
+        ],
+        [
+          366.27935791015625,
+          581.4659118652344
+        ],
+        [
+          297.580078125,
+          581.4659118652344
+        ]
+      ]
+    }
+  ],
+  "page_stats": [
+    {
+      "page_id": 0,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "Span",
+          69
+        ],
+        [
+          "Line",
+          63
+        ],
+        [
+          "Text",
+          8
+        ],
+        [
+          "PageFooter",
+          4
+        ],
+        [
+          "PageHeader",
+          2
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Footnote",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 1,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          252
+        ],
+        [
+          "Line",
+          98
+        ],
+        [
+          "Text",
+          11
+        ],
+        [
+          "SectionHeader",
+          9
+        ],
+        [
+          "PageHeader",
+          4
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 2,
+      "text_extraction_method": "surya",
+      "block_counts": [
+        [
+          "TableCell",
+          100
+        ],
+        [
+          "Line",
+          80
+        ],
+        [
+          "Span",
+          68
+        ],
+        [
+          "Text",
+          8
+        ],
+        [
+          "SectionHeader",
+          4
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "Table",
+          1
+        ],
+        [
+          "TableGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 3,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          217
+        ],
+        [
+          "Line",
+          85
+        ],
+        [
+          "Text",
+          6
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "SectionHeader",
+          2
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 4,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          112
+        ],
+        [
+          "Line",
+          50
+        ],
+        [
+          "PageHeader",
+          4
+        ],
+        [
+          "Text",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Figure",
+          1
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "SectionHeader",
+          1
+        ],
+        [
+          "FigureGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 5,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          410
+        ],
+        [
+          "Line",
+          79
+        ],
+        [
+          "ListItem",
+          30
+        ],
+        [
+          "PageHeader",
+          4
+        ],
+        [
+          "Text",
+          4
+        ],
+        [
+          "Picture",
+          3
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "Caption",
+          1
+        ],
+        [
+          "PictureGroup",
+          1
+        ],
+        [
+          "ListGroup",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    },
+    {
+      "page_id": 6,
+      "text_extraction_method": "pdftext",
+      "block_counts": [
+        [
+          "Span",
+          589
+        ],
+        [
+          "Line",
+          101
+        ],
+        [
+          "ListItem",
+          50
+        ],
+        [
+          "PageHeader",
+          3
+        ],
+        [
+          "Picture",
+          2
+        ],
+        [
+          "PageFooter",
+          2
+        ],
+        [
+          "ListGroup",
+          2
+        ],
+        [
+          "Text",
+          1
+        ]
+      ],
+      "block_metadata": {
+        "llm_request_count": 0,
+        "llm_error_count": 0,
+        "llm_tokens_used": 0,
+        "previous_text": "",
+        "previous_type": "",
+        "previous_order": 0
+      }
+    }
+  ],
+  "debug_data_path": "debug_data\\paper_80"
+}

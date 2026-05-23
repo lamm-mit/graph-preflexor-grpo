@@ -1,0 +1,43 @@
+The LIPIT results show that polymer entanglements alone
+do not enhance toughness since the entanglement density
+increases with molecular mass of the grafted chains. Conver-
+sely, nanoparticle jamming alone cannot describe the
+enhanced toughness since jamming is more pronounced with
+shorter grafted chains. These results would suggest that the
+enhancement in toughness seen for the 96 kg mol
+/C0 1 system
+requires synergy of these two mechanisms of energy dissipa-
+tion. The polymer-dominated response is augmented by a
+hierarchical relaxation mechanism where the highly localized
+chain segment retraction is followed by a colloidal relaxation
+process over a larger length scale as revealed by the XPCS
+results.
+29 XPCS and QENS measurements highlight the
+enhanced dynamics at this transition, and they point to a
+correlation between chain dynamics and material toughness.
+While our results indicate that it would be quite challenging for
+an existing polymer-based impact mitigating material to be
+useful over a broad range of deformation rates, this seminal
+work has begun to explore the remarkable and highly tunable
+mechanical properties of PGNs. There is vast potential in
+leveraging this mechanism to design polymeric materials with
+dynamically tunable molecular response that maximizes
+impact mitigation performance.
+
+Conflicts of interest
+Certain commercial equipment, instruments, or materials are
+identified in this paper in order to specify the experimental
+procedure adequately. Such identification is not intended to
+imply recommendation or endorsement by NIST, nor is it
+intended to imply that the materials or equipment identified
+are necessarily the best available for the purpose.
+
+Acknowledgements
+The research used resources of the Advanced Photon Source
+and the Center for Nanoscale Materials, U.S. Department of
+Energy (DOE) Oﬃce of Science User Facilities operated for the
+DOE Oﬃce of Science by Argonne National Laboratory under
+Contract No. DE-AC02-06CH11357. Financial support for this
+work at Columbia (MJ, SKK) was provided by the Department
+of Energy under grant DE-SC0021272. Access to HFBS
+was provided by the Center for High Resolution Neutron
