@@ -11,14 +11,14 @@ Base   : —
 
 Description:
     Runs Qwen3-1.7B on the 100-question open-ended benchmark
-    (data/benchmark/benchmark_questions.json) using a locally hosted vLLM server.
+    (data/benchmark/benchmark_questions.jsonl) using a locally hosted vLLM server.
     Outputs one JSONL record per question to data/results/.
 
 Usage:
     # Start vLLM server first:
     #   vllm serve Qwen/Qwen3-1.7B --max-model-len 32768 --port 8000
     python eval_qwen_1_7b.py \
-        --dataset ../data/benchmark/benchmark_questions.json \
+        --dataset ../data/benchmark/benchmark_questions.jsonl \
         --outfile ../data/results/qwen_1_7b_results.jsonl
 
 Requirements:
@@ -35,8 +35,8 @@ import re
 # Config
 # ------------------------------------------------------------------------------
 MODEL       = "Qwen/Qwen3-1.7B"
-DATASET     = "../data/results/question_p2.jsonl"
-OUTFILE     = "qwen_1_7b_results_p2.jsonl"
+DATASET     = "../data/benchmark/benchmark_questions.jsonl"
+OUTFILE     = "qwen_1_7b_results.jsonl"
 MAX_TOKENS  = 32768
 TEMPERATURE = 0.6
 TOP_P       = 0.95

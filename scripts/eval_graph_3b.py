@@ -11,14 +11,14 @@ Base   : Llama-3.2-3B-Instruct
 
 Description:
     Runs Graph-PRefLexOR-3B on the 100-question open-ended benchmark
-    (data/benchmark/benchmark_questions.json) using a locally hosted vLLM server.
+    (data/benchmark/benchmark_questions.jsonl) using a locally hosted vLLM server.
     Outputs one JSONL record per question to data/results/.
 
 Usage:
     # Start vLLM server first:
     #   vllm serve lamm-mit/Graph-Preflexor-3b_08012026 --max-model-len 32768 --port 8000
     python eval_graph_3b.py \
-        --dataset ../data/benchmark/benchmark_questions.json \
+        --dataset ../data/benchmark/benchmark_questions.jsonl \
         --outfile ../data/results/graph_3b_results.jsonl
 
 Requirements:
@@ -35,8 +35,8 @@ from transformers import AutoTokenizer
 # Config
 # ------------------------------------------------------------------------------
 MODEL       = "lamm-mit/Graph-Preflexor-3b_08012026"
-DATASET     = "../data/results/question_p2.jsonl"
-OUTFILE     = "graph_3b_results_p2.jsonl"
+DATASET     = "../data/benchmark/benchmark_questions.jsonl"
+OUTFILE     = "graph_3b_results.jsonl"
 MAX_TOKENS  = 32768
 TEMPERATURE = 0.2
 # TOP_P       = 0.9
@@ -70,7 +70,7 @@ def extract_tag(text, tag):
 
 def get_thinking(output):
     parts = []
-    for tag in ["brainstorm", "graph", "graph_json", "patterns"]:
+    for tag in ["brainstorm", "graph", "graph_json", "patterns", "synthesis"]:
         content = extract_tag(output, tag)
         if content:
             parts.append(f"<{tag}>\n{content}\n</{tag}>")

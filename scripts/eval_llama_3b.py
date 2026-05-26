@@ -11,14 +11,14 @@ Base   : —
 
 Description:
     Runs Llama-3.2-3B-Instruct on the 100-question open-ended benchmark
-    (data/benchmark/benchmark_questions.json) using a locally hosted vLLM server.
+    (data/benchmark/benchmark_questions.jsonl) using a locally hosted vLLM server.
     Outputs one JSONL record per question to data/results/.
 
 Usage:
     # Start vLLM server first:
     #   vllm serve meta-llama/Llama-3.2-3B-Instruct --max-model-len 32768 --port 8000
     python eval_llama_3b.py \
-        --dataset ../data/benchmark/benchmark_questions.json \
+        --dataset ../data/benchmark/benchmark_questions.jsonl \
         --outfile ../data/results/llama_3b_results.jsonl
 
 Requirements:
@@ -34,8 +34,8 @@ from tqdm import tqdm
 # Config
 # ------------------------------------------------------------------------------
 MODEL       = "meta-llama/Llama-3.2-3B-Instruct"
-DATASET     = "../data/results/question_p2.jsonl"
-OUTFILE     = "llama_3b_results_p2.jsonl"
+DATASET     = "../data/benchmark/benchmark_questions.jsonl"
+OUTFILE     = "llama_3b_results.jsonl"
 MAX_TOKENS  = 32768
 TEMPERATURE = 0.6
 TOP_P       = 0.9
