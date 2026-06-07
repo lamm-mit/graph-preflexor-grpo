@@ -181,13 +181,9 @@ Source papers span: large language models, spider silk, polymer nanocomposites, 
 
 ---
 
-## Acknowledgments
-
-This work was supported by the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research and Office of Basic Energy Sciences, Scientific Discovery through Advanced Computing (SciDAC) program under the FORUM-AI project.
-
 ---
 
-## Experiment 2: Backtracking Analysis (Shashwat Sourav, ORNL GRO Fellow)
+## Experiment 2: Backtracking Analysis
 
 This analysis asks: *When Qwen3-8B produces a final answer, does it backtrack more to its own visible thinking, or to Graph-PRefLexOR's structured reasoning stages?*
 
@@ -216,3 +212,8 @@ This analysis asks: *When Qwen3-8B produces a final answer, does it backtrack mo
 - Generator: `Qwen/Qwen3-8B`
 - Embeddings: `BAAI/bge-base-en-v1.5`
 - Platform: NCSA DeltaAI GH200 GPUs
+
+
+## Acknowledgments
+
+This work was supported by the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research and Office of Basic Energy Sciences, Scientific Discovery through Advanced Computing (SciDAC) program under the FORUM-AI project.
