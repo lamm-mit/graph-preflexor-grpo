@@ -1,0 +1,6 @@
+question_type,n_questions,most_common_closest,avg_thinking_gap,avg_graph_gap,avg_synthesis_gap,avg_preflexor_gap
+causal_multiscale_reasoning,1,graph_answer,0.0967,0.254,0.1263,0.0572
+cross_domain_mapping,2,graph_answer,0.072,0.2231,0.1348,0.0478
+hidden_variable_identification,1,graph_answer,0.0753,0.2028,0.137,0.0362
+model_abstraction_and_breakdown,3,graph_answer,0.0611,0.2341,0.1094,0.0429
+tradeoff_and_non_monotonicity,3,qwen_thinking,0.0859,0.1358,0.1348,0.0825

@@ -1,0 +1,11 @@
+id,question_type,sim_qwen_answer_to_qwen_thinking,sim_qwen_answer_to_graph_brainstorm,sim_qwen_answer_to_graph_graph,sim_qwen_answer_to_graph_patterns,sim_qwen_answer_to_graph_synthesis,sim_qwen_answer_to_graph_answer,closest_stage
+1,cross_domain_mapping,0.915471,0.897612,0.863909,0.827978,0.87508,0.967205,graph_answer
+2,cross_domain_mapping,0.940421,0.927127,0.689891,0.677422,0.85536,0.937276,qwen_thinking
+3,causal_multiscale_reasoning,0.903263,0.884678,0.74597,0.749578,0.873655,0.94283,graph_answer
+4,hidden_variable_identification,0.924685,0.888797,0.797238,0.770708,0.863029,0.963838,graph_answer
+5,model_abstraction_and_breakdown,0.939866,0.948515,0.761974,0.724021,0.915778,0.952806,graph_answer
+6,tradeoff_and_non_monotonicity,0.878313,0.899782,0.860697,0.651684,0.890852,0.917337,graph_answer
+7,tradeoff_and_non_monotonicity,0.947073,0.917679,0.864686,0.678389,0.81084,0.923682,qwen_thinking
+8,model_abstraction_and_breakdown,0.915426,0.926375,0.77313,0.752692,0.889189,0.961031,graph_answer
+9,tradeoff_and_non_monotonicity,0.917007,0.894015,0.867334,0.7577,0.893991,0.911608,qwen_thinking
+10,model_abstraction_and_breakdown,0.961382,0.948699,0.762685,0.625822,0.866871,0.957467,qwen_thinking
