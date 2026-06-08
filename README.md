@@ -175,21 +175,6 @@ Source papers span: large language models, spider silk, polymer nanocomposites, 
 
 ---
 
-## Citation
-
-```bibtex
-@article{pal2026graphpreflexor,
-  title   = {Graph-PRefLexOR: Traceable Scientific Hypothesis Generation via Graph-Structured Reinforcement Learning},
-  author  = {Pal, Subhadeep and Sourav, Shashwat and Ghosal, Tirthankar and Buehler, Markus J.},
-  year    = {2026},
-  institution = {Massachusetts Institute of Technology}
-}
-```
-
----
-
----
-
 ## Experiment 2: Backtracking Analysis
 
 This analysis asks: *When Qwen3-8B produces a final answer, does it backtrack more to its own visible thinking, or to Graph-PRefLexOR's structured reasoning stages?*
@@ -225,3 +210,16 @@ This analysis asks: *When Qwen3-8B produces a final answer, does it backtrack mo
 ## Acknowledgments
 
 This work was supported by the U.S. Department of Energy, Office of Science, Office of Advanced Scientific Computing Research and Office of Basic Energy Sciences, Scientific Discovery through Advanced Computing (SciDAC) program under the FORUM-AI project.
+
+---
+
+## Citation
+
+```bibtex
+@article{pal2026graphpreflexor,
+  title   = {Graph-PRefLexOR: Traceable Scientific Hypothesis Generation via Graph-Structured Reinforcement Learning},
+  author  = {Pal, Subhadeep and Sourav, Shashwat and Ghosal, Tirthankar and Buehler, Markus J.},
+  year    = {2026},
+  institution = {Massachusetts Institute of Technology}
+}
+```
