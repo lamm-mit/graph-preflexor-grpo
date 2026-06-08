@@ -2,7 +2,7 @@
 
 **Paper:** *Graph-PRefLexOR: Traceable Scientific Hypothesis Generation via Graph-Structured Reinforcement Learning*  
 **Authors:** Subhadeep Pal, Shashwat Sourav, Tirthankar Ghosal, Markus J. Buehler  
-**Institutions:** Massachusetts Institute of Technology; Washington University in St. Louis; Oak Ridge National Laboratory  
+**Institutions:** Massachusetts Institute of Technology; Washington University in St. Louis; Oak Ridge National Laboratory; Lawrence Berkeley National Laboratory  
 **Contact:** spu8516@mit.edu, s.shashwat@wustl.edu, ghosalt@ornl.gov, mbuehler@mit.edu
 
 ---
@@ -220,6 +220,6 @@ This work was supported by the U.S. Department of Energy, Office of Science, Off
   title   = {Graph-PRefLexOR: Traceable Scientific Hypothesis Generation via Graph-Structured Reinforcement Learning},
   author  = {Pal, Subhadeep and Sourav, Shashwat and Ghosal, Tirthankar and Buehler, Markus J.},
   year    = {2026},
-  institution = {Massachusetts Institute of Technology}
+  institution = {Massachusetts Institute of Technology; Washington University in St. Louis; Oak Ridge National Laboratory; Lawrence Berkeley National Laboratory}
 }
 ```
