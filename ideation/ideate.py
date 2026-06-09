@@ -61,13 +61,16 @@ def main():
     print(f"[ideate] writing to {os.path.abspath(args.out)}/  (transcript.jsonl, growth.csv live)")
 
     graphml_path = os.path.join(args.out, "graph.graphml")
+    graphml_dir = os.path.join(args.out, "graphml")       # per-iteration snapshots
+    os.makedirs(graphml_dir, exist_ok=True)
 
     def on_step(rec, store):
         tf.write(json.dumps(rec) + "\n"); tf.flush()
         gf.write(f"{rec['iter']},{rec['depth']},{rec['n_nodes']},{rec['n_edges']},"
                  f"{len(rec['new_nodes'])},{rec['tokens']},{rec['cum_tokens']},"
                  f"{rec['diversity']:.4f}\n"); gf.flush()
-        nx.write_graphml(store.G, graphml_path)        # checkpoint each step (usable mid-run)
+        nx.write_graphml(store.G, graphml_path)           # latest (usable mid-run)
+        nx.write_graphml(store.G, os.path.join(graphml_dir, f"iter_{rec['iter']:04d}.graphml"))
         print(f"  iter {rec['iter']:>3}  +{len(rec['new_nodes'])} nodes  "
               f"({rec['n_nodes']}n/{rec['n_edges']}e)  q={rec['question'][:70]}")
 
