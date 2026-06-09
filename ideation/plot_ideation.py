@@ -20,6 +20,7 @@ import os
 
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 
 PALETTE = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e"]
 plt.rcParams.update({
@@ -91,12 +92,49 @@ def graph_snapshot(run_dir, label, base):
     a.axis("off"); fig.tight_layout(); _save(fig, f"{base}_graph_{label.replace(' ', '_')}")
 
 
+def graph_growth(run_dir, label, base, frames=6):
+    """Montage of the idea-graph at increasing iterations, reconstructed from the
+    per-node/edge `iter` provenance in graph.graphml (fixed layout across frames)."""
+    G = nx.read_graphml(os.path.join(run_dir, "graph.graphml"))
+    if G.number_of_nodes() == 0:
+        return
+
+    def it(attrs):
+        try:
+            return int(float(attrs.get("iter", 0)))
+        except Exception:
+            return 0
+
+    max_it = max([it(G.nodes[n]) for n in G] + [0])
+    checkpoints = sorted(set(int(round(x)) for x in np.linspace(0, max_it, frames)))
+    pos = nx.spring_layout(G, seed=0, k=0.6)              # fixed layout (final graph)
+    deg = dict(G.degree())
+    ncol = min(len(checkpoints), 3)
+    nrow = int(np.ceil(len(checkpoints) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 3.0 * nrow))
+    axes = np.atleast_1d(axes).ravel()
+    for ax, t in zip(axes, checkpoints):
+        H = G.subgraph([n for n in G if it(G.nodes[n]) <= t])
+        nx.draw_networkx_edges(H, pos, ax=ax, alpha=0.2, arrows=False, width=0.6)
+        nx.draw_networkx_nodes(H, pos, ax=ax, node_color="#1f77b4", alpha=0.85, linewidths=0,
+                               node_size=[18 + 22 * deg[n] for n in H])
+        ax.set_title(f"iter ≤ {t}  ({H.number_of_nodes()}n/{H.number_of_edges()}e)", fontsize=9)
+        ax.axis("off")
+    for ax in axes[len(checkpoints):]:
+        ax.axis("off")
+    fig.suptitle(f"Idea-graph growth — {label}", y=1.0)
+    fig.tight_layout()
+    _save(fig, f"{base}_growth_{label.replace(' ', '_')}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--runs", nargs="+", required=True, help="one or more run dirs")
     p.add_argument("--labels", nargs="+", help="legend labels (default: dir names)")
     p.add_argument("--out", default="figures/ideation")
     p.add_argument("--no-graph", action="store_true", help="skip graph snapshots")
+    p.add_argument("--growth-frames", type=int, default=6,
+                   help="frames in the graph-growth montage (0 = skip)")
     args = p.parse_args()
     labels = args.labels or [os.path.basename(r.rstrip("/")) for r in args.runs]
     runs = [load_run(r) for r in args.runs]
@@ -105,6 +143,8 @@ def main():
     if not args.no_graph:
         for rd, lab in zip(args.runs, labels):
             graph_snapshot(rd, lab, args.out)
+            if args.growth_frames > 0:
+                graph_growth(rd, lab, args.out, frames=args.growth_frames)
 
 
 if __name__ == "__main__":
