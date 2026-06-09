@@ -316,13 +316,16 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--runs", nargs="+", required=True, help="one or more run dirs")
     p.add_argument("--labels", nargs="+", help="legend labels (default: dir names)")
-    p.add_argument("--out", default="figures/ideation")
+    p.add_argument("--out", default=None,
+                   help="figure basename (default: <first-run-dir>/figures/ideation)")
     p.add_argument("--no-graph", action="store_true", help="skip graph snapshots")
     p.add_argument("--growth-frames", type=int, default=6,
                    help="frames in the graph-growth montage (0 = skip)")
     p.add_argument("--movie", action="store_true", help="also render an animated GIF of growth")
     p.add_argument("--movie-fps", type=int, default=2)
     args = p.parse_args()
+    if args.out is None:                                  # default: inside the (first) run dir
+        args.out = os.path.join(args.runs[0].rstrip("/"), "figures", "ideation")
     labels = args.labels or [os.path.basename(r.rstrip("/")) for r in args.runs]
     loaded = [load_run(r) for r in args.runs]
     curves(loaded, args.runs, labels, args.out, mode="depth")       # *_curves        (reasoning depth)

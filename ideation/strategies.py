@@ -56,11 +56,13 @@ def frontier_driven(ctx):
     G = ctx["store"].G
     if G.number_of_nodes() == 0:
         return []
+    queried = ctx.get("queried", set())
     deg = dict(G.degree())
-    leaves = sorted(deg, key=deg.get)[:max(1, ctx["cfg"]["fanout"])]      # grow outward
+    pool = [n for n in deg if n not in queried] or list(deg)              # prefer UNvisited
+    leaves = sorted(pool, key=deg.get)[:max(1, ctx["cfg"]["fanout"])]     # lowest-degree first
     try:
         bc = nx.betweenness_centrality(G) if G.number_of_nodes() > 3 else {}
-        hubs = sorted(bc, key=bc.get, reverse=True)[:1]                   # deepen a hub
+        hubs = [n for n in sorted(bc, key=bc.get, reverse=True) if n not in queried][:1]
     except Exception:
         hubs = []
     targets, seen = [], set()
@@ -77,8 +79,9 @@ def novelty_driven(ctx):
     vecs = ctx["store"].node_vectors()
     if len(vecs) < 3:
         return node_driven(ctx)
-    ids = list(vecs)
-    centroid = np.mean([vecs[i] for i in ids], axis=0)
+    queried = ctx.get("queried", set())
+    centroid = np.mean([vecs[i] for i in vecs], axis=0)
+    ids = [i for i in vecs if i not in queried] or list(vecs)             # prefer UNvisited
     far = sorted(ids, key=lambda i: float(np.dot(vecs[i], centroid)))     # least central
     return [{"q": _q(f"What is an unconventional or overlooked aspect of '{t}', and why "
                      f"might it matter?", ctx["topic"]), "anchor": t}

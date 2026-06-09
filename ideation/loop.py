@@ -40,6 +40,7 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
     budget, nstop = cfg["budget"], cfg["novelty_stop"]
     heap, counter, seen_q = [], 0, set()
     node_origin, last_id = {}, None
+    queried = set()                          # anchors already expanded (avoid frontier fixation)
     recent_new = deque(maxlen=nstop["window"])
     transcript = []
 
@@ -56,6 +57,8 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
         _, _, cand = heapq.heappop(heap)
         q = cand["q"]
         depth = cand.get("depth", 0)                       # hops from the seed
+        if cand.get("anchor"):
+            queried.add(cand["anchor"])                    # mark this anchor expanded
         parent = _parent_id(cfg["context_mode"], cand, node_origin, last_id)
         out = clients.generate(q, previous_id=parent)
         calls += 1; tokens += out["usage"]; last_id = out["id"]
@@ -77,7 +80,8 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
             on_step(rec, store)
 
         ctx = {"topic": topic, "question": q, "parse": p, "store": store,
-               "new_nodes": new_nodes, "clients": clients, "cfg": cfg, "iter": it}
+               "new_nodes": new_nodes, "clients": clients, "cfg": cfg, "iter": it,
+               "queried": queried}
         for c in strategy_fn(ctx):
             if not c["q"] or c["q"] in seen_q:
                 continue
@@ -89,4 +93,17 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
         if len(recent_new) == recent_new.maxlen and sum(recent_new) < nstop["min_new_nodes"] * recent_new.maxlen:
             break   # novelty converged
 
-    return store, transcript, {"calls": calls, "tokens": tokens, "iters": it}
+    if calls >= budget["generator_calls"]:
+        reason = "budget_calls"
+    elif tokens >= budget["max_tokens"]:
+        reason = "budget_tokens"
+    elif it >= budget["max_iters"]:
+        reason = "max_iters"
+    elif not heap:
+        reason = "frontier_empty"
+    else:
+        reason = "novelty_stop"
+    print(f"[loop] stopped: {reason}  (calls={calls}, tokens={tokens}, iters={it}, "
+          f"frontier={len(heap)}, nodes={store.G.number_of_nodes()})")
+    return store, transcript, {"calls": calls, "tokens": tokens, "iters": it,
+                               "stop_reason": reason}

@@ -5,12 +5,30 @@ topic, generate a structured graph-native answer, accumulate its `<graph_json>` 
 growing NetworkX graph (with embedding de-duplication), and expand via follow-up questions
 until a compute budget is spent — then score the result for ideation/creativity.
 
-## 1. Serve both models (mistral.rs, one endpoint)
 
+## Specific examples - Quick Start
+
+### 1 - stalls out as no new nodes are added
+
+```bash
+python ideate.py --topic "self-healing biopolymer composites" --strategy frontier --budget-calls 100000  --max-iter 10000  --out runs/exp1
+
+python plot_ideation.py --runs runs/exp1 --labels "Graph-PRefLexOR-3B" --out runs/exp1/figures/ideation
+```
+
+
+## 1. Serve both models (mistral.rs, vLLM, etc.)
+
+mistral.rs:
 ```bash
 mistralrs from-config -f models.toml          # generator + questioner on :1234
 curl -s http://localhost:1234/v1/models        # verify both loaded
 python /path/to/mistral.rs/examples/server/responses.py   # verify /v1/responses works
+```
+
+vLLM:
+```bash
+HF_TOKEN="your_hf_token" vllm serve lamm-mit/Graph-Preflexor-3b_08012026 --port 1234 --gpu-memory-utilization 0.6
 ```
 
 ## 2. Install + configure
