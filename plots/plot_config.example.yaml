@@ -1,0 +1,23 @@
+# Template plotting config -- copy to plot_config.yaml and fill in your wandb run IDs.
+#   cp plot_config.example.yaml plot_config.yaml
+# (plot_config.yaml is gitignored so private run IDs are not committed.)
+entity: your-wandb-entity
+project: your-wandb-project
+
+# For `grpo`, the first id is the main run; an optional second id is a
+# continuation/resume whose first `max_step_b` steps are appended after it.
+models:
+  - label: Graph-PRefLexOR-1.7B
+    color: "#1f77b4"
+    orpo: <orpo_run_id>
+    grpo: [<grpo_run_id>]
+  - label: Graph-PRefLexOR-3B
+    color: "#ff7f0e"
+    orpo: <orpo_run_id>
+    grpo: [<grpo_run_id>, <grpo_continuation_run_id>]
+  - label: Graph-PRefLexOR-8B
+    color: "#2ca02c"
+    orpo: <orpo_run_id>
+    grpo: [<grpo_run_id>]
+
+max_step_b: 1000
