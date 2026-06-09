@@ -1,0 +1,129 @@
+# Ideation loop
+
+Turn Graph-PRefLexOR into a self-expanding **knowledge-graph ideation engine**: seed a
+topic, generate a structured graph-native answer, accumulate its `<graph_json>` into a
+growing NetworkX graph (with embedding de-duplication), and expand via follow-up questions
+until a compute budget is spent — then score the result for ideation/creativity.
+
+## 1. Serve both models (mistral.rs, one endpoint)
+
+```bash
+mistralrs from-config -f models.toml          # generator + questioner on :1234
+curl -s http://localhost:1234/v1/models        # verify both loaded
+python /path/to/mistral.rs/examples/server/responses.py   # verify /v1/responses works
+```
+
+## 2. Install + configure
+
+```bash
+pip install -r requirements.txt
+cp config.example.yaml config.yaml             # then edit if needed
+```
+
+## 3. Run
+
+```bash
+python ideate.py --topic "self-healing biopolymer composites" \
+    --strategy frontier --context-mode branched --budget-calls 40 --out runs/exp1
+```
+
+Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.jsonl`,
+`growth.csv` (ideas vs compute), `summary.json` (metrics).
+
+## Dials
+
+| Flag | Meaning |
+|------|---------|
+| `--strategy` | `frontier` (graph-analytic, default) · `node` (breadth) · `answer` (depth, LLM follow-ups) · `edge` (densify/missing links) · `novelty` · `mixed` |
+| `--context-mode` | `branched` (chain off the node's origin response, default) · `chained` (off previous) · `fresh` (independent) |
+| `--budget-calls / --budget-tokens / --max-iters` | compute budget (first to hit wins; novelty-stop also applies) |
+| `--fanout` | questions spawned per step |
+| `--dedup-threshold` | node-merge cosine (higher = stricter) |
+
+## How it works
+
+### The loop (`loop.py`)
+Each step: **pop** the highest-priority question → **generate** a graph-native answer
+(Graph-PRefLexOR) → **parse** its `<graph_json>` → **merge** it into one growing NetworkX
+graph (with embedding de-dup) → **expand** by asking a strategy for follow-up questions →
+**stop** when the budget or novelty-stop triggers.
+
+### The frontier = a best-first priority queue
+Questions live in a `heapq` used as a max-priority queue: items are pushed as
+`(-priority, counter, candidate)`, where a candidate is `{"q": question, "anchor": node}`.
+`-priority` turns the min-heap into max-first; `counter` is a FIFO tiebreaker that also keeps
+Python from comparing the dicts. Priority (`_score`) is `1 / (1 + degree(anchor))`, so
+**low-degree / peripheral nodes are expanded first** — the search fans out across the graph
+frontier rather than drilling one path (DFS) or sweeping uniformly (BFS). A `seen_q` set
+prevents re-asking a question, so the loop can't cycle. The seed topic enters with priority 1.0.
+
+### Strategies and templates (`strategies.py`)
+The **generator** (Graph-PRefLexOR) is called every step. The **questioner** LLM is called
+*only* by the `answer` strategy — the rest derive the next question from the graph's
+**structure** (NetworkX) and fill a fixed string template, so they need **no second LLM**.
+Every templated question is wrapped by `_q(text, topic)` to stay anchored to the topic.
+
+| Strategy | Target chosen by | Template | 2nd LLM? |
+|---|---|---|---|
+| `node` | each new node `n` | `By what mechanism does '{n}' operate, and what does it depend on?` | no |
+| `frontier` | low-degree leaves + a high-betweenness hub `t` | `What is not yet explained about '{t}'?` | no |
+| `edge` | embedding-close **unconnected** pair `(a,b)` | `How are '{a}' and '{b}' related, and what connects them?` | no |
+| `novelty` | node `t` farthest from the embedding centroid | `Explore an unconventional angle on '{t}'.` | no |
+| `mixed` | rotates frontier→node→edge→novelty | (those) | no |
+| `answer` | — | sends the prose answer to the questioner asking for `fanout` follow-ups | **yes** |
+
+Cost per step: heuristic strategies = **1 LLM call** (generator); `answer` = **2** (generator +
+questioner).
+
+### Context modes (`previous_response_id`)
+- `fresh` — every question independent (no memory).
+- `chained` — chain off the previous response (linear deepening).
+- `branched` *(default)* — chain off the response that first introduced the anchor node, so
+  expanding a concept continues the conversation where it was born.
+
+## Metrics (`summary.json`)
+
+- **Graph dynamics:** nodes, edges, density, components, largest-component fraction, clustering, longest path.
+- **Semantic diversity:** mean pairwise embedding distance, embedding spread.
+- **Creativity proxies:** fluency (ideas), ideas-per-call (efficiency), elaboration (edges/idea), flexibility (clusters).
+
+## Plots (`plot_ideation.py`)
+
+Each run logs a per-step `growth.csv` (nodes, edges, cumulative tokens, diversity). Render
+journal-quality figures — pass several run dirs to overlay them:
+
+```bash
+python plot_ideation.py --runs runs/graphpreflexor runs/gpt4o \
+    --labels "Graph-PRefLexOR-3B" "GPT-4o" --out figures/ideation
+```
+
+Produces (PNG + SVG + PDF each, shared styling):
+- **`*_curves`** — 2×2: **(a) ideas vs compute**, **(b) semantic diversity vs compute**,
+  **(c) elaboration** (edges/idea), **(d) connectivity** — overlaid across models.
+- **`*_bars`** — final-metric comparison (fluency, ideas/call, diversity, flexibility, …).
+- **`*_graph_<label>`** — spring-layout snapshot of each accumulated idea graph.
+
+The "ideas vs compute" and "diversity vs compute" curves are the headline result: more,
+more-diverse ideas per generator call.
+
+## Evaluation vs other models
+
+The experiment **fixes the loop and swaps the generator**:
+
+1. Run the loop with Graph-PRefLexOR and with a **baseline** (frontier API or another local
+   model via the `baseline:` endpoint) under **identical** topic / strategy / context-mode /
+   budget / seed.
+2. For fairness, give the baseline the **same sentinel template** so it emits `<graph_json>`,
+   and parse both with `parse.py`.
+3. Overlay with `plot_ideation.py`; optionally run a **blind LLM-judge** pairwise on extracted
+   hypotheses (novelty / insight / testability) → win-rate.
+4. Repeat over several seed topics; report mean ± std + significance.
+
+`compare.py` (orchestrates the two runs + judge + report) is a **stub** — the loop, metrics,
+and plots it needs are ready.
+
+## Files
+
+`ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
+`graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
+`clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `compare.py` (baseline, TODO).
