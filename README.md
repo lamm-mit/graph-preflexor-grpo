@@ -1188,7 +1188,7 @@ cd plots
 cp plot_config.example.yaml plot_config.yaml # then add your wandb entity/project + run IDs
 ```
 
-`plot_config.yaml` (gitignored — see `plot_config.example.yaml` for the template):
+`plot_config.yaml` (see `plot_config.example.yaml` for the template):
 
 ```yaml
 entity: your-wandb-entity
