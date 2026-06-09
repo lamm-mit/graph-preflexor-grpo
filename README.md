@@ -32,6 +32,17 @@ The model learns to produce responses with this structure:
 Detailed final answer here...
 ```
 
+## Ideation engine (`ideation/`)
+
+Beyond training, the trained models can drive a **self-expanding knowledge-graph ideation
+loop**: seed a topic, generate a graph-native answer, accumulate its `<graph_json>` into one
+growing graph (with embedding de-duplication), and expand via follow-up questions under a
+compute budget — then score the result for ideation/creativity and compare against a frontier
+model. Served with an OpenAI-compatible endpoint (e.g. mistral.rs, Responses API).
+
+See **[`ideation/README.md`](ideation/README.md)** for setup, the strategy/context-mode
+options, metrics, and journal-quality plots.
+
 ## Pipeline
 
 ```

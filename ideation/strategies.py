@@ -25,7 +25,7 @@ def node_driven(ctx):
 # ---- depth: ask the questioner LLM for follow-ups to the latest answer ----
 def answer_driven(ctx):
     k = ctx["cfg"]["fanout"]
-    prompt = (f"Topic: {ctx['topic']}\n\nAnswer so far:\n{ctx['parse']['answer'][:2000]}\n\n"
+    prompt = (f"Topic: {ctx['topic']}\n\nAnswer so far:\n{ctx['parse']['answer']}\n\n"
               f"Propose {k} specific, non-overlapping follow-up questions that would deepen or "
               f"expand this into new territory. One per line, no numbering.")
     text, _ = ctx["clients"].ask(prompt)
