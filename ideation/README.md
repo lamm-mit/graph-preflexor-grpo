@@ -24,7 +24,7 @@ cp config.example.yaml config.yaml             # then edit if needed
 
 ```bash
 python ideate.py --topic "self-healing biopolymer composites" \
-    --strategy frontier --context-mode branched --budget-calls 40 --out runs/exp1
+    --strategy frontier --context-mode fresh --budget-calls 40 --out runs/exp1
 ```
 
 Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.jsonl`,
@@ -35,7 +35,7 @@ Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.
 | Flag | Meaning |
 |------|---------|
 | `--strategy` | `frontier` (graph-analytic, default) · `node` (breadth) · `answer` (depth, LLM follow-ups) · `edge` (densify/missing links) · `novelty` · `mixed` |
-| `--context-mode` | `branched` (chain off the node's origin response, default) · `chained` (off previous) · `fresh` (independent) |
+| `--context-mode` | `fresh` (independent single turns — default, matches single-turn training) · `chained` / `branched` (multi-turn, **experimental**) |
 | `--budget-calls / --budget-tokens / --max-iters` | compute budget (first to hit wins; novelty-stop also applies) |
 | `--fanout` | questions spawned per step |
 | `--dedup-threshold` | node-merge cosine (higher = stricter) |
@@ -76,10 +76,21 @@ Cost per step: heuristic strategies = **1 LLM call** (generator); `answer` = **2
 questioner).
 
 ### Context modes (`previous_response_id`)
-- `fresh` — every question independent (no memory).
-- `chained` — chain off the previous response (linear deepening).
-- `branched` *(default)* — chain off the response that first introduced the anchor node, so
-  expanding a concept continues the conversation where it was born.
+> **Graph-PRefLexOR is single-turn trained** (one standalone question → one trace+answer), so
+> **`fresh` is the in-distribution default and recommended mode.** The loop does not need the
+> model's conversation memory — accumulation happens in our client-side `GraphStore`, and the
+> strategies ask self-contained questions that match the training distribution. `chained` and
+> `branched` feed the model a multi-turn conversation it never saw in training; they rely on
+> the *base* model's residual multi-turn ability and are **experimental** (may hurt format /
+> `<graph_json>` adherence).
+
+We **never inject or pre-write** the `<think>` block. Each generation returns a `response.id`;
+the server keeps that turn server-side. We pass an id back as `previous_response_id` and the
+server reconstructs the conversation thread. The modes differ only in **which id** we pass:
+- `fresh` *(default)* — pass `None`: every question is an independent single turn (matches training).
+- `chained` *(experimental)* — pass the **previous** response: one linear, multi-turn conversation.
+- `branched` *(experimental)* — pass the response that **first introduced the anchor node**
+  (`node_origin[node]`): a *tree* of conversations. (No anchor → falls back to the last response.)
 
 ## Metrics (`summary.json`)
 
@@ -105,6 +116,49 @@ Produces (PNG + SVG + PDF each, shared styling):
 
 The "ideas vs compute" and "diversity vs compute" curves are the headline result: more,
 more-diverse ideas per generator call.
+
+## Examples (end-to-end)
+
+All of these use **a single LLM** (only Graph-PRefLexOR) and **`fresh` context mode** — i.e.
+every generation is an independent single turn, matching how the model was trained. The
+graph still grows because accumulation is client-side; only the *strategy* (how the next
+question is chosen from the graph) varies.
+
+```bash
+# A. Frontier (graph-analytic, the recommended default)
+python ideate.py --topic "self-healing biopolymer composites" \
+    --strategy frontier --context-mode fresh --budget-calls 40 --out runs/heal_frontier
+python plot_ideation.py --runs runs/heal_frontier --labels "frontier" --out figures/heal
+
+# B. Node (breadth-first: one question per new concept)
+python ideate.py --topic "mechanical metamaterials for energy absorption" \
+    --strategy node --context-mode fresh --budget-calls 30 --fanout 4 --out runs/meta_node
+python plot_ideation.py --runs runs/meta_node --labels "node" --out figures/meta
+
+# C. Edge (densify: probe likely-but-missing links)
+python ideate.py --topic "spider silk structure-property relationships" \
+    --strategy edge --context-mode fresh --budget-calls 35 --out runs/silk_edge
+python plot_ideation.py --runs runs/silk_edge --labels "edge" --out figures/silk
+
+# D. Novelty (steer to under-explored regions of the idea space)
+python ideate.py --topic "bioinspired underwater adhesion" \
+    --strategy novelty --context-mode fresh --budget-calls 30 --out runs/adh_novelty
+python plot_ideation.py --runs runs/adh_novelty --labels "novelty" --out figures/adh
+
+# E. Same topic, two strategies, OVERLAID on one figure
+python ideate.py --topic "collagen toughening mechanisms" \
+    --strategy frontier --budget-calls 40 --out runs/coll_frontier
+python ideate.py --topic "collagen toughening mechanisms" \
+    --strategy node --budget-calls 40 --out runs/coll_node
+python plot_ideation.py --runs runs/coll_frontier runs/coll_node \
+    --labels "frontier" "node" --out figures/coll_compare
+```
+
+Notes:
+- The `answer` strategy is the only one that also calls the questioner LLM (open-ended,
+  prose-driven follow-ups instead of structure-driven ones).
+- `--context-mode chained|branched` are experimental for this single-turn-trained model; leave
+  it `fresh` unless you're deliberately testing multi-turn behavior.
 
 ## Evaluation vs other models
 

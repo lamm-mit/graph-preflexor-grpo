@@ -17,6 +17,6 @@ in_situ_quant = "8"
 # Questioner — Qwen3-8B (Q4 to share Metal memory)
 [[models]]
 kind = "text"
-model_id = "Qwen/Qwen3-8B"
+model_id = "Qwen/Qwen3-0.6B" # "Qwen/Qwen3-8B"
 [models.quantization]
 in_situ_quant = "4"

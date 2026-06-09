@@ -28,7 +28,7 @@ dedup_threshold: 0.85                     # cosine; >= => same canonical node
 link_sim: 0.55                            # edge_driven: min sim to propose a missing link
 
 strategy: frontier                        # frontier|node|answer|edge|novelty|mixed
-context_mode: branched                    # fresh|chained|branched
+context_mode: fresh                        # fresh|chained|branched  (fresh = single-turn, matches training)
 fanout: 3                                 # questions spawned per step
 
 budget:
