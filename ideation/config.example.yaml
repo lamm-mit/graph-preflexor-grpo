@@ -1,0 +1,41 @@
+# Ideation-loop config. Copy to config.yaml and adjust.
+#   cp config.example.yaml config.yaml
+# config.yaml is gitignored (may hold private endpoints / model ids).
+
+server:
+  base_url: "http://localhost:1234/v1"   # mistral.rs (serves both models)
+  api_key: "x"                            # any non-empty string for a local server
+
+generator:                                # Graph-PRefLexOR
+  model: "lamm-mit/Graph-Preflexor-3b_08012026"
+  temperature: 0.8
+  max_tokens: 6000
+
+questioner:                               # follow-up asker
+  model: "Qwen/Qwen3-8B"
+  temperature: 0.9
+  max_tokens: 512
+
+# Optional head-to-head baseline (a frontier API or another local model on its own endpoint).
+# baseline:
+#   base_url: "https://api.openai.com/v1"
+#   api_key:  "${OPENAI_API_KEY}"
+#   model:    "gpt-4o"
+#   max_tokens: 6000
+
+embed_model: all-MiniLM-L6-v2             # node dedup + semantic diversity
+dedup_threshold: 0.85                     # cosine; >= => same canonical node
+link_sim: 0.55                            # edge_driven: min sim to propose a missing link
+
+strategy: frontier                        # frontier|node|answer|edge|novelty|mixed
+context_mode: branched                    # fresh|chained|branched
+fanout: 3                                 # questions spawned per step
+
+budget:
+  generator_calls: 40                     # primary compute budget
+  max_tokens: 600000
+  max_iters: 60
+
+novelty_stop:                             # stop if too few new ideas for a while
+  window: 4
+  min_new_nodes: 2

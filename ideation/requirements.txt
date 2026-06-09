@@ -1,0 +1,6 @@
+openai>=1.40
+networkx>=3
+numpy
+pyyaml
+sentence-transformers
+scikit-learn   # optional: flexibility (cluster) metric
