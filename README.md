@@ -1177,6 +1177,39 @@ python src/merge_models.py \
 | `--trim_percentile` | Task Arithmetic: outlier percentile to trim (default: 0) |
 | `--hub_public` | Make Hub repo public (default: private) |
 
+
+## Training figures
+
+Generate the ORPO/Graph-GRPO training figures from [Weights & Biases](https://wandb.ai/) logs. All scripts live in `plots/` and read run IDs from a YAML config (kept out of git).
+
+```bash
+pip install wandb pandas matplotlib pyyaml   # requirements (+ `wandb login`)
+cd plots
+cp plot_config.example.yaml plot_config.yaml # then add your wandb entity/project + run IDs
+```
+
+`plot_config.yaml` (gitignored — see `plot_config.example.yaml` for the template):
+
+```yaml
+entity: your-wandb-entity
+project: your-wandb-project
+models:
+  - {label: Graph-PRefLexOR-1.7B, color: "#1f77b4", orpo: <orpo_id>, grpo: [<grpo_id>]}
+  - {label: Graph-PRefLexOR-3B,   color: "#ff7f0e", orpo: <orpo_id>, grpo: [<grpo_id>, <continuation_id>]}
+  - {label: Graph-PRefLexOR-8B,   color: "#2ca02c", orpo: <orpo_id>, grpo: [<grpo_id>]}
+max_step_b: 1000   # steps of a grpo continuation run appended after the main run
+```
+
+Generate the three paper figures (each writes PNG+SVG+PDF to `plots/figures/`):
+
+```bash
+python plot_orpo_panels.py     # ORPO loss + accuracy/margin, panels (a)(b)(c)
+python plot_reward_panels.py   # GRPO total reward + 6 components, panels (a)(b)(c)
+python plot_length_diag.py     # completion length + GRPO diagnostics, panels (a)(b)
+```
+
+Options: `--config PATH` (or `$PLOT_CONFIG`), `--smooth N`, `--out PATH`. `plotcfg.py` is the shared config loader.
+
 ### References
 
 - [PRefLexOR](https://arxiv.org/abs/2410.12375) - PRefLexOR Model 
