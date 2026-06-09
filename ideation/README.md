@@ -119,8 +119,12 @@ python plot_ideation.py --runs runs/exp1 runs/gpt4o \
 
 
 Produces (PNG + SVG + PDF each, shared styling):
-- **`*_curves`** — 2×2: **(a) ideas vs compute**, **(b) semantic diversity vs compute**,
-  **(c) elaboration** (edges/idea), **(d) connectivity** — overlaid across models.
+- **`*_curves`** — 2×2: **(a) ideas**, **(b) semantic diversity**, **(c) elaboration**
+  (edges/idea), **(d) connectivity** — overlaid across models, x-axis = **reasoning depth**
+  (hops of follow-up questions from the seed; aggregated from each node/edge's `depth`
+  provenance).
+- **`*_curves_index`** — the same four panels vs **reasoning index** (the per-step iteration
+  counter). Both variants are written every run.
 - **`*_bars`** — final-metric comparison (fluency, ideas/call, diversity, flexibility, …).
 - **`*_graph_<label>`** — spring-layout snapshot of the final accumulated idea graph.
 - **`*_analytics_<label>`** — rich 2×3 graph-property panel: degree distribution (+ log-log),
@@ -137,8 +141,8 @@ Produces (PNG + SVG + PDF each, shared styling):
 `transcript.jsonl` and `growth.csv` are written **incrementally** during a run (flushed each
 step), so you can `tail -f` them live; `graph.graphml` and `summary.json` are written at the end.
 
-The "ideas vs compute" and "diversity vs compute" curves are the headline result: more,
-more-diverse ideas per generator call.
+The ideas- and diversity-vs-**reasoning-depth** curves are the headline result: how the idea
+space broadens as the model reasons further from the seed.
 
 ## Examples (end-to-end)
 

@@ -57,15 +57,16 @@ def main():
     # tail them immediately (the graph + summary are written at the end).
     tf = open(os.path.join(args.out, "transcript.jsonl"), "w")
     gf = open(os.path.join(args.out, "growth.csv"), "w")
-    gf.write("iter,n_nodes,n_edges,new_nodes,tokens,cum_tokens,diversity\n"); gf.flush()
+    gf.write("iter,depth,n_nodes,n_edges,new_nodes,tokens,cum_tokens,diversity\n"); gf.flush()
     print(f"[ideate] writing to {os.path.abspath(args.out)}/  (transcript.jsonl, growth.csv live)")
 
     graphml_path = os.path.join(args.out, "graph.graphml")
 
     def on_step(rec, store):
         tf.write(json.dumps(rec) + "\n"); tf.flush()
-        gf.write(f"{rec['iter']},{rec['n_nodes']},{rec['n_edges']},{len(rec['new_nodes'])},"
-                 f"{rec['tokens']},{rec['cum_tokens']},{rec['diversity']:.4f}\n"); gf.flush()
+        gf.write(f"{rec['iter']},{rec['depth']},{rec['n_nodes']},{rec['n_edges']},"
+                 f"{len(rec['new_nodes'])},{rec['tokens']},{rec['cum_tokens']},"
+                 f"{rec['diversity']:.4f}\n"); gf.flush()
         nx.write_graphml(store.G, graphml_path)        # checkpoint each step (usable mid-run)
         print(f"  iter {rec['iter']:>3}  +{len(rec['new_nodes'])} nodes  "
               f"({rec['n_nodes']}n/{rec['n_edges']}e)  q={rec['question'][:70]}")

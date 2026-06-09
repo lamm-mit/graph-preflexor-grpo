@@ -47,7 +47,7 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
         nonlocal counter
         heapq.heappush(heap, (-prio, counter, cand)); counter += 1
 
-    push({"q": topic, "anchor": None}, 1.0)
+    push({"q": topic, "anchor": None, "depth": 0}, 1.0)   # seed = reasoning depth 0
     seen_q.add(topic)
     calls = tokens = it = 0
 
@@ -55,19 +55,20 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
             and it < budget["max_iters"]:
         _, _, cand = heapq.heappop(heap)
         q = cand["q"]
+        depth = cand.get("depth", 0)                       # hops from the seed
         parent = _parent_id(cfg["context_mode"], cand, node_origin, last_id)
         out = clients.generate(q, previous_id=parent)
         calls += 1; tokens += out["usage"]; last_id = out["id"]
 
         p = parse_trace(out["full"])
         new_nodes = store.merge(p["graph"], prov={"question": q, "iter": it,
-                                                  "response_id": out["id"]})
+                                                  "depth": depth, "response_id": out["id"]})
         for cid in new_nodes:
             node_origin.setdefault(cid, out["id"])
         recent_new.append(len(new_nodes))
 
-        rec = {"iter": it, "question": q, "parent": parent, "response_id": out["id"],
-               "answer": p["answer"], "new_nodes": new_nodes,
+        rec = {"iter": it, "depth": depth, "question": q, "parent": parent,
+               "response_id": out["id"], "answer": p["answer"], "new_nodes": new_nodes,
                "n_nodes": store.G.number_of_nodes(), "n_edges": store.G.number_of_edges(),
                "tokens": out["usage"], "cum_tokens": tokens,
                "diversity": semantic_metrics(store)["mean_pairwise_distance"]}
@@ -81,6 +82,7 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
             if not c["q"] or c["q"] in seen_q:
                 continue
             seen_q.add(c["q"])
+            c["depth"] = depth + 1                         # children are one hop deeper
             push(c, _score(c, store))
 
         it += 1
