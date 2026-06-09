@@ -8,14 +8,44 @@ until a compute budget is spent — then score the result for ideation/creativit
 
 ## Specific examples - Quick Start
 
-### 1 - stalls out as no new nodes are added
+### 1 Short example
 
 ```bash
-python ideate.py --topic "self-healing biopolymer composites" --strategy frontier --budget-calls 100000  --max-iter 10000  --out runs/exp1
+# 1. Run the ideation loop  → writes runs/exp1/ (incl. per-iteration graphml/ snapshots)
+python ideate.py --topic "self-healing biopolymer composites" \
+    --strategy frontier --budget-calls 100 --out runs/exp1
 
-python plot_ideation.py --runs runs/exp1 --labels "Graph-PRefLexOR-3B" --out runs/exp1/figures/ideation
+# 2. Generate figures  → defaults into runs/exp1/figures/
+python plot_ideation.py --runs runs/exp1 --labels "Graph-PRefLexOR-3B"
+```
+### 2 Long run, frontier strategy
+
+```bash
+# 1. Run the ideation loop  → writes runs/exp2/ (incl. per-iteration graphml/ snapshots)
+python ideate.py --topic "self-healing biopolymer composites" --strategy frontier \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp2
+
+# 2. Generate figures  → defaults into runs/exp2/figures/
+python plot_ideation.py --runs runs/exp2 --labels "Graph-PRefLexOR-3B" --movie
 ```
 
+### 3 Long run, novelty strategy
+
+```basH
+python ideate.py --topic "self-healing biopolymer composites" --strategy novelty \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_novelty
+
+python plot_ideation.py --runs runs/exp_novelty --labels "Graph-PRefLexOR-3B" --movie
+```
+Then compare:
+
+```bash
+python plot_ideation.py --runs runs/exp2 runs/exp_novelty \
+    --labels "frontier" "novelty" --out figures/algo_compare
+
+```
 
 ## 1. Serve both models (mistral.rs, vLLM, etc.)
 
