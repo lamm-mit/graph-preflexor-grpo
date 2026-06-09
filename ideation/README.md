@@ -116,7 +116,10 @@ Produces (PNG + SVG + PDF each, shared styling):
 - **`*_curves`** — 2×2: **(a) ideas vs compute**, **(b) semantic diversity vs compute**,
   **(c) elaboration** (edges/idea), **(d) connectivity** — overlaid across models.
 - **`*_bars`** — final-metric comparison (fluency, ideas/call, diversity, flexibility, …).
-- **`*_graph_<label>`** — spring-layout snapshot of each accumulated idea graph.
+- **`*_graph_<label>`** — spring-layout snapshot of the final accumulated idea graph.
+- **`*_growth_<label>`** — montage of the graph **over iterations** (reconstructed from each
+  node/edge's `iter` provenance, fixed layout so nodes hold position). Control with
+  `--growth-frames N` (default 6; `0` to skip).
 
 The "ideas vs compute" and "diversity vs compute" curves are the headline result: more,
 more-diverse ideas per generator call.
