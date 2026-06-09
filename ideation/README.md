@@ -104,9 +104,13 @@ Each run logs a per-step `growth.csv` (nodes, edges, cumulative tokens, diversit
 journal-quality figures — pass several run dirs to overlay them:
 
 ```bash
-python plot_ideation.py --runs runs/graphpreflexor runs/gpt4o \
+python plot_ideation.py --runs runs/exp1 --labels "Graph-PRefLexOR-3B" --out figures/ideation
+```
+```bash
+python plot_ideation.py --runs runs/exp1 runs/gpt4o \
     --labels "Graph-PRefLexOR-3B" "GPT-4o" --out figures/ideation
 ```
+
 
 Produces (PNG + SVG + PDF each, shared styling):
 - **`*_curves`** — 2×2: **(a) ideas vs compute**, **(b) semantic diversity vs compute**,
