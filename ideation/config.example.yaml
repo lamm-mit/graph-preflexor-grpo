@@ -8,13 +8,13 @@ server:
 
 generator:                                # Graph-PRefLexOR
   model: "lamm-mit/Graph-Preflexor-3b_08012026"
-  temperature: 0.8
-  max_tokens: 6000
+  temperature: 0.1
+  max_tokens: 8000
 
 questioner:                               # follow-up asker
   model: "Qwen/Qwen3-8B"
-  temperature: 0.9
-  max_tokens: 512
+  temperature: 0.2
+  max_tokens: 8000
 
 # Optional head-to-head baseline (a frontier API or another local model on its own endpoint).
 # baseline:
@@ -38,4 +38,4 @@ budget:
 
 novelty_stop:                             # stop if too few new ideas for a while
   window: 4
-  min_new_nodes: 2
+  min_new_nodes: 0
