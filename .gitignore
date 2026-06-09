@@ -9,3 +9,4 @@
 __pycache__/
 ./runs/*
 ./ideation/runs/*
+./ideation/figures/*
