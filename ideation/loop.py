@@ -73,7 +73,7 @@ def run(clients, cfg, topic, strategy_fn, on_step=None):
                "diversity": semantic_metrics(store)["mean_pairwise_distance"]}
         transcript.append(rec)
         if on_step:
-            on_step(rec)
+            on_step(rec, store)
 
         ctx = {"topic": topic, "question": q, "parse": p, "store": store,
                "new_nodes": new_nodes, "clients": clients, "cfg": cfg, "iter": it}
