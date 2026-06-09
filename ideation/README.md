@@ -66,14 +66,20 @@ Every templated question is wrapped by `_q(text, topic)` to stay anchored to the
 | Strategy | Target chosen by | Template | 2nd LLM? |
 |---|---|---|---|
 | `node` | each new node `n` | `By what mechanism does '{n}' operate, and what does it depend on?` | no |
-| `frontier` | low-degree leaves + a high-betweenness hub `t` | `What is not yet explained about '{t}'?` | no |
+| `frontier` | low-degree leaves + a high-betweenness hub `t` | `What are the key unresolved questions and underlying mechanisms concerning '{t}'?` | no |
 | `edge` | embedding-close **unconnected** pair `(a,b)` | `How are '{a}' and '{b}' related, and what connects them?` | no |
-| `novelty` | node `t` farthest from the embedding centroid | `Explore an unconventional angle on '{t}'.` | no |
+| `novelty` | node `t` farthest from the embedding centroid | `What is an unconventional or overlooked aspect of '{t}', and why might it matter?` | no |
 | `mixed` | rotates frontier→node→edge→novelty | (those) | no |
 | `answer` | — | sends the prose answer to the questioner asking for `fanout` follow-ups | **yes** |
 
 Cost per step: heuristic strategies = **1 LLM call** (generator); `answer` = **2** (generator +
 questioner).
+
+Templates are deliberately **standalone, self-contained questions** (matching the single-turn
+training data) — the model is never told what is "already known" or "unexplored", because in
+`fresh` mode it has no such context. The loop's memory lives entirely in *which* node is
+selected from the accumulated graph (the strategy + frontier priority), **not** in the prompt
+wording.
 
 ### Context modes (`previous_response_id`)
 > **Graph-PRefLexOR is single-turn trained** (one standalone question → one trace+answer), so
@@ -117,9 +123,19 @@ Produces (PNG + SVG + PDF each, shared styling):
   **(c) elaboration** (edges/idea), **(d) connectivity** — overlaid across models.
 - **`*_bars`** — final-metric comparison (fluency, ideas/call, diversity, flexibility, …).
 - **`*_graph_<label>`** — spring-layout snapshot of the final accumulated idea graph.
+- **`*_analytics_<label>`** — rich 2×3 graph-property panel: degree distribution (+ log-log),
+  centrality distributions (betweenness/closeness/PageRank), top **hub ideas** by PageRank,
+  **relation-type** frequency, **community** sizes (modularity), and a global-metrics card
+  (**small-worldness** σ/ω, clustering, transitivity, avg path length, diameter, modularity Q,
+  assortativity, reciprocity, density). Scalars also dumped to `*_analysis_<label>.json`.
 - **`*_growth_<label>`** — montage of the graph **over iterations** (reconstructed from each
   node/edge's `iter` provenance, fixed layout so nodes hold position). Control with
   `--growth-frames N` (default 6; `0` to skip).
+- **`*_movie_<label>.gif`** — animated growth (one frame per iteration). Add `--movie`
+  (and `--movie-fps N`); needs `pillow`.
+
+`transcript.jsonl` and `growth.csv` are written **incrementally** during a run (flushed each
+step), so you can `tail -f` them live; `graph.graphml` and `summary.json` are written at the end.
 
 The "ideas vs compute" and "diversity vs compute" curves are the headline result: more,
 more-diverse ideas per generator call.

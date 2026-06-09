@@ -53,22 +53,30 @@ def main():
     print(f"[ideate] topic={args.topic!r}  strategy={cfg['strategy']}  "
           f"context={cfg['context_mode']}  budget={cfg['budget']}")
 
-    def on_step(rec):
+    # Incremental writers: transcript + growth grow on disk as the loop runs, so you can
+    # tail them immediately (the graph + summary are written at the end).
+    tf = open(os.path.join(args.out, "transcript.jsonl"), "w")
+    gf = open(os.path.join(args.out, "growth.csv"), "w")
+    gf.write("iter,n_nodes,n_edges,new_nodes,tokens,cum_tokens,diversity\n"); gf.flush()
+    print(f"[ideate] writing to {os.path.abspath(args.out)}/  (transcript.jsonl, growth.csv live)")
+
+    graphml_path = os.path.join(args.out, "graph.graphml")
+
+    def on_step(rec, store):
+        tf.write(json.dumps(rec) + "\n"); tf.flush()
+        gf.write(f"{rec['iter']},{rec['n_nodes']},{rec['n_edges']},{len(rec['new_nodes'])},"
+                 f"{rec['tokens']},{rec['cum_tokens']},{rec['diversity']:.4f}\n"); gf.flush()
+        nx.write_graphml(store.G, graphml_path)        # checkpoint each step (usable mid-run)
         print(f"  iter {rec['iter']:>3}  +{len(rec['new_nodes'])} nodes  "
               f"({rec['n_nodes']}n/{rec['n_edges']}e)  q={rec['question'][:70]}")
 
-    store, transcript, stats = run_loop(clients, cfg, args.topic, strat, on_step=on_step)
-    m = all_metrics(store, stats)
+    try:
+        store, transcript, stats = run_loop(clients, cfg, args.topic, strat, on_step=on_step)
+    finally:
+        tf.close(); gf.close()
 
+    m = all_metrics(store, stats)
     nx.write_graphml(store.G, os.path.join(args.out, "graph.graphml"))
-    with open(os.path.join(args.out, "transcript.jsonl"), "w") as f:
-        for r in transcript:
-            f.write(json.dumps(r) + "\n")
-    with open(os.path.join(args.out, "growth.csv"), "w") as f:
-        f.write("iter,n_nodes,n_edges,new_nodes,tokens,cum_tokens,diversity\n")
-        for r in transcript:
-            f.write(f"{r['iter']},{r['n_nodes']},{r['n_edges']},{len(r['new_nodes'])},"
-                    f"{r['tokens']},{r['cum_tokens']},{r['diversity']:.4f}\n")
     with open(os.path.join(args.out, "summary.json"), "w") as f:
         json.dump({"topic": args.topic,
                    "config": {k: cfg.get(k) for k in ("strategy", "context_mode",

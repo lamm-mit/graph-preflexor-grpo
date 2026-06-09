@@ -67,7 +67,8 @@ def frontier_driven(ctx):
     for n in leaves + hubs:
         if n not in seen:
             seen.add(n); targets.append(n)
-    return [{"q": _q(f"What is not yet explained about '{t}'?", ctx["topic"]), "anchor": t}
+    return [{"q": _q(f"What are the key unresolved questions and underlying mechanisms "
+                     f"concerning '{t}'?", ctx["topic"]), "anchor": t}
             for t in targets[: ctx["cfg"]["fanout"]]]
 
 
@@ -79,7 +80,8 @@ def novelty_driven(ctx):
     ids = list(vecs)
     centroid = np.mean([vecs[i] for i in ids], axis=0)
     far = sorted(ids, key=lambda i: float(np.dot(vecs[i], centroid)))     # least central
-    return [{"q": _q(f"Explore an unconventional angle on '{t}'.", ctx["topic"]), "anchor": t}
+    return [{"q": _q(f"What is an unconventional or overlooked aspect of '{t}', and why "
+                     f"might it matter?", ctx["topic"]), "anchor": t}
             for t in far[: ctx["cfg"]["fanout"]]]
 
 
