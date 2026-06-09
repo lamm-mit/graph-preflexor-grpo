@@ -64,23 +64,62 @@ def _save(fig, base):
     print(f"wrote {base}.png/.svg/.pdf")
 
 
-def curves(runs, labels, base):
+def _series(run_dir, rows, mode):
+    """Return (x, xlabel, nodes, edges, elab, div) for the curves, by 'iteration' or
+    'depth' (reasoning depth = hops from seed, aggregated from graph.graphml provenance)."""
+    gp = os.path.join(run_dir, "graph.graphml")
+    if mode == "depth" and os.path.exists(gp):
+        G = nx.read_graphml(gp)
+
+        def dep(a):
+            try:
+                return int(float(a.get("depth", 0)))
+            except Exception:
+                return 0
+        ndep = {n: dep(G.nodes[n]) for n in G}
+        edep = [(u, v, dep(d)) for u, v, d in G.edges(data=True)]
+        maxd = max(list(ndep.values()) + [e[2] for e in edep] + [0])
+        try:                                              # embed once for diversity-by-depth
+            from graphstore import make_embedder
+            emb = make_embedder()
+            vec = {n: emb(str(G.nodes[n].get("label", n))) for n in G}
+        except Exception:
+            vec = None
+        xs, nn, ee, el, dv = [], [], [], [], []
+        for d in range(maxd + 1):
+            Nd = [n for n in G if ndep[n] <= d]
+            Ed = sum(1 for _, _, dd in edep if dd <= d)
+            xs.append(d); nn.append(len(Nd)); ee.append(Ed); el.append(Ed / max(1, len(Nd)))
+            if vec and len(Nd) > 1:
+                X = np.stack([vec[n] for n in Nd]); S = X @ X.T
+                dv.append(float(1.0 - S[np.triu_indices(len(X), 1)].mean()))
+            else:
+                dv.append(float("nan"))
+        return xs, "reasoning depth (hops from seed)", nn, ee, el, dv
+    # reasoning-index (per-step iteration) variant
+    x = [r["iter"] + 1 for r in rows]
+    return (x, "reasoning index", [r["n_nodes"] for r in rows], [r["n_edges"] for r in rows],
+            [r["n_edges"] / max(1, r["n_nodes"]) for r in rows], [r["diversity"] for r in rows])
+
+
+def curves(loaded, run_dirs, labels, base, mode="depth"):
     fig, ax = plt.subplots(2, 2, figsize=(8.0, 6.0))
-    for (summary, rows), lab, col in zip(runs, labels, PALETTE):
-        x = [r["iter"] + 1 for r in rows]                 # generator calls
-        ax[0, 0].plot(x, [r["n_nodes"] for r in rows], color=col, lw=2, label=lab)
-        ax[0, 1].plot(x, [r["diversity"] for r in rows], color=col, lw=2, label=lab)
-        epn = [r["n_edges"] / max(1, r["n_nodes"]) for r in rows]
-        ax[1, 0].plot(x, epn, color=col, lw=2, label=lab)
-        ax[1, 1].plot(x, [r["n_edges"] for r in rows], color=col, lw=2, label=lab)
-    ax[0, 0].set_title("(a) Ideas vs compute"); ax[0, 0].set_ylabel("distinct ideas (nodes)")
-    ax[0, 1].set_title("(b) Semantic diversity vs compute"); ax[0, 1].set_ylabel("mean pairwise distance")
+    xlabel = "iteration"
+    for (summary, rows), rd, lab, col in zip(loaded, run_dirs, labels, PALETTE):
+        x, xlabel, nn, ee, el, dv = _series(rd, rows, mode)
+        ax[0, 0].plot(x, nn, color=col, lw=2, marker="o", ms=3, label=lab)
+        ax[0, 1].plot(x, dv, color=col, lw=2, marker="o", ms=3, label=lab)
+        ax[1, 0].plot(x, el, color=col, lw=2, marker="o", ms=3, label=lab)
+        ax[1, 1].plot(x, ee, color=col, lw=2, marker="o", ms=3, label=lab)
+    ax[0, 0].set_title("(a) Ideas"); ax[0, 0].set_ylabel("distinct ideas (nodes)")
+    ax[0, 1].set_title("(b) Semantic diversity"); ax[0, 1].set_ylabel("mean pairwise distance")
     ax[1, 0].set_title("(c) Elaboration"); ax[1, 0].set_ylabel("edges / idea")
     ax[1, 1].set_title("(d) Graph connectivity"); ax[1, 1].set_ylabel("edges")
     for a in ax.flat:
-        a.set_xlabel("generator calls"); a.grid(True, color="0.9", lw=0.6); a.set_axisbelow(True)
+        a.set_xlabel(xlabel); a.grid(True, color="0.9", lw=0.6); a.set_axisbelow(True)
     ax[0, 0].legend(frameon=False)
-    fig.tight_layout(); _save(fig, f"{base}_curves")
+    fig.tight_layout()
+    _save(fig, f"{base}_curves" + ("_index" if mode == "iteration" else ""))
 
 
 def bars(metrics_list, labels, base):
@@ -286,7 +325,8 @@ def main():
     args = p.parse_args()
     labels = args.labels or [os.path.basename(r.rstrip("/")) for r in args.runs]
     loaded = [load_run(r) for r in args.runs]
-    curves(loaded, labels, args.out)
+    curves(loaded, args.runs, labels, args.out, mode="depth")       # *_curves        (reasoning depth)
+    curves(loaded, args.runs, labels, args.out, mode="iteration")   # *_curves_index  (reasoning index)
     bars([final_metrics(s, rows) for s, rows in loaded], labels, args.out)
     if not args.no_graph:
         for rd, lab in zip(args.runs, labels):
