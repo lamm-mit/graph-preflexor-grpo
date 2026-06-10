@@ -88,15 +88,56 @@ def novelty_driven(ctx):
             for t in far[: ctx["cfg"]["fanout"]]]
 
 
+# ---- leap: aggressive exploration — jump OUTSIDE the known idea space ----
+def leap_driven(ctx):
+    """Divergent search. Where `novelty` drifts to the edge of what's known (re-examining the
+    single most-peripheral node), `leap` pushes *past* it, two ways:
+      (1) distant recombination — pair the most embedding-DISSIMILAR concepts and force a
+          mechanism linking them (a creative jump across the space, not within a neighborhood);
+      (2) cross-domain transfer — import a principle from an unrelated field onto a peripheral
+          concept, injecting genuinely external ideas the graph doesn't yet contain.
+    Both are standalone, self-contained questions (in-distribution for the single-turn model)."""
+    store = ctx["store"]
+    vecs = store.node_vectors()
+    topic, k = ctx["topic"], ctx["cfg"]["fanout"]
+    queried = ctx.get("queried", set())
+    if len(vecs) < 3:
+        return novelty_driven(ctx)
+    ids = list(vecs)
+    centroid = np.mean([vecs[i] for i in ids], axis=0)
+    far = sorted(ids, key=lambda i: float(np.dot(vecs[i], centroid)))      # least central first
+    far = [n for n in far if n not in queried] or far                      # prefer UNvisited
+    cands = []
+    # (1) recombine each peripheral seed with its most dissimilar partner anywhere in the graph
+    for a in far[: max(1, k // 2)]:
+        b = min((j for j in ids if j != a),
+                key=lambda j: float(np.dot(vecs[a], vecs[j])), default=None)
+        if b is None:
+            continue
+        cands.append({"q": _q(f"What radically new approach to {topic} could emerge by combining "
+                              f"'{a}' and '{b}' — two ideas that seem unrelated? Propose a concrete "
+                              f"mechanism that links them.", topic), "anchor": a})
+    # (2) import an outside principle onto the most peripheral concepts
+    for t in far[:k]:
+        cands.append({"q": _q(f"What principle or mechanism from a completely different field "
+                              f"could transform how we approach '{t}', and what novel, untested "
+                              f"idea would that suggest?", topic), "anchor": t})
+    out, seen = [], set()
+    for c in cands:                                                        # dedup, keep variety
+        if c["q"] not in seen:
+            seen.add(c["q"]); out.append(c)
+    return out[:k]
+
+
 _REGISTRY = {
     "node": node_driven, "answer": answer_driven, "edge": edge_driven,
-    "frontier": frontier_driven, "novelty": novelty_driven,
+    "frontier": frontier_driven, "novelty": novelty_driven, "leap": leap_driven,
 }
 
 
 def mixed(ctx):
     """Round-robin across all strategies by iteration."""
-    order = ["frontier", "node", "edge", "novelty"]
+    order = ["frontier", "node", "edge", "novelty", "leap"]
     fn = _REGISTRY[order[ctx["iter"] % len(order)]]
     return fn(ctx)
 

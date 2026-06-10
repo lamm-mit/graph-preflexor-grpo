@@ -46,6 +46,15 @@ python plot_ideation.py --runs runs/exp2 runs/exp_novelty \
     --labels "frontier" "novelty" --out figures/algo_compare
 
 ```
+
+### 4 Leap method (divergent)
+
+```
+python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_leap
+```
+
 Zip/download files from a remote machine:
 
 ```bash
@@ -104,7 +113,7 @@ Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.
 
 | Flag | Meaning |
 |------|---------|
-| `--strategy` | `frontier` (graph-analytic, default) · `node` (breadth) · `answer` (depth, LLM follow-ups) · `edge` (densify/missing links) · `novelty` · `mixed` |
+| `--strategy` | `frontier` (graph-analytic, default) · `node` (breadth) · `answer` (depth, LLM follow-ups) · `edge` (densify/missing links) · `novelty` · `leap` (aggressive exploration) · `mixed` |
 | `--context-mode` | `fresh` (independent single turns — default, matches single-turn training) · `chained` / `branched` (multi-turn, **experimental**) |
 | `--budget-calls / --budget-tokens / --max-iters` | compute budget (first to hit wins; novelty-stop also applies) |
 | `--fanout` | questions spawned per step |
@@ -139,11 +148,19 @@ Every templated question is wrapped by `_q(text, topic)` to stay anchored to the
 | `frontier` | low-degree leaves + a high-betweenness hub `t` | `What are the key unresolved questions and underlying mechanisms concerning '{t}'?` | no |
 | `edge` | embedding-close **unconnected** pair `(a,b)` | `How are '{a}' and '{b}' related, and what connects them?` | no |
 | `novelty` | node `t` farthest from the embedding centroid | `What is an unconventional or overlooked aspect of '{t}', and why might it matter?` | no |
-| `mixed` | rotates frontier→node→edge→novelty | (those) | no |
+| `leap` | peripheral node `a` + its most embedding-**dissimilar** partner `b`; and peripheral nodes for cross-domain transfer | `What radically new approach … by combining '{a}' and '{b}' …?` and `What principle from a completely different field could transform '{t}' …?` | no |
+| `mixed` | rotates frontier→node→edge→novelty→leap | (those) | no |
 | `answer` | — | sends the prose answer to the questioner asking for `fanout` follow-ups | **yes** |
 
 Cost per step: heuristic strategies = **1 LLM call** (generator); `answer` = **2** (generator +
 questioner).
+
+**`novelty` vs `leap` (exploration).** `novelty` *drifts* to the edge of what's known — it
+re-examines the single most-peripheral concept ("an overlooked aspect of `t`"). `leap` *jumps
+outside* it: it **recombines the most embedding-dissimilar concept pair** into a forced
+mechanism and **imports principles from unrelated fields**, injecting ideas the graph doesn't
+yet contain. Use `leap` when you want the search to fan out aggressively into new territory
+rather than consolidate around the seed.
 
 Templates are deliberately **standalone, self-contained questions** (matching the single-turn
 training data) — the model is never told what is "already known" or "unexplored", because in
