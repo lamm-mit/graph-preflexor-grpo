@@ -362,9 +362,9 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     loaded = [load_run(r, embed_model) for r in runs]
     G0, vecs0, topic0, seed0, model0 = loaded[0]
 
-    fig = plt.figure(figsize=(13.5, 8.2))
+    fig = plt.figure(figsize=(13.5, 8.4))
     gs = gridspec.GridSpec(3, 2, width_ratios=[1.32, 1.0], height_ratios=[1, 1, 1],
-                           wspace=0.24, hspace=0.5)
+                           wspace=0.42, hspace=0.55)
     axA = fig.add_subplot(gs[:, 0])
     axB = fig.add_subplot(gs[0, 1])
     axC = fig.add_subplot(gs[1, 1])
@@ -407,8 +407,9 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     for n in sorted(nodes, key=lambda n: nov[nodes.index(n)], reverse=True)[:8]:
         axA.annotate(I.lbl(G0, n, 22), pos[n], fontsize=6.6, zorder=6,
                      xytext=(3, 3), textcoords="offset points")
-    cb = fig.colorbar(sc, ax=axA, fraction=0.045, pad=0.02)
-    cb.set_label("novelty when introduced\n(1 − cosine to nearest prior concept)", fontsize=8)
+    cb = fig.colorbar(sc, ax=axA, orientation="horizontal", fraction=0.035, pad=0.085)
+    cb.set_label("novelty when introduced  (1 − cosine to nearest prior concept)", fontsize=8)
+    cb.ax.tick_params(labelsize=7)
     axA.set_title(f"(A) Concept space — {labels[0]}  "
                   f"({G0.number_of_nodes()} ideas, {proj}); ★ seed, shaded = established region")
     axA.set_xlabel(f"{proj}-1"); axA.set_ylabel(f"{proj}-2")
@@ -488,7 +489,7 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
             axD.axvline(np.median(z), color=c, ls="--", lw=1)
     axD.set_title("(D) Novel combinations (typicality)")
     axD.set_xlabel("combination z  (← more novel / atypical)"); axD.set_ylabel("density")
-    axD.legend(frameon=False, fontsize=7)
+    axD.legend(frameon=False, fontsize=7, loc="upper right")
     axD.grid(True, color="0.92", lw=0.5); axD.set_axisbelow(True)
     mw = {}
     try:
@@ -496,8 +497,10 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         if len(bridge_z) > 1 and len(edge_z) > 1:
             u, p = mannwhitneyu(bridge_z, edge_z, alternative="less")
             mw = {"U": float(u), "p_bridges_more_novel_than_edges": float(p)}
-            axD.text(0.02, 0.95, f"bridges vs edges\nMann–Whitney p={p:.1e}", transform=axD.transAxes,
-                     va="top", ha="left", fontsize=7, family="monospace")
+            axD.text(0.97, 0.55, f"bridges vs edges\nMann–Whitney p={p:.1e}",
+                     transform=axD.transAxes, va="center", ha="right", fontsize=7,
+                     family="monospace",
+                     bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.85))
     except Exception:
         pass
 
