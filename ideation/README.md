@@ -55,6 +55,18 @@ python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
     --out runs/exp_leap
 ```
 
+```bash
+python plot_ideation.py --runs runs/exp_leap \
+    --labels leap --out figures/strategy_leap
+```
+
+Multiple comparisons:
+
+```bash
+python plot_ideation.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+    --labels frontier novelty leap --out figures/strategy_compare
+```
+
 Zip/download files from a remote machine:
 
 ```bash
