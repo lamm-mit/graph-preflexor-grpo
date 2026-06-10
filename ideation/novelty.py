@@ -44,6 +44,15 @@ import networkx as nx
 import insights as I
 
 
+def _pbar(it, desc, total=None):
+    """tqdm progress bar if available, else the plain iterable (no hard dependency)."""
+    try:
+        from tqdm import tqdm
+        return tqdm(it, desc=desc, total=total, leave=False, dynamic_ncols=True)
+    except Exception:
+        return it
+
+
 # --------------------------------------------------------------------------- #
 #  Loading
 # --------------------------------------------------------------------------- #
@@ -103,7 +112,7 @@ def concept_novelty(G, vecs, seed):
     n = len(nodes)
     nov_intro = np.full(n, np.nan, dtype=np.float32)
     CH = 2048
-    for s in range(0, n, CH):                         # (chunk x n) blocks, not n x n
+    for s in _pbar(range(0, n, CH), "novelty", total=(n + CH - 1) // CH):  # (chunk x n) blocks
         e = min(n, s + CH)
         Sb = X[s:e] @ X.T
         for k in range(s, e):
@@ -156,7 +165,7 @@ def modularity_significance(G, n_null=100):
     Q = float(nx.community.modularity(U, comms))
     m = U.number_of_edges()
     nulls = []
-    for s in range(n_null):
+    for s in _pbar(range(n_null), "modularity null", total=n_null):
         H = U.copy()
         try:
             nx.double_edge_swap(H, nswap=2 * m, max_tries=30 * m, seed=s)
@@ -188,7 +197,7 @@ def heterophily_significance(G, vecs, n_null=500):
     rng = np.random.default_rng(0)
     n = len(nodes)
     nulls = np.empty(n_null)
-    for t in range(n_null):                           # permute embeddings across nodes, vectorized
+    for t in _pbar(range(n_null), "heterophily null", total=n_null):   # vectorized permutation null
         Xp = X[rng.permutation(n)]
         nulls[t] = np.einsum("ij,ij->i", Xp[ei], Xp[ej]).mean()
     mu, sd = float(nulls.mean()), float(nulls.std() or 1.0)
@@ -219,7 +228,7 @@ def motif_significance(G, n_null=200, top=10):
     rels = [G[u][v].get("relation", "related_to") for u, v in edges]
     nulls = {k: [] for k in obs}
     rng = np.random.default_rng(0)
-    for _ in range(n_null):
+    for _ in _pbar(range(n_null), "motif null", total=n_null):
         perm = rng.permutation(len(rels))
         H = nx.DiGraph()
         H.add_nodes_from(G.nodes())
@@ -241,22 +250,31 @@ def motif_significance(G, n_null=200, top=10):
 # --------------------------------------------------------------------------- #
 #  Combination novelty (Uzzi-style)
 # --------------------------------------------------------------------------- #
-def combination_typicality(vecs, pairs, sample=300000):
-    """z of each pair's cosine vs the global pairwise-cosine distribution. Lower (more negative)
-    = a more atypical / novel combination. The global mean/std is sampled (not full n x n) so it
-    stays memory-safe on large graphs."""
+def global_cosine_stats(vecs):
+    """EXACT mean/std of all i<j pairwise cosines, computed by chunked streaming (no full n x n
+    matrix, no sampling) — memory-safe and numerically identical to the brute-force statistic."""
     nodes = list(vecs)
     X = np.stack([vecs[n] for n in nodes]).astype(np.float32)
     n = len(nodes)
-    if n * (n - 1) // 2 <= sample:
-        S = X @ X.T
-        vals = S[np.triu_indices(n, 1)]
-    else:
-        rng = np.random.default_rng(0)
-        i, j = rng.integers(0, n, sample), rng.integers(0, n, sample)
-        m = i != j
-        vals = np.einsum("ij,ij->i", X[i[m]], X[j[m]])
-    mu, sd = float(vals.mean()), float(vals.std() or 1.0)
+    ssum = ssq = 0.0
+    cnt = 0
+    CH = 2048
+    for s in _pbar(range(0, n, CH), "pairwise stats", total=(n + CH - 1) // CH):
+        e = min(n, s + CH)
+        B = X[s:e] @ X.T                              # (chunk x n)
+        for r in range(s, e):
+            row = B[r - s, r + 1:]                    # only j > r → exact upper triangle
+            ssum += float(row.sum()); ssq += float((row * row).sum()); cnt += row.size
+    mu = ssum / cnt if cnt else 0.0
+    sd = (max(ssq / cnt - mu * mu, 0.0) ** 0.5) if cnt else 0.0
+    return nodes, X, mu, (sd or 1.0)
+
+
+def combination_typicality(vecs, pairs, stats=None):
+    """z of each pair's cosine vs the EXACT global pairwise-cosine distribution. Lower (more
+    negative) = a more atypical / novel combination. Pass `stats` from global_cosine_stats() to
+    reuse the (single) O(n^2) pass across several pair sets."""
+    nodes, X, mu, sd = stats if stats is not None else global_cosine_stats(vecs)
     idx = {nm: k for k, nm in enumerate(nodes)}
     return [(float(X[idx[a]] @ X[idx[b]]) - mu) / sd
             for a, b in pairs if a in idx and b in idx and a != b]
@@ -276,6 +294,9 @@ def _bridge_pairs(run_dir, G, vecs, top=12):
                 return pairs
         except Exception:
             pass
+    print("[novelty] note: no insights.json found — Panel D uses an on-the-fly bridge "
+          "approximation (most-distant connected peripheral pairs). Run `insights.py` first to "
+          "use the canonical mined conceptual bridges.", flush=True)
     # bound cost on large graphs: distant bridges live among the most peripheral concepts, so
     # restrict the all-pairs search to the M least-central nodes (never the full n x n).
     nodes = list(vecs)
@@ -451,10 +472,11 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     # novelty lives in the long-range conceptual bridges that connect atypically dissimilar
     # ideas. Show all three distributions; test bridges vs edges.
     U0 = _simple_undirected(G0)
-    edge_z = combination_typicality(vecs0, list(U0.edges()))
+    stats0 = global_cosine_stats(vecs0)               # one exact O(n^2) pass, reused below
+    edge_z = combination_typicality(vecs0, list(U0.edges()), stats=stats0)
     bridge_pairs = _bridge_pairs(runs[0], G0, vecs0, top=top)
-    bridge_z = combination_typicality(vecs0, bridge_pairs)
-    rand_z = combination_typicality(vecs0, _random_pairs(G0, max(200, len(edge_z))))
+    bridge_z = combination_typicality(vecs0, bridge_pairs, stats=stats0)
+    rand_z = combination_typicality(vecs0, _random_pairs(G0, max(200, len(edge_z))), stats=stats0)
     series = [("random pairs", rand_z, "0.6"), ("existing edges", edge_z, "#1f77b4"),
               ("conceptual bridges", bridge_z, "#d62728")]
     series = [(nm, z, c) for nm, z, c in series if len(z) > 1]
