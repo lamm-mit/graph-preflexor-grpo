@@ -5,20 +5,59 @@ into one canonical node when their embeddings are cosine-similar above `tau`.
 Every node/edge carries provenance (which question/iteration/response added it).
 """
 import functools
+import json
+import os
 import numpy as np
 import networkx as nx
 
+# Default node-embedding model. EmbeddingGemma (Google, 2025) is newer and stronger than the
+# classic MiniLM; it is the default. MiniLM stays available as a lighter, ungated fallback.
+#   NOTE: embeddinggemma-300m is a *gated* HF model — `huggingface-cli login` + accept its
+#   license once, and use a recent `sentence-transformers` (>= 5). If unavailable, set
+#   embed_model (config / --embed-model) back to the legacy id below.
+DEFAULT_EMBED_MODEL = "google/embeddinggemma-300m"
+LEGACY_EMBED_MODEL = "all-MiniLM-L6-v2"
 
-def make_embedder(model_name="all-MiniLM-L6-v2"):
-    """Return a cached embed(text)->unit-norm np.array using sentence-transformers."""
+
+def make_embedder(model_name=DEFAULT_EMBED_MODEL, prompt_name=None):
+    """Return a cached embed(text)->unit-norm np.array using sentence-transformers.
+
+    EmbeddingGemma ships task-specific prompts; "STS" yields *symmetric* sentence-similarity
+    embeddings, which is exactly what node dedup / diversity / link proposals need (we compare
+    concept labels against each other). It is auto-selected for embeddinggemma when present and
+    silently ignored for models (like MiniLM) that don't define it."""
     from sentence_transformers import SentenceTransformer
     model = SentenceTransformer(model_name)
+    if prompt_name is None and "embeddinggemma" in model_name.lower():
+        prompt_name = "STS"
+    prompts = getattr(model, "prompts", None) or {}
+    use_prompt = prompt_name if prompt_name in prompts else None
 
     @functools.lru_cache(maxsize=20000)
     def embed(text):
-        v = model.encode([text], convert_to_numpy=True, normalize_embeddings=True)[0]
+        kw = dict(convert_to_numpy=True, normalize_embeddings=True)
+        if use_prompt:
+            kw["prompt_name"] = use_prompt
+        v = model.encode([text], **kw)[0]
         return v.astype(np.float32)
     return embed
+
+
+def resolve_embed_model(run_dir=None, cli=None, default=DEFAULT_EMBED_MODEL):
+    """Pick the embedding model for offline re-embedding: explicit CLI value wins, else the
+    model the run recorded in summary.json (so plots/insights match the run's dedup), else
+    the library default."""
+    if cli:
+        return cli
+    if run_dir:
+        try:
+            s = json.load(open(os.path.join(run_dir, "summary.json")))
+            m = (s.get("config") or {}).get("embed_model")
+            if m:
+                return m
+        except Exception:
+            pass
+    return default
 
 
 class GraphStore:

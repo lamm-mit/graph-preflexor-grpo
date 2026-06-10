@@ -64,7 +64,7 @@ def _save(fig, base):
     print(f"wrote {base}.png/.svg/.pdf")
 
 
-def _series(run_dir, rows, mode):
+def _series(run_dir, rows, mode, embed_model=None):
     """Return (x, xlabel, nodes, edges, elab, div) for the curves, by 'iteration' or
     'depth' (reasoning depth = hops from seed, aggregated from graph.graphml provenance)."""
     gp = os.path.join(run_dir, "graph.graphml")
@@ -80,8 +80,9 @@ def _series(run_dir, rows, mode):
         edep = [(u, v, dep(d)) for u, v, d in G.edges(data=True)]
         maxd = max(list(ndep.values()) + [e[2] for e in edep] + [0])
         try:                                              # embed once for diversity-by-depth
-            from graphstore import make_embedder
-            emb = make_embedder()
+            from graphstore import make_embedder, resolve_embed_model
+            model = resolve_embed_model(run_dir, embed_model)
+            emb = make_embedder(model) if model else make_embedder()
             vec = {n: emb(str(G.nodes[n].get("label", n))) for n in G}
         except Exception:
             vec = None
@@ -102,11 +103,11 @@ def _series(run_dir, rows, mode):
             [r["n_edges"] / max(1, r["n_nodes"]) for r in rows], [r["diversity"] for r in rows])
 
 
-def curves(loaded, run_dirs, labels, base, mode="depth"):
+def curves(loaded, run_dirs, labels, base, mode="depth", embed_model=None):
     fig, ax = plt.subplots(2, 2, figsize=(8.0, 6.0))
     xlabel = "iteration"
     for (summary, rows), rd, lab, col in zip(loaded, run_dirs, labels, PALETTE):
-        x, xlabel, nn, ee, el, dv = _series(rd, rows, mode)
+        x, xlabel, nn, ee, el, dv = _series(rd, rows, mode, embed_model)
         ax[0, 0].plot(x, nn, color=col, lw=2, marker="o", ms=3, label=lab)
         ax[0, 1].plot(x, dv, color=col, lw=2, marker="o", ms=3, label=lab)
         ax[1, 0].plot(x, el, color=col, lw=2, marker="o", ms=3, label=lab)
@@ -312,19 +313,20 @@ def graph_analytics(run_dir, label, base):
     _save(fig, f"{base}_analytics_{label.replace(' ', '_')}")
 
 
-def _embed_nodes(G):
+def _embed_nodes(G, model=None):
     """Re-embed node labels offline (embeddings aren't stored in graphml).
+    `model` selects the sentence-transformers id (default: embeddinggemma-300m).
     Returns {node: unit-vec} or None if sentence-transformers unavailable."""
     try:
         from graphstore import make_embedder
-        emb = make_embedder()
+        emb = make_embedder(model) if model else make_embedder()
     except Exception as e:
         print(f"  (semantic panels skipped: embedder unavailable — {e})")
         return None
     return {n: emb(str(G.nodes[n].get("label", n))) for n in G}
 
 
-def graph_structure(run_dir, label, base):
+def graph_structure(run_dir, label, base, embed_model=None):
     """Second analytics panel: structural 'shape of reasoning' properties that the
     first panel doesn't cover — k-core, brokers, articulation points, depth profile,
     a semantic embedding map, and structural-vs-semantic homophily."""
@@ -337,7 +339,8 @@ def graph_structure(run_dir, label, base):
         print(f"  (skip structure panel for {label}: graph too small)")
         return
     U = G.to_undirected()
-    vecs = _embed_nodes(G)
+    from graphstore import resolve_embed_model
+    vecs = _embed_nodes(G, resolve_embed_model(run_dir, embed_model))
 
     fig, ax = plt.subplots(2, 3, figsize=(11.5, 7.2))
     blue, red, green, purple = "#1f77b4", "#d62728", "#2ca02c", "#9467bd"
@@ -485,20 +488,23 @@ def main():
                    help="frames in the graph-growth montage (0 = skip)")
     p.add_argument("--movie", action="store_true", help="also render an animated GIF of growth")
     p.add_argument("--movie-fps", type=int, default=2)
+    p.add_argument("--embed-model", dest="embed_model", default=None,
+                   help="sentence-transformers id for re-embedding the semantic panels "
+                        "(default: each run's recorded model, else embeddinggemma-300m)")
     args = p.parse_args()
     if args.out is None:                                  # default: inside the (first) run dir
         args.out = os.path.join(args.runs[0].rstrip("/"), "figures", "ideation")
     labels = args.labels or [os.path.basename(r.rstrip("/")) for r in args.runs]
     loaded = [load_run(r) for r in args.runs]
-    curves(loaded, args.runs, labels, args.out, mode="depth")       # *_curves        (reasoning depth)
-    curves(loaded, args.runs, labels, args.out, mode="iteration")   # *_curves_index  (reasoning index)
+    curves(loaded, args.runs, labels, args.out, mode="depth", embed_model=args.embed_model)
+    curves(loaded, args.runs, labels, args.out, mode="iteration", embed_model=args.embed_model)
     bars([final_metrics(s, rows) for s, rows in loaded], labels, args.out)
     if not args.no_graph:
         for rd, lab in zip(args.runs, labels):
             graph_snapshot(rd, lab, args.out)
             graph_analytics(rd, lab, args.out)
             if not args.no_structure:
-                graph_structure(rd, lab, args.out)
+                graph_structure(rd, lab, args.out, embed_model=args.embed_model)
             if args.growth_frames > 0:
                 graph_growth(rd, lab, args.out, frames=args.growth_frames)
             if args.movie:

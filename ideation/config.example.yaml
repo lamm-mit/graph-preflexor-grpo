@@ -23,7 +23,10 @@ questioner:                               # follow-up asker
 #   model:    "gpt-4o"
 #   max_tokens: 6000
 
-embed_model: all-MiniLM-L6-v2             # node dedup + semantic diversity
+# Node-embedding model (dedup + semantic diversity). Default = EmbeddingGemma (newer/stronger;
+# gated HF model: `huggingface-cli login` + accept license, needs sentence-transformers>=5).
+# Lighter ungated fallback: all-MiniLM-L6-v2
+embed_model: google/embeddinggemma-300m
 dedup_threshold: 0.85                     # cosine; >= => same canonical node
 link_sim: 0.55                            # edge_driven: min sim to propose a missing link
 
