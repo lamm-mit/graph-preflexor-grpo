@@ -59,7 +59,10 @@ python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
 python plot_ideation.py --runs runs/exp_leap \
     --labels leap --out figures/strategy_leap
 ```
-
+Develop insights:
+```bash
+python insights.py --run runs/exp_leap --top 12
+```
 Multiple comparisons:
 
 ```bash
@@ -406,10 +409,39 @@ ideate.py  →  graph.graphml  →  insights.py  →  insights.json  →  synthe
  (grow)        (accumulate)      (mine structure)  (ranked leads)   (LLM synthesis)   (final answer)
 ```
 
+## Novelty quantification (`novelty.py`)
+
+Answers the reviewer's question — *how novel are these concepts and insights?* — with a
+**publication-grade figure** (`<out>_novelty.png/svg/pdf`) where every panel is a citeable method,
+and a **`<out>_novelty.json`** of the numbers so they can be quoted in the text. Needs embeddings.
+
+| Panel | Method | The claim it supports |
+|---|---|---|
+| **(A) Concept space** | UMAP (or PCA) of every concept; **seed** marked; "established region" shaded by a KDE of the earliest-introduced concepts; points colored by **novelty-when-introduced** = `1 − cosine` to the nearest concept that already existed when it appeared. | A clean map of *all* ideas — new ones land **outside** the known region. |
+| **(B) Novelty vs reasoning** | mean nearest-prior-neighbour novelty per iteration ± bootstrap CI (open-ended **novelty-search**, Lehman & Stanley 2011); overlays runs if several are passed. | the engine keeps pushing into new territory; lets you **compare strategies** (frontier vs novelty vs leap). |
+| **(C) Motif significance** | z-scores of relation-typed 2-step motifs vs a **relation-label-shuffled null** (network-motif significance, Milo et al. 2002); community **modularity** z (degree-preserving rewiring) + edge **heterophily** z (label permutation) annotated. | over-represented relational motifs (the **analogy** basis) and community structure are **beyond chance**. |
+| **(D) Novel combinations** | combination **typicality** z of linked concept pairs vs the global pairwise-similarity distribution (adapting Uzzi et al. 2013); compares random pairs, existing edges, and **conceptual bridges**, with a Mann–Whitney p. | edges are locally homophilic, but the mined **bridges sit in the atypical tail** — the engine connects concepts across the full semantic diameter. |
+
+```bash
+# Single run → figure + json in runs/exp2/figures/
+python novelty.py --run runs/exp2 --out runs/exp2/figures/novelty
+
+# Compare strategies (first run drives A/C/D; all overlaid in B)
+python novelty.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+    --labels frontier novelty leap --out figures/novelty_compare
+
+# Tighter null distributions (more resamples; slower)
+python novelty.py --run runs/exp2 --n-null 500
+```
+
+Reuses the run's recorded `embed_model` (override with `--embed-model`); pulls the conceptual
+bridges from `insights.json` when present, else computes them. `--n-null` trades runtime for
+tighter p-values; `umap-learn` is used for panel (A) if installed, otherwise PCA.
+
 ## Files
 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
 `clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) ·
-`insights.py` (mine the graph for novel leads) · `synthesize.py` (LLM answer from query + insights) ·
-`compare.py` (baseline, TODO).
+`insights.py` (mine the graph for novel leads) · `novelty.py` (novelty stats + paper figure) ·
+`synthesize.py` (LLM answer from query + insights) · `compare.py` (baseline, TODO).
