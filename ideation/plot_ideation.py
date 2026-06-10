@@ -312,6 +312,166 @@ def graph_analytics(run_dir, label, base):
     _save(fig, f"{base}_analytics_{label.replace(' ', '_')}")
 
 
+def _embed_nodes(G):
+    """Re-embed node labels offline (embeddings aren't stored in graphml).
+    Returns {node: unit-vec} or None if sentence-transformers unavailable."""
+    try:
+        from graphstore import make_embedder
+        emb = make_embedder()
+    except Exception as e:
+        print(f"  (semantic panels skipped: embedder unavailable — {e})")
+        return None
+    return {n: emb(str(G.nodes[n].get("label", n))) for n in G}
+
+
+def graph_structure(run_dir, label, base):
+    """Second analytics panel: structural 'shape of reasoning' properties that the
+    first panel doesn't cover — k-core, brokers, articulation points, depth profile,
+    a semantic embedding map, and structural-vs-semantic homophily."""
+    gp = os.path.join(run_dir, "graph.graphml")
+    if not os.path.exists(gp):
+        print(f"  (skip structure panel for {label}: {gp} not found)")
+        return
+    G = nx.read_graphml(gp)
+    if G.number_of_nodes() < 4:
+        print(f"  (skip structure panel for {label}: graph too small)")
+        return
+    U = G.to_undirected()
+    vecs = _embed_nodes(G)
+
+    fig, ax = plt.subplots(2, 3, figsize=(11.5, 7.2))
+    blue, red, green, purple = "#1f77b4", "#d62728", "#2ca02c", "#9467bd"
+
+    # (a) k-core decomposition — dense conceptual nucleus vs speculative periphery
+    Uc = nx.Graph(U); Uc.remove_edges_from(nx.selfloop_edges(Uc))
+    core = nx.core_number(Uc)
+    csizes = Counter(core.values())
+    ks = sorted(csizes)
+    ax[0, 0].bar(ks, [csizes[k] for k in ks], color=blue, alpha=0.85)
+    ax[0, 0].set_title(f"(a) k-core decomposition (max k={max(ks) if ks else 0})")
+    ax[0, 0].set_xlabel("coreness k"); ax[0, 0].set_ylabel("# nodes")
+
+    # (b) brokers — degree vs betweenness; top brokers connect separate clusters
+    deg = dict(G.degree())
+    bet = nx.betweenness_centrality(G) if G.number_of_nodes() > 3 else {n: 0.0 for n in G}
+    xs = [deg[n] for n in G]; ys = [bet[n] for n in G]
+    ax[0, 1].scatter(xs, ys, s=18, color=blue, alpha=0.6, linewidths=0)
+    brokers = sorted(G, key=lambda n: bet[n], reverse=True)[:5]
+    for n in brokers:
+        ax[0, 1].annotate(_short(G.nodes[n].get("label", n), 16), (deg[n], bet[n]),
+                          fontsize=6.5, color=red,
+                          xytext=(3, 3), textcoords="offset points")
+    ax[0, 1].set_title("(b) Broker ideas (degree vs betweenness)")
+    ax[0, 1].set_xlabel("degree"); ax[0, 1].set_ylabel("betweenness")
+
+    # (c) articulation points — ideas whose removal fragments the knowledge graph
+    Ulcc = U.subgraph(max(nx.connected_components(U), key=len)).copy() if U.number_of_nodes() else U
+    base_comp = nx.number_connected_components(U)
+    arts = list(nx.articulation_points(Ulcc)) if Ulcc.number_of_nodes() > 2 else []
+    split = []
+    for n in arts:
+        H = U.copy(); H.remove_node(n)
+        split.append((n, nx.number_connected_components(H) - base_comp))
+    split.sort(key=lambda x: x[1], reverse=True)
+    split = split[:12][::-1]
+    if split:
+        ax[1, 0].barh(range(len(split)), [s for _, s in split], color=red, alpha=0.8)
+        ax[1, 0].set_yticks(range(len(split)))
+        ax[1, 0].set_yticklabels([_short(G.nodes[n].get("label", n), 18) for n, _ in split], fontsize=7)
+        ax[1, 0].set_xlabel("extra fragments if removed")
+    else:
+        ax[1, 0].text(0.5, 0.5, "no articulation points\n(2-connected)", ha="center", va="center")
+    ax[1, 0].set_title(f"(c) Critical connector ideas  ({len(arts)} cut vertices)")
+
+    # (d) reasoning-depth profile — ideas + semantic diversity per hop from seed
+    def dep(n):
+        try:
+            return int(float(G.nodes[n].get("depth", 0)))
+        except Exception:
+            return 0
+    by_depth = Counter(dep(n) for n in G)
+    ds = sorted(by_depth)
+    ax[1, 1].bar(ds, [by_depth[d] for d in ds], color=green, alpha=0.8, label="ideas")
+    ax[1, 1].set_xlabel("reasoning depth (hops from seed)"); ax[1, 1].set_ylabel("# new ideas", color=green)
+    if vecs:
+        a2 = ax[1, 1].twinx()
+        dv = []
+        for d in ds:
+            Nd = [n for n in G if dep(n) <= d]
+            if len(Nd) > 1:
+                X = np.stack([vecs[n] for n in Nd]); S = X @ X.T
+                dv.append(float(1.0 - S[np.triu_indices(len(X), 1)].mean()))
+            else:
+                dv.append(float("nan"))
+        a2.plot(ds, dv, color=purple, marker="o", ms=3, lw=2)
+        a2.set_ylabel("cumulative diversity", color=purple)
+    ax[1, 1].set_title("(d) Reasoning-depth profile")
+
+    # (e) semantic map — 2D PCA of idea embeddings, colored by community, sized by PageRank
+    if vecs:
+        nodes = list(G.nodes)
+        X = np.stack([vecs[n] for n in nodes])
+        Xc = X - X.mean(0)
+        try:
+            _, _, Vt = np.linalg.svd(Xc, full_matrices=False)
+            P = Xc @ Vt[:2].T
+        except Exception:
+            P = Xc[:, :2]
+        try:
+            comms = list(nx.community.greedy_modularity_communities(U))
+            cmap = {n: i for i, c in enumerate(comms) for n in c}
+        except Exception:
+            cmap = {n: 0 for n in nodes}
+        try:
+            pr = nx.pagerank(G) if G.number_of_edges() else {n: 1.0 for n in G}
+        except Exception:
+            pr = {n: 1.0 / max(1, len(nodes)) for n in G}
+        cols = [cmap.get(n, 0) for n in nodes]
+        ax[0, 2].scatter(P[:, 0], P[:, 1], c=cols, cmap="tab10",
+                         s=[40 + 4000 * pr[n] for n in nodes], alpha=0.75, linewidths=0)
+        for n in sorted(G, key=lambda x: pr[x], reverse=True)[:6]:
+            i = nodes.index(n)
+            ax[0, 2].annotate(_short(G.nodes[n].get("label", n), 16), (P[i, 0], P[i, 1]),
+                              fontsize=6.5, xytext=(3, 3), textcoords="offset points")
+        ax[0, 2].set_title("(e) Semantic map (PCA, color=community)")
+        ax[0, 2].set_xlabel("PC1"); ax[0, 2].set_ylabel("PC2")
+    else:
+        ax[0, 2].axis("off")
+
+    # (f) structural-vs-semantic homophily — are linked ideas embedding-similar?
+    if vecs:
+        nodes = list(G.nodes); idx = {n: i for i, n in enumerate(nodes)}
+        X = np.stack([vecs[n] for n in nodes])
+        conn = [float(np.dot(X[idx[u]], X[idx[v]])) for u, v in U.edges]
+        rng = np.random.default_rng(0)
+        non = []
+        eset = set(map(frozenset, U.edges))
+        tries = 0
+        while len(non) < max(200, len(conn)) and tries < 20000:
+            i, j = rng.integers(0, len(nodes), 2)
+            tries += 1
+            if i != j and frozenset((nodes[i], nodes[j])) not in eset:
+                non.append(float(np.dot(X[i], X[j])))
+        ax[1, 2].hist([conn, non], bins=20, color=[green, "0.6"],
+                      label=["linked", "random pair"], density=True)
+        mc = np.mean(conn) if conn else float("nan")
+        mn = np.mean(non) if non else float("nan")
+        ax[1, 2].axvline(mc, color=green, lw=1.5, ls="--")
+        ax[1, 2].axvline(mn, color="0.4", lw=1.5, ls="--")
+        ax[1, 2].set_title(f"(f) Link homophily  (Δ={mc - mn:+.2f})")
+        ax[1, 2].set_xlabel("cosine similarity"); ax[1, 2].set_ylabel("density")
+        ax[1, 2].legend(fontsize=7, frameon=False)
+    else:
+        ax[1, 2].axis("off")
+
+    for a in ax.flat:
+        a.grid(True, color="0.92", lw=0.5); a.set_axisbelow(True)
+    fig.suptitle(f"Reasoning structure — {label}  "
+                 f"({G.number_of_nodes()}n / {G.number_of_edges()}e)", y=1.0)
+    fig.tight_layout()
+    _save(fig, f"{base}_structure_{label.replace(' ', '_')}")
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--runs", nargs="+", required=True, help="one or more run dirs")
@@ -319,6 +479,8 @@ def main():
     p.add_argument("--out", default=None,
                    help="figure basename (default: <first-run-dir>/figures/ideation)")
     p.add_argument("--no-graph", action="store_true", help="skip graph snapshots")
+    p.add_argument("--no-structure", action="store_true",
+                   help="skip the second (reasoning-structure) analytics panel")
     p.add_argument("--growth-frames", type=int, default=6,
                    help="frames in the graph-growth montage (0 = skip)")
     p.add_argument("--movie", action="store_true", help="also render an animated GIF of growth")
@@ -335,6 +497,8 @@ def main():
         for rd, lab in zip(args.runs, labels):
             graph_snapshot(rd, lab, args.out)
             graph_analytics(rd, lab, args.out)
+            if not args.no_structure:
+                graph_structure(rd, lab, args.out)
             if args.growth_frames > 0:
                 graph_growth(rd, lab, args.out, frames=args.growth_frames)
             if args.movie:

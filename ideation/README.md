@@ -32,7 +32,7 @@ python plot_ideation.py --runs runs/exp2 --labels "Graph-PRefLexOR-3B" --movie
 
 ### 3 Long run, novelty strategy
 
-```basH
+```bash
 python ideate.py --topic "self-healing biopolymer composites" --strategy novelty \
     --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
     --out runs/exp_novelty
@@ -45,6 +45,13 @@ Then compare:
 python plot_ideation.py --runs runs/exp2 runs/exp_novelty \
     --labels "frontier" "novelty" --out figures/algo_compare
 
+```
+Zip/download files from a remote machine:
+
+```bash
+cd ~/LOCAL/graph-preflexor-grpo/ideation
+tar czf runs_exp2.tar.gz runs/exp2         
+tar czf runs_novelty.tar.gz runs/exp_novelty
 ```
 
 ## 1. Serve both models (mistral.rs, vLLM, etc.)
@@ -180,6 +187,18 @@ Produces (PNG + SVG + PDF each, shared styling):
   **relation-type** frequency, **community** sizes (modularity), and a global-metrics card
   (**small-worldness** σ/ω, clustering, transitivity, avg path length, diameter, modularity Q,
   assortativity, reciprocity, density). Scalars also dumped to `*_analysis_<label>.json`.
+- **`*_structure_<label>`** — second 2×3 panel on the **shape of the reasoning** (skip with
+  `--no-structure`):
+  **(a) k-core decomposition** (the dense conceptual nucleus vs. the speculative periphery);
+  **(b) broker scatter** (degree vs. betweenness, top brokers labelled — ideas that bridge
+  separate clusters); **(c) critical-connector ideas** (articulation points ranked by how badly
+  removing each fragments the graph); **(d) reasoning-depth profile** (new ideas + cumulative
+  semantic diversity per hop from the seed); **(e) semantic map** (2D PCA of node embeddings,
+  colored by community, sized by PageRank — the "idea landscape"); **(f) link homophily**
+  (cosine similarity of *linked* vs. *random* idea pairs; Δ>0 = the model links semantically
+  similar ideas, Δ≈0 = it makes creative leaps). Embeddings are re-derived offline from node
+  labels; if `sentence-transformers` is missing the semantic sub-panels (e, f, and d's diversity
+  line) are skipped.
 - **`*_growth_<label>`** — montage of the graph **over iterations** (reconstructed from each
   node/edge's `iter` provenance, fixed layout so nodes hold position). Control with
   `--growth-frames N` (default 6; `0` to skip).
@@ -251,8 +270,102 @@ The experiment **fixes the loop and swaps the generator**:
 `compare.py` (orchestrates the two runs + judge + report) is a **stub** — the loop, metrics,
 and plots it needs are ready.
 
+## Insight mining (`insights.py`)
+
+The accumulated graph is more than the sum of the answers: its **structure** encodes
+hypotheses the model never stated in any single turn. `insights.py` mines a finished run's
+`graph.graphml` for those, with **seven miners**, each emitting ranked, human-readable
+candidates (a `score` plus a one-line `detail`):
+
+| Miner | `kind` | What it surfaces | Needs embeddings? |
+|---|---|---|---|
+| **Conceptual bridges** | `conceptual_bridge` | shortest reasoning chains between *semantically distant* connected concepts — multi-step arguments the model implies but never wrote out. Score = embedding-distance × hops. | yes |
+| **Latent links** | `latent_link` | link prediction over non-edges: structural **Adamic-Adar** × semantic cosine → relationships the graph "wants" but lacks. | optional (semantic term) |
+| **Open triads** | `open_triad` | directed transitivity gaps `A→B→C` with no `A→C` → inferable relations, ranked by endpoint similarity. | optional |
+| **Relational analogies** | `relational_analogy` | recurring relation-typed motifs (`A —r1→ B —r2→ C`) shared by **node-disjoint** instances → "A is to B as C is to D". Scored by embedding **parallelism** of the two steps × concept novelty. | optional (falls back to motif frequency) |
+| **Feedback loops** | `feedback_loop` | directed simple cycles → candidate **self-reinforcing mechanisms** (apt for self-healing / homeostatic systems). Prefers short, coherent loops. | optional (coherence term) |
+| **Semantic dissonance** | `semantic_dissonance` | pairs that are embedding-**similar** but graph-**distant** (≥3 hops or different components) — related in meaning, never linked in reasoning. | yes |
+| **Broker ideas** | `broker_idea` | high-**betweenness**, multi-**community**, low-**Burt-constraint** nodes — interdisciplinary connectors where recombination/novelty concentrates. | no |
+
+Embeddings are re-derived offline from node labels (they aren't stored in `graphml`), mirroring
+the plotter. **Structural miners run without `sentence-transformers`**; the semantic ones (and
+the semantic terms of the hybrid miners) light up when it's installed.
+
+```bash
+# Mine runs/exp2 → insights.json (structured) + insights.md (ranked report) + insights_map.* (figure)
+python insights.py --run runs/exp2 --top 12
+
+# Also expand the top leads into concrete, testable hypotheses via the generator (reuses config.yaml)
+python insights.py --run runs/exp2 --llm
+```
+
+Outputs in the run dir (or `--out <base>`):
+- **`insights.json`** — all candidates per miner (keyed by `kind`), plus any `--llm` expansions.
+  This is the machine-readable artifact `synthesize.py` consumes.
+- **`insights.md`** — a ranked, sectioned report you can read directly.
+- **`insights_map.png/svg/pdf`** — the semantic PCA landscape with the **top conceptual bridges**
+  drawn over it (skip with `--no-fig`).
+
+`graph.graphml` is only written when a run **finishes**, so point `insights.py` at a completed
+run — or copy a mid-run snapshot `runs/<exp>/graphml/iter_NNNN.graphml` to `graph.graphml` in a
+scratch dir and mine that.
+
+## Answer synthesis (`synthesize.py`)
+
+Closes the loop: take the **original query** + the **mined insights** and have a language model
+write one **complete, insight-enriched answer** — the reasoning the loop spread across many turns,
+distilled back into prose and steered by the non-obvious connections the graph exposed. It's a thin
+layer **on top of** `insights.py` (loads `insights.json`, or mines fresh with `--mine`).
+
+**Backends** (`--backend`):
+
+| `--backend` | Uses | Covers | Key flags |
+|---|---|---|---|
+| `openai` *(default)* | OpenAI Python SDK (chat-completions) | the **real OpenAI API** *and* **any OpenAI-compatible server** (vLLM, mistral.rs, llama.cpp, TGI, Together, Groq, …) | `--model`, `--base-url` (point at the server; omit for real OpenAI), `--api-key` (or `$OPENAI_API_KEY`) |
+| `hf` | local **Hugging Face** `transformers` | any causal-LM repo id, run on this machine (uses the tokenizer's chat template when present) | `--model` (repo id), `--device`, `--dtype` |
+
+**Prompting is deliberately flexible** — nothing is hard-coded to a domain:
+- `--style {report,hypotheses,proposal,review,brief}` — built-in presets that swap the task wording.
+- `--task "<free text>"` — override the task entirely (e.g. *"Write a 1-page Nature-style abstract
+  proposing the single most novel mechanism."*).
+- `--system "<free text>"` — replace the system prompt.
+- `--max-per-kind N` — how many leads per miner to feed in (default 6).
+- `--show-prompt` — print the assembled system+user prompt and exit (no model needed) to inspect/tune it.
+
+```bash
+# Real OpenAI
+python synthesize.py --run runs/exp2 --backend openai --model gpt-4o \
+    --api-key "$OPENAI_API_KEY" --out runs/exp2/answer.md
+
+# Any OpenAI-compatible server (e.g. local vLLM on :8000)
+python synthesize.py --run runs/exp2 --backend openai \
+    --base-url http://localhost:8000/v1 --model meta-llama/Llama-3.1-70B-Instruct
+
+# Local Hugging Face model, mining insights fresh, written as a research proposal
+python synthesize.py --run runs/exp2 --backend hf \
+    --model mistralai/Mistral-7B-Instruct-v0.3 --mine --style proposal
+
+# Custom instruction; preview the prompt first
+python synthesize.py --run runs/exp2 --show-prompt \
+    --task "Rank the 3 most testable hypotheses and give a falsifying experiment for each."
+```
+
+Writes **`answer.md`** (a provenance header — question, backend, model, style, #leads — followed by
+the generated answer) and echoes it to stdout. `synthesize.py` needs `insights.json` (run
+`insights.py` first, or pass `--mine` to compute it on the fly), and a `summary.json` in the run dir
+for the topic (or supply `--topic`).
+
+**Pipeline at a glance:**
+
+```
+ideate.py  →  graph.graphml  →  insights.py  →  insights.json  →  synthesize.py  →  answer.md
+ (grow)        (accumulate)      (mine structure)  (ranked leads)   (LLM synthesis)   (final answer)
+```
+
 ## Files
 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
-`clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `compare.py` (baseline, TODO).
+`clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) ·
+`insights.py` (mine the graph for novel leads) · `synthesize.py` (LLM answer from query + insights) ·
+`compare.py` (baseline, TODO).

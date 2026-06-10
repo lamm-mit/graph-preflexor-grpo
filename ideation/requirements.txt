@@ -4,3 +4,6 @@ numpy
 pyyaml
 sentence-transformers
 scikit-learn   # optional: flexibility (cluster) metric
+matplotlib     # plot_ideation.py / insights.py figures
+# transformers   # optional: synthesize.py --backend hf (local Hugging Face models); also needs torch
+# torch          # optional: required by transformers for the hf backend
