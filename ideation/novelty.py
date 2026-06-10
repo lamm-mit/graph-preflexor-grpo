@@ -362,13 +362,14 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     loaded = [load_run(r, embed_model) for r in runs]
     G0, vecs0, topic0, seed0, model0 = loaded[0]
 
-    fig = plt.figure(figsize=(13.5, 8.4))
-    gs = gridspec.GridSpec(3, 2, width_ratios=[1.32, 1.0], height_ratios=[1, 1, 1],
-                           wspace=0.42, hspace=0.55)
-    axA = fig.add_subplot(gs[:, 0])
-    axB = fig.add_subplot(gs[0, 1])
+    fig = plt.figure(figsize=(11.5, 11.5))
+    gs = gridspec.GridSpec(2, 3, height_ratios=[1.6, 1.0], width_ratios=[1, 1, 1],
+                           wspace=0.34, hspace=0.26)
+    axA = fig.add_subplot(gs[0, :])
+    axA.set_box_aspect(1)                              # force a square plotting box
+    axB = fig.add_subplot(gs[1, 0])
     axC = fig.add_subplot(gs[1, 1])
-    axD = fig.add_subplot(gs[2, 1])
+    axD = fig.add_subplot(gs[1, 2])
 
     # ---------- (A) concept-space map -------------------------------------- #
     print("[novelty] panel A: projecting concept space (UMAP/PCA)…", flush=True)
@@ -407,8 +408,9 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     for n in sorted(nodes, key=lambda n: nov[nodes.index(n)], reverse=True)[:8]:
         axA.annotate(I.lbl(G0, n, 22), pos[n], fontsize=6.6, zorder=6,
                      xytext=(3, 3), textcoords="offset points")
-    cb = fig.colorbar(sc, ax=axA, orientation="horizontal", fraction=0.035, pad=0.085)
-    cb.set_label("novelty when introduced  (1 − cosine to nearest prior concept)", fontsize=8)
+    cax = axA.inset_axes([1.035, 0.12, 0.022, 0.76])  # slim vertical bar in the side whitespace
+    cb = fig.colorbar(sc, cax=cax)
+    cb.set_label("novelty when introduced\n(1 − cosine to nearest prior concept)", fontsize=8)
     cb.ax.tick_params(labelsize=7)
     axA.set_title(f"(A) Concept space — {labels[0]}  "
                   f"({G0.number_of_nodes()} ideas, {proj}); ★ seed, shaded = established region")
