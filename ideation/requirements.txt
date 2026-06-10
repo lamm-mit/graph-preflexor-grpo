@@ -4,6 +4,8 @@ numpy
 pyyaml
 sentence-transformers>=5   # >=5 for the default embeddinggemma-300m (gated: hf login + accept license)
 scikit-learn   # optional: flexibility (cluster) metric
-matplotlib     # plot_ideation.py / insights.py figures
+matplotlib     # plot_ideation.py / insights.py / novelty.py figures
+scipy          # novelty.py null-model stats (KDE, Mann-Whitney)
+# umap-learn    # optional: novelty.py panel (A) uses UMAP if present, else PCA
 # transformers   # optional: synthesize.py --backend hf (local Hugging Face models); also needs torch
 # torch          # optional: required by transformers for the hf backend

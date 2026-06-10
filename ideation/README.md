@@ -46,6 +46,14 @@ python plot_ideation.py --runs runs/exp2 runs/exp_novelty \
     --labels "frontier" "novelty" --out figures/algo_compare
 
 ```
+Novelty:
+```
+python novelty.py --run runs/exp_novelty --out runs/exp_novelty/figures/novelty
+python novelty.py --run runs/exp2 --out runs/exp2/figures/novelty
+python novelty.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+    --labels frontier novelty leap --out figures/novelty_compare   # great for the paper
+python novelty.py --run runs/exp2 --n-null 500                     # tighter p-values
+```
 
 ### 4 Leap method (divergent)
 
