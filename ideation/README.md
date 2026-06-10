@@ -443,8 +443,12 @@ python novelty.py --run runs/exp2 --n-null 500
 ```
 
 Reuses the run's recorded `embed_model` (override with `--embed-model`); pulls the conceptual
-bridges from `insights.json` when present, else computes them. `--n-null` trades runtime for
-tighter p-values; `umap-learn` is used for panel (A) if installed, otherwise PCA.
+bridges from `insights.json` when present, else computes a fast approximation (**run `insights.py`
+first** so Panel D uses the canonical mined bridges). `--n-null` trades runtime for tighter
+p-values; `umap-learn` is used for panel (A) if installed, otherwise PCA. Embeddings are **batched**
+and every heavy loop shows a **tqdm progress bar**; the per-concept-novelty, pairwise-stats, and
+null-model computations are chunked/streamed so they stay memory-safe on large graphs (the exact
+statistics are preserved — only the null **resample count** auto-scales down on very large graphs).
 
 ## Files
 
