@@ -55,14 +55,21 @@ def _intattr(G, n, key, default=0):
 
 
 def load_run(run_dir, embed_model=None):
-    """Return (G, vecs, topic, seed_node). vecs is {node: unit-vec}."""
+    """Return (G, vecs, topic, seed_node, model). vecs is {node: unit-vec}; model is the
+    sentence-transformers id actually used (for reproducibility)."""
     G = I.load_graph(run_dir)
-    from graphstore import resolve_embed_model
+    from graphstore import resolve_embed_model, embed_texts
     model = resolve_embed_model(run_dir, embed_model)
-    vecs = I.embed_nodes(G, model)
-    if not vecs:
-        raise SystemExit(f"{run_dir}: embeddings unavailable — novelty analysis needs them "
-                         f"(install sentence-transformers / set --embed-model).")
+    nodes = list(G.nodes)
+    print(f"[novelty] {run_dir}: embedding {len(nodes)} concepts with '{model}' (batched)…",
+          flush=True)
+    try:                                              # batched: one model load, batched forward
+        V = embed_texts([str(G.nodes[n].get("label", n)) for n in nodes], model)
+        vecs = {n: V[i] for i, n in enumerate(nodes)}
+    except Exception as e:
+        raise SystemExit(f"{run_dir}: embeddings unavailable with '{model}' ({e}) — novelty "
+                         f"analysis needs them. Authenticate the gated model "
+                         f"(huggingface-cli login) or pass --embed-model all-MiniLM-L6-v2.")
     topic = ""
     sp = os.path.join(run_dir, "summary.json")
     if os.path.exists(sp):
@@ -77,7 +84,7 @@ def load_run(run_dir, embed_model=None):
             if str(G.nodes[n].get("label", n)).strip().lower() == topic.strip().lower():
                 seed = n
                 break
-    return G, vecs, topic, seed
+    return G, vecs, topic, seed, model
 
 
 # --------------------------------------------------------------------------- #
@@ -85,20 +92,27 @@ def load_run(run_dir, embed_model=None):
 # --------------------------------------------------------------------------- #
 def concept_novelty(G, vecs, seed):
     """For each concept: novelty_when_introduced = 1 - max cosine to concepts that existed at a
-    STRICTLY earlier iteration; novelty_vs_seed = 1 - cosine to the seed. Returns dict-of-dicts."""
+    STRICTLY earlier iteration; novelty_vs_seed = 1 - cosine to the seed. Chunked so it stays
+    memory-safe on large graphs (never materializes the full n x n similarity matrix)."""
     nodes = list(vecs)
-    it = {n: _intattr(G, n, "iter", 0) for n in nodes}
-    dep = {n: _intattr(G, n, "depth", 0) for n in nodes}
-    out = {}
-    for n in nodes:
-        prior = [m for m in nodes if it[m] < it[n]]
-        if prior:
-            nv = 1.0 - max(float(np.dot(vecs[n], vecs[m])) for m in prior)
-        else:
-            nv = float("nan")                         # nothing existed before it (seed batch)
-        out[n] = {"novelty_intro": nv, "iter": it[n], "depth": dep[n],
-                  "novelty_seed": 1.0 - float(np.dot(vecs[n], vecs[seed]))}
-    return out
+    X = np.stack([vecs[n] for n in nodes]).astype(np.float32)
+    it = np.array([_intattr(G, n, "iter", 0) for n in nodes])
+    dep = np.array([_intattr(G, n, "depth", 0) for n in nodes])
+    sidx = nodes.index(seed)
+    nov_seed = 1.0 - (X @ X[sidx])
+    n = len(nodes)
+    nov_intro = np.full(n, np.nan, dtype=np.float32)
+    CH = 2048
+    for s in range(0, n, CH):                         # (chunk x n) blocks, not n x n
+        e = min(n, s + CH)
+        Sb = X[s:e] @ X.T
+        for k in range(s, e):
+            prior = it < it[k]
+            if prior.any():
+                nov_intro[k] = 1.0 - float(Sb[k - s][prior].max())
+    return {nodes[i]: {"novelty_intro": float(nov_intro[i]), "iter": int(it[i]),
+                       "depth": int(dep[i]), "novelty_seed": float(nov_seed[i])}
+            for i in range(n)}
 
 
 def novelty_trajectory(cn):
@@ -166,16 +180,18 @@ def heterophily_significance(G, vecs, n_null=500):
     if not edges:
         return {}
     nodes = list(vecs)
-    X = np.stack([vecs[n] for n in nodes])
+    X = np.stack([vecs[n] for n in nodes]).astype(np.float32)
     idx = {n: i for i, n in enumerate(nodes)}
-    obs = float(np.mean([float(np.dot(X[idx[u]], X[idx[v]])) for u, v in edges]))
+    ei = np.array([idx[u] for u, v in edges])
+    ej = np.array([idx[v] for u, v in edges])
+    obs = float(np.einsum("ij,ij->i", X[ei], X[ej]).mean())
     rng = np.random.default_rng(0)
-    nulls = []
-    for _ in range(n_null):
-        perm = rng.permutation(len(nodes))
-        pos = {nodes[i]: X[perm[i]] for i in range(len(nodes))}
-        nulls.append(float(np.mean([float(np.dot(pos[u], pos[v])) for u, v in edges])))
-    mu, sd = float(np.mean(nulls)), float(np.std(nulls) or 1.0)
+    n = len(nodes)
+    nulls = np.empty(n_null)
+    for t in range(n_null):                           # permute embeddings across nodes, vectorized
+        Xp = X[rng.permutation(n)]
+        nulls[t] = np.einsum("ij,ij->i", Xp[ei], Xp[ej]).mean()
+    mu, sd = float(nulls.mean()), float(nulls.std() or 1.0)
     return {"mean_edge_cosine": obs, "null_mean": mu, "null_std": sd, "z": (obs - mu) / sd,
             "p_two_sided": 2 * min(_emp_p(obs, nulls, True), _emp_p(obs, nulls, False)),
             "n_null": n_null}
@@ -225,26 +241,31 @@ def motif_significance(G, n_null=200, top=10):
 # --------------------------------------------------------------------------- #
 #  Combination novelty (Uzzi-style)
 # --------------------------------------------------------------------------- #
-def combination_typicality(vecs, pairs):
-    """z of each pair's cosine vs the global pairwise-cosine distribution. Lower (more
-    negative) = a more atypical / novel combination of concepts."""
+def combination_typicality(vecs, pairs, sample=300000):
+    """z of each pair's cosine vs the global pairwise-cosine distribution. Lower (more negative)
+    = a more atypical / novel combination. The global mean/std is sampled (not full n x n) so it
+    stays memory-safe on large graphs."""
     nodes = list(vecs)
-    X = np.stack([vecs[n] for n in nodes])
-    S = X @ X.T
-    iu = np.triu_indices(len(X), 1)
-    mu, sd = float(S[iu].mean()), float(S[iu].std() or 1.0)
-    idx = {n: i for i, n in enumerate(nodes)}
-    out = []
-    for a, b in pairs:
-        if a in idx and b in idx and a != b:
-            out.append((float(np.dot(X[idx[a]], X[idx[b]])) - mu) / sd)
-    return out
+    X = np.stack([vecs[n] for n in nodes]).astype(np.float32)
+    n = len(nodes)
+    if n * (n - 1) // 2 <= sample:
+        S = X @ X.T
+        vals = S[np.triu_indices(n, 1)]
+    else:
+        rng = np.random.default_rng(0)
+        i, j = rng.integers(0, n, sample), rng.integers(0, n, sample)
+        m = i != j
+        vals = np.einsum("ij,ij->i", X[i[m]], X[j[m]])
+    mu, sd = float(vals.mean()), float(vals.std() or 1.0)
+    idx = {nm: k for k, nm in enumerate(nodes)}
+    return [(float(X[idx[a]] @ X[idx[b]]) - mu) / sd
+            for a, b in pairs if a in idx and b in idx and a != b]
 
 
 def _bridge_pairs(run_dir, G, vecs, top=12):
-    """Endpoint pairs of the mined *conceptual bridges* — the long-range connections that span
-    distant regions of the idea space (the system's genuinely novel combinations). From
-    insights.json if present, else computed on the fly."""
+    """Endpoint pairs of the *conceptual bridges* — the long-range connections that span distant
+    regions of the idea space (the system's genuinely novel combinations). From insights.json if
+    present, else computed fast: the top-K most embedding-distant pairs that are still connected."""
     jp = os.path.join(run_dir, "insights.json")
     if os.path.exists(jp):
         try:
@@ -255,8 +276,27 @@ def _bridge_pairs(run_dir, G, vecs, top=12):
                 return pairs
         except Exception:
             pass
-    return [tuple(x["endpoints"]) for x in I.conceptual_bridges(G, vecs, top=top)
-            if "endpoints" in x]
+    # bound cost on large graphs: distant bridges live among the most peripheral concepts, so
+    # restrict the all-pairs search to the M least-central nodes (never the full n x n).
+    nodes = list(vecs)
+    X = np.stack([vecs[n] for n in nodes])
+    centroid = X.mean(0)
+    M = min(len(nodes), 400)
+    periph = np.argsort(X @ centroid)[:M]             # least central first
+    sub = [nodes[i] for i in periph]
+    Xs = X[periph]
+    Ss = Xs @ Xs.T
+    iu = np.triu_indices(M, 1)
+    order = np.argsort(Ss[iu])                         # ascending cosine = most distant first
+    U = G.to_undirected()
+    out = []
+    for idx in order[: top * 50]:
+        a, b = sub[iu[0][idx]], sub[iu[1][idx]]
+        if nx.has_path(U, a, b):
+            out.append((a, b))
+        if len(out) >= top:
+            break
+    return out
 
 
 def _random_pairs(G, n, seed=0):
@@ -299,7 +339,7 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
 
     # load every run (for the trajectory overlay); panels A/C/D use the FIRST (primary) run
     loaded = [load_run(r, embed_model) for r in runs]
-    G0, vecs0, topic0, seed0 = loaded[0]
+    G0, vecs0, topic0, seed0, model0 = loaded[0]
 
     fig = plt.figure(figsize=(13.5, 8.2))
     gs = gridspec.GridSpec(3, 2, width_ratios=[1.32, 1.0], height_ratios=[1, 1, 1],
@@ -310,6 +350,7 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     axD = fig.add_subplot(gs[2, 1])
 
     # ---------- (A) concept-space map -------------------------------------- #
+    print("[novelty] panel A: projecting concept space (UMAP/PCA)…", flush=True)
     nodes = list(vecs0)
     X = np.stack([vecs0[n] for n in nodes])
     P, proj = _project(X)
@@ -353,7 +394,8 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     axA.legend(loc="upper right", frameon=False, fontsize=8)
 
     # ---------- (B) novelty expands with reasoning ------------------------- #
-    for (G, vecs, _, seed), lab, col in zip(loaded, labels, PAL):
+    print("[novelty] panel B: novelty trajectory per run…", flush=True)
+    for (G, vecs, _, seed, _m), lab, col in zip(loaded, labels, PAL):
         cn = concept_novelty(G, vecs, seed)
         its_b, mean_b, sem_b = novelty_trajectory(cn)
         if not its_b:
@@ -369,8 +411,18 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         axB.legend(frameon=False, fontsize=7.5, ncol=min(3, len(loaded)))
 
     # ---------- (C) relational-motif significance -------------------------- #
-    motifs = motif_significance(G0, n_null=n_null)
-    mod = modularity_significance(G0, n_null=max(50, n_null // 2))
+    # auto-scale the two heaviest nulls down on big graphs (greedy modularity / motif recount
+    # are superlinear); tight on small graphs where it's cheap.
+    nE, nN = G0.number_of_edges(), G0.number_of_nodes()
+    nn_motif = n_null if nE < 3000 else max(50, n_null // 4)
+    nn_mod = (max(50, n_null // 2) if nN < 1500 else max(20, n_null // 8))
+    print(f"[novelty] panel C: null-model significance "
+          f"(motifs×{nn_motif}, modularity×{nn_mod}, heterophily)… this is the slow part",
+          flush=True)
+    motifs = motif_significance(G0, n_null=nn_motif)
+    print("[novelty]   … motifs done; modularity null (rewiring)…", flush=True)
+    mod = modularity_significance(G0, n_null=nn_mod)
+    print("[novelty]   … modularity done; heterophily null…", flush=True)
     het = heterophily_significance(G0, vecs0, n_null=max(200, n_null))
     if motifs:
         ys = range(len(motifs))[::-1]
@@ -394,6 +446,7 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     axC.grid(True, axis="x", color="0.92", lw=0.5); axC.set_axisbelow(True)
 
     # ---------- (D) novel combinations (Uzzi-style) ------------------------ #
+    print("[novelty] panel D: combination typicality (bridges vs edges vs random)…", flush=True)
     # Knowledge-graph edges are normally homophilic (link similar concepts); the system's
     # novelty lives in the long-range conceptual bridges that connect atypically dissimilar
     # ideas. Show all three distributions; test bridges vs edges.
@@ -427,7 +480,8 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         pass
 
     fig.suptitle(f"Novelty of generated concepts & mined insights — {labels[0]}"
-                 + (f"  (topic: {topic0})" if topic0 else ""), y=0.995, fontsize=12)
+                 + (f"  (topic: {topic0})" if topic0 else "")
+                 + f"   ·  embeddings: {model0}", y=0.995, fontsize=12)
 
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     for ext in ("png", "svg", "pdf"):
@@ -438,6 +492,7 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     # ---------- numeric report -------------------------------------------- #
     valid = [d["novelty_intro"] for d in cn0.values() if d["novelty_intro"] == d["novelty_intro"]]
     report["runs"][labels[0]] = {
+        "embed_model": model0,
         "n_concepts": G0.number_of_nodes(), "n_links": G0.number_of_edges(), "projection": proj,
         "mean_novelty_when_introduced": float(np.mean(valid)) if valid else None,
         "mean_novelty_vs_seed": float(np.mean([d["novelty_seed"] for d in cn0.values()])),

@@ -43,6 +43,22 @@ def make_embedder(model_name=DEFAULT_EMBED_MODEL, prompt_name=None):
     return embed
 
 
+def embed_texts(texts, model_name=DEFAULT_EMBED_MODEL, prompt_name=None, batch_size=64):
+    """Batched embedding of many texts -> (n, d) unit-norm float32 array. Far faster than
+    calling make_embedder() once per text for large node sets (single load, batched forward
+    passes). Same STS-prompt auto-selection as make_embedder."""
+    from sentence_transformers import SentenceTransformer
+    model = SentenceTransformer(model_name)
+    if prompt_name is None and "embeddinggemma" in model_name.lower():
+        prompt_name = "STS"
+    prompts = getattr(model, "prompts", None) or {}
+    kw = {"prompt_name": prompt_name} if prompt_name in prompts else {}
+    texts = list(texts)
+    V = model.encode(texts, convert_to_numpy=True, normalize_embeddings=True,
+                     batch_size=batch_size, show_progress_bar=len(texts) > 256, **kw)
+    return V.astype(np.float32)
+
+
 def resolve_embed_model(run_dir=None, cli=None, default=DEFAULT_EMBED_MODEL):
     """Pick the embedding model for offline re-embedding: explicit CLI value wins, else the
     model the run recorded in summary.json (so plots/insights match the run's dedup), else
