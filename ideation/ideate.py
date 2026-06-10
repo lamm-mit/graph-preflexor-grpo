@@ -84,7 +84,7 @@ def main():
     with open(os.path.join(args.out, "summary.json"), "w") as f:
         json.dump({"topic": args.topic,
                    "config": {k: cfg.get(k) for k in ("strategy", "context_mode",
-                                                      "dedup_threshold", "fanout")},
+                                                      "dedup_threshold", "fanout", "embed_model")},
                    "stats": stats, "metrics": m}, f, indent=2)
 
     print(f"[ideate] done: {m['nodes']} ideas, {m['edges']} links | "

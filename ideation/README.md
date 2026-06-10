@@ -75,6 +75,21 @@ pip install -r requirements.txt
 cp config.example.yaml config.yaml             # then edit if needed
 ```
 
+**Embedding model.** Node dedup, semantic diversity, and every semantic analysis use a
+sentence-embedding model, set by `embed_model` in `config.yaml`. The default is
+**`google/embeddinggemma-300m`** (newer/stronger). It's a **gated** HF model, so once:
+
+```bash
+huggingface-cli login            # and accept the license at huggingface.co/google/embeddinggemma-300m
+# needs sentence-transformers >= 5
+```
+
+It uses EmbeddingGemma's symmetric **`STS`** prompt automatically (right for concept-vs-concept
+similarity). To avoid the gating/size, set `embed_model: all-MiniLM-L6-v2` (lighter, ungated).
+Each run **records** its `embed_model` in `summary.json`, and the offline tools
+(`plot_ideation.py`, `insights.py`, `synthesize.py`) re-embed with that same model by default —
+override per-invocation with `--embed-model <id>`.
+
 ## 3. Run
 
 ```bash

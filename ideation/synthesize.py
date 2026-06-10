@@ -182,6 +182,9 @@ def main():
                      help="(re)mine insights now instead of loading insights.json")
     src.add_argument("--top", type=int, default=10, help="candidates per miner when mining")
     src.add_argument("--topic", help="override / supply the original question")
+    src.add_argument("--embed-model", dest="embed_model", default=None,
+                     help="sentence-transformers id used when mining (--mine / no insights.json); "
+                          "default: the run's recorded model, else embeddinggemma-300m")
 
     pr = p.add_argument_group("prompt")
     pr.add_argument("--style", default="report", choices=list(STYLES),
@@ -215,7 +218,8 @@ def main():
         G = I.load_graph(os.path.dirname(args.insights) or ".") if os.path.exists(
             os.path.join(os.path.dirname(args.insights) or ".", "graph.graphml")) else None
     elif args.run:
-        topic, G, results = I.load_insights_or_mine(args.run, top=args.top, want_mine=args.mine)
+        topic, G, results = I.load_insights_or_mine(args.run, top=args.top, want_mine=args.mine,
+                                                    embed_model=args.embed_model)
         topic = args.topic or topic
     else:
         raise SystemExit("provide --run <dir> or --insights <file.json>")

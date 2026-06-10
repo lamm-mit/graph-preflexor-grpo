@@ -58,11 +58,12 @@ def lbl(G, n, k=64):
     return s if len(s) <= k else s[: k - 1] + "…"
 
 
-def embed_nodes(G):
-    """Re-embed node labels offline; returns ({node: unit-vec}, matrix-helpers) or None."""
+def embed_nodes(G, model=None):
+    """Re-embed node labels offline; returns {node: unit-vec} or None. `model` selects the
+    sentence-transformers id (default: graphstore.DEFAULT_EMBED_MODEL = embeddinggemma)."""
     try:
         from graphstore import make_embedder
-        emb = make_embedder()
+        emb = make_embedder(model) if model else make_embedder()
     except Exception as e:
         print(f"[insights] embeddings unavailable ({e}); running structural miners only.")
         return None
@@ -375,9 +376,10 @@ def mine_all(G, vecs, top=10, log=False):
     return results
 
 
-def load_insights_or_mine(run_dir, top=10, want_mine=False):
+def load_insights_or_mine(run_dir, top=10, want_mine=False, embed_model=None):
     """Load a previously-written <run>/insights.json, or mine fresh if missing/requested.
-    Returns (topic, graph_stats_dict_or_G, results) where results is the mine_all() shape."""
+    Returns (topic, G, results) where results is the mine_all() shape. `embed_model` (or the
+    model recorded in the run's summary.json) is used when mining fresh."""
     G = load_graph(run_dir)
     topic = ""
     sp = os.path.join(run_dir, "summary.json")
@@ -393,7 +395,8 @@ def load_insights_or_mine(run_dir, top=10, want_mine=False):
         miners = data.get("miners", {})
         results = [(k, miners.get(k, [])) for k in KIND_ORDER]   # always all 7, in order
         return topic, G, results
-    vecs = embed_nodes(G)
+    from graphstore import resolve_embed_model
+    vecs = embed_nodes(G, resolve_embed_model(run_dir, embed_model))
     return topic, G, mine_all(G, vecs, top=top, log=True)
 
 
@@ -519,6 +522,9 @@ def main():
     p.add_argument("--llm", action="store_true",
                    help="expand top insights into hypotheses via the generator (uses config)")
     p.add_argument("--config", default="config.yaml")
+    p.add_argument("--embed-model", dest="embed_model", default=None,
+                   help="sentence-transformers id for re-embedding "
+                        "(default: model recorded by the run, else embeddinggemma-300m)")
     args = p.parse_args()
     out = args.out or os.path.join(args.run.rstrip("/"), "insights")
 
@@ -530,9 +536,11 @@ def main():
             topic = json.load(open(sp)).get("topic", "")
         except Exception:
             pass
-    vecs = embed_nodes(G)
+    from graphstore import resolve_embed_model
+    model = resolve_embed_model(args.run, args.embed_model)
+    vecs = embed_nodes(G, model)
     print(f"[insights] mining {G.number_of_nodes()} ideas / {G.number_of_edges()} links"
-          + ("" if vecs else "  (structural miners only — no embeddings)"))
+          + (f"  (embed: {model})" if vecs else "  (structural miners only — no embeddings)"))
 
     results = mine_all(G, vecs, top=args.top, log=True)
 
