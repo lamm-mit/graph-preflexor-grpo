@@ -124,16 +124,27 @@ The headline test — does `converse` beat the structure-based strategies on sat
 the scaling figure and watch **(b) idea-space expansion** and **(d) surprising recombinations**:
 
 ```bash
-python scaling.py --runs runs/exp_leap runs/exp_novelty runs/exp_converse \
+# (i) quantitative: surprise/spread vs compute — does converse's panel (b) keep climbing?
+python scaling.py --runs runs/exp_novelty_2 runs/exp_converse \
+    --labels novelty converse --out figures/scaling_converse_vs_novelty
+python scaling.py --runs runs/exp_leap runs/exp_novelty_2 runs/exp_converse \
     --labels leap novelty converse --out figures/scaling_converse
-python plot_ideation.py --runs runs/exp_leap runs/exp_novelty runs/exp_converse \
-    --labels leap novelty converse --out figures/converse_compare
+
+# (ii) VISUAL: joint shared-PCA coverage map — see converse's concepts spill OUTSIDE novelty's region
+python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
+    --labels novelty converse --out figures/embedmap_converse
+
+# (iii) sanity check: is converse's expansion on-topic, not drift?  (skim insights_map / concepts)
+python insights.py --run runs/exp_converse --top 12
 ```
 
-If `converse`'s panel (b) keeps climbing where `leap`/`novelty` flatten, you've shown the saturation
-was a *strategy* artifact (structure-based strategies only re-probe known concepts), not a model
-limit — a clean result on its own. Watch for off-topic **drift** (the questioner isn't
-topic-anchored); if it wanders, lower the questioner temperature or tell me to add a topic anchor.
+If `converse`'s scaling panel (b) keeps climbing where `leap`/`novelty` flatten — **and** the
+`embedmap` shows its points/contour extending beyond the others' region **with on-topic concepts** —
+you've shown the saturation was a *strategy* artifact (structure-based strategies only re-probe known
+concepts), not a model limit. Two separate per-run semantic maps are **not** comparable (each has its
+own PCA); `embedmap.py` fits **one shared PCA** so coverage is directly comparable. Watch for off-topic
+**drift** (the questioner isn't topic-anchored) — higher spread from drift is an artifact, not a result;
+if it wanders, lower the questioner temperature or tell me to add a topic anchor.
 
 ### Collecting runs from several machines (archive → HF dataset → analyze locally)
 
@@ -188,11 +199,12 @@ Quick whole-dir variants (includes figures/insights if present — use when a ru
 *everything*): `tar czf exp2.tar.gz runs/exp2`. Non-HF alternatives: `rsync -avP exp2_ideate.tar.gz
 user@server:/path/`, `scp`, or `rclone copy` to S3/GDrive.
 
-### Full analysis pipeline (per-run + three-way comparison)
+### Full analysis pipeline (per-run + four-way comparison)
 
-Complete recipe to analyze three runs (`exp2`/frontier, `exp_leap`/leap, `exp_novelty_2`/novelty) and
-overlay them. Run from the `ideation/` dir. **Order matters:** run `insights.py` before `novelty.py` so
-Panel (E) uses the canonical mined conceptual bridges (otherwise it falls back to an approximation).
+Complete recipe to analyze the four runs — `exp2`/frontier, `exp_novelty_2`/novelty, `exp_leap`/leap,
+`exp_converse`/converse — and overlay them. Run from the `ideation/` dir. **Order matters:** run
+`insights.py` before `novelty.py` so Panel (E) uses the canonical mined conceptual bridges (otherwise it
+falls back to an approximation).
 
 For a fair journal comparison of runs at different (or unfinished) lengths, add **`--max-iter 1500`** to
 *every* command below — it truncates all runs to `iter <= 1500` consistently. Drop it to use each run in full.
@@ -200,41 +212,55 @@ For a fair journal comparison of runs at different (or unfinished) lengths, add 
 ```bash
 # 1) Mine insights for each run  → runs/<run>/insights.{json,md} + insights_map.*
 python insights.py --run runs/exp2          --top 12
-python insights.py --run runs/exp_leap      --top 12
 python insights.py --run runs/exp_novelty_2 --top 12
+python insights.py --run runs/exp_leap      --top 12
+python insights.py --run runs/exp_converse  --top 12
 
 # 2) Per-run growth / graph-analytics figures  → runs/<run>/figures/
 python plot_ideation.py --runs runs/exp2          --labels frontier
-python plot_ideation.py --runs runs/exp_leap      --labels leap
 python plot_ideation.py --runs runs/exp_novelty_2 --labels novelty
+python plot_ideation.py --runs runs/exp_leap      --labels leap
+python plot_ideation.py --runs runs/exp_converse  --labels converse
 
 # 3) Per-run novelty figures  → <out>_novelty_map.*  +  _novelty_stats.*  +  _novelty.json
 python novelty.py --run runs/exp2          --out runs/exp2/figures/novelty
-python novelty.py --run runs/exp_leap      --out runs/exp_leap/figures/novelty
 python novelty.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/novelty
+python novelty.py --run runs/exp_leap      --out runs/exp_leap/figures/novelty
+python novelty.py --run runs/exp_converse  --out runs/exp_converse/figures/novelty
 
 # 4) Surprise-vs-compute scaling figures  → <out>_scaling.*  (the test-time-compute result)
 python scaling.py --run runs/exp2          --out runs/exp2/figures/scaling
-python scaling.py --run runs/exp_leap      --out runs/exp_leap/figures/scaling
 python scaling.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/scaling
+python scaling.py --run runs/exp_leap      --out runs/exp_leap/figures/scaling
+python scaling.py --run runs/exp_converse  --out runs/exp_converse/figures/scaling
 
-# 5) Three-way comparisons (overlaid)  → figures/strategy_compare*
-#    (first run = primary for the map/stats panels; panel C overlays all three trajectories)
-python plot_ideation.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
-    --labels frontier novelty leap --out figures/strategy_compare
-python novelty.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
-    --labels frontier novelty leap --out figures/strategy_compare
-python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
-    --labels frontier novelty leap --out figures/strategy_compare   # surprise vs compute, overlaid
+# 5) Four-way comparisons (overlaid)  → figures/strategy_compare*
+#    (first run = primary for the map/stats panels; trajectories/curves overlay all four)
+python plot_ideation.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/strategy_compare
+python novelty.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/strategy_compare
+python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/strategy_compare   # surprise vs compute
+python embedmap.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/strategy_compare   # joint shared-PCA coverage
+
+# 5b) The saturation test (the converse hypothesis) — converse vs the best structure explorer (novelty)
+python scaling.py  --runs runs/exp_novelty_2 runs/exp_converse \
+    --labels novelty converse --out figures/scaling_converse_vs_novelty    # quantitative: watch panel (b)
+python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
+    --labels novelty converse --out figures/embedmap_converse              # visual: spill outside the region
 
 # 6) Synthesize a final insight-enriched answer per run (local Llama-3.2-3B-Instruct)
 #    → runs/<run>/answer.md   (gated model: huggingface-cli login once)
 python synthesize.py --run runs/exp2          --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp2/answer.md
-python synthesize.py --run runs/exp_leap      --backend hf \
-    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_leap/answer.md
 python synthesize.py --run runs/exp_novelty_2 --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty_2/answer.md
+python synthesize.py --run runs/exp_leap      --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_leap/answer.md
+python synthesize.py --run runs/exp_converse  --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_converse/answer.md
 ```
 
 Tips: add `--n-null 500` to the `novelty.py` lines for tighter p-values in final figures; add
@@ -251,6 +277,26 @@ curl -s http://localhost:1234/v1/models        # verify both loaded
 python /path/to/mistral.rs/examples/server/responses.py   # verify /v1/responses works
 ```
 
+```bash
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=0
+export VLLM_USE_FLASHINFER_SAMPLER=0
+
+vllm serve lamm-mit/Graph-Preflexor-3b_08012026 \
+  --port 1234 \
+  --gpu-memory-utilization 0.3 \
+  --max-model-len 32768
+```
+Llama for questioner:
+```bash
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=1
+export VLLM_USE_FLASHINFER_SAMPLER=0
+
+vllm serve meta-llama/Llama-3.2-3B-Instruct --port 8000
+  --gpu-memory-utilization 0.3 \
+  --max-model-len 10000
+```
 vLLM:
 ```bash
 HF_TOKEN="your_hf_token" vllm serve lamm-mit/Graph-Preflexor-3b_08012026 --port 1234 --gpu-memory-utilization 0.6
@@ -843,10 +889,33 @@ python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
 Writes `<out>_scaling.{png,svg,pdf}` + `<out>_scaling.json`. Needs embeddings (reuses the run's
 recorded `embed_model`; override with `--embed-model`) and `growth.csv` for the token axis.
 
+## Idea-space coverage comparison (`embedmap.py`)
+
+The **visual companion to scaling panel (b)**: shows whether one run's concepts cover a *wider* region
+of meaning-space than another's. The catch — two separate per-run semantic maps are **not** comparable
+(each is fit with its own PCA). `embedmap.py` pools all runs' concepts, fits **one shared PCA**, and
+plots each run on the **same axes** with a per-run density contour, reporting each run's **spread**
+(total embedding variance — same metric as scaling panel b) and 2D **convex-hull area**. When a strategy
+breaks saturation (e.g. `converse` vs `novelty`), you literally see its points and contour spill
+**outside** the other's region.
+
+```bash
+python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
+    --labels novelty converse --out figures/embedmap_converse
+python embedmap.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/embedmap_compare
+```
+
+Writes `<out>_embedmap.{png,svg,pdf}` + `<out>_embedmap.json`. Needs embeddings; `--max-iter` truncates
+all runs to a common length, `--max-points` subsamples the scatter/KDE for big graphs. **Caveat:** a
+wider spread is only a *result* if the new concepts are **on-topic** — verify with `insights.py` first
+(drift inflates spread without adding real novelty).
+
 ## Files
 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
 `clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `scaling.py` (surprise vs compute) ·
-`insights.py` (mine the graph for novel leads) · `novelty.py` (novelty stats + paper figure) ·
-`synthesize.py` (LLM answer from query + insights) · `compare.py` (baseline, TODO).
+`embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads) ·
+`novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights) ·
+`compare.py` (baseline, TODO).
