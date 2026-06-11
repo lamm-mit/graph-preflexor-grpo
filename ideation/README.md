@@ -35,9 +35,9 @@ python plot_ideation.py --runs runs/exp2 --labels "Graph-PRefLexOR-3B" --movie
 ```bash
 python ideate.py --topic "self-healing biopolymer composites" --strategy novelty \
     --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
-    --out runs/exp_novelty
+    --out runs/exp_novelty_2
 
-python plot_ideation.py --runs runs/exp_novelty --labels "Graph-PRefLexOR-3B" --movie
+python plot_ideation.py --runs runs/exp_novelty_2 --labels "Graph-PRefLexOR-3B" --movie
 ```
 Then compare:
 
@@ -85,6 +85,35 @@ cd ~/LOCAL/graph-preflexor-grpo/ideation
 tar czf runs_exp2.tar.gz runs/exp2         
 tar czf runs_novelty.tar.gz runs/exp_novelty
 ```
+
+### COMPLETE
+
+```bash
+# === Analysis pipeline for exp2, exp_leap, exp_novelty_2 ===
+# (run from the ideation/ dir; insights MUST run before novelty so Panel E uses the canonical bridges)
+
+# 1) Mine insights for each run  → runs/<run>/insights.{json,md} + insights_map.*
+python insights.py --run runs/exp2          --top 12
+python insights.py --run runs/exp_leap      --top 12
+python insights.py --run runs/exp_novelty_2 --top 12
+
+# 2) Per-run growth / graph-analytics figures  → runs/<run>/figures/
+python plot_ideation.py --runs runs/exp2          --labels frontier
+python plot_ideation.py --runs runs/exp_leap      --labels leap
+python plot_ideation.py --runs runs/exp_novelty_2 --labels novelty
+
+# 3) Per-run novelty figures  → <out>_novelty_map.*  +  _novelty_stats.*  +  _novelty.json
+python novelty.py --run runs/exp2          --out runs/exp2/figures/novelty
+python novelty.py --run runs/exp_leap      --out runs/exp_leap/figures/novelty
+python novelty.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/novelty
+
+# 4) Three-way comparisons (overlaid)  → figures/strategy_compare*
+python plot_ideation.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
+    --labels frontier novelty leap --out figures/strategy_compare
+python novelty.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
+    --labels frontier novelty leap --out figures/strategy_compare
+```
+
 
 ## 1. Serve both models (mistral.rs, vLLM, etc.)
 

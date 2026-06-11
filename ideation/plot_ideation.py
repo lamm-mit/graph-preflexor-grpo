@@ -210,6 +210,9 @@ def graph_movie(run_dir, label, base, fps=2):
             return 0
 
     max_it = max([it(G.nodes[n]) for n in G] + [0])
+    n_frames = max_it + 1
+    print(f"  movie [{label}]: computing layout for {G.number_of_nodes()} nodes "
+          f"(slow on big graphs)…", flush=True)
     pos = nx.spring_layout(G, seed=0, k=0.6)
     deg = dict(G.degree())
     fig, ax = plt.subplots(figsize=(6, 6))
@@ -223,10 +226,20 @@ def graph_movie(run_dir, label, base, fps=2):
         ax.set_title(f"{label} — iter {t}  ({H.number_of_nodes()}n/{H.number_of_edges()}e)",
                      fontsize=10)
 
-    anim = FuncAnimation(fig, draw, frames=range(max_it + 1), interval=1000 / max(1, fps))
+    anim = FuncAnimation(fig, draw, frames=range(n_frames), interval=1000 / max(1, fps))
     out = f"{base}_movie_{label.replace(' ', '_')}.gif"
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-    anim.save(out, writer=PillowWriter(fps=fps))
+    try:                                                  # progress bar over rendered frames
+        from tqdm import tqdm
+        bar = tqdm(total=n_frames, desc=f"movie {label}", unit="frame", leave=False,
+                   dynamic_ncols=True)
+        cb = lambda i, n: bar.update(1)
+    except Exception:
+        bar, cb = None, None
+    print(f"  movie [{label}]: rendering {n_frames} frames → GIF…", flush=True)
+    anim.save(out, writer=PillowWriter(fps=fps), progress_callback=cb)
+    if bar is not None:
+        bar.close()
     plt.close(fig)
     print(f"wrote {out}")
 
