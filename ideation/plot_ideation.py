@@ -373,6 +373,22 @@ def _embed_nodes(G, model=None):
         return None
 
 
+def _label_column(ax, anchors, color="#d62728", fs=6.5, maxn=6):
+    """Non-overlapping point labels for a small panel: stack them in a column at the upper-left
+    (the sparse region of a broker scatter) with thin leader lines to the actual points.
+    anchors = [(x_data, y_data, text), ...]."""
+    anchors = anchors[:maxn]
+    if not anchors:
+        return
+    order = sorted(anchors, key=lambda a: a[1], reverse=True)      # top→bottom by data-y
+    n = len(order)
+    ys = np.linspace(0.97, max(0.5, 0.97 - 0.08 * (n - 1)), n)     # evenly spaced => no overlap
+    for (x, y, txt), yf in zip(order, ys):
+        ax.annotate(txt, xy=(x, y), xycoords="data", xytext=(0.02, yf),
+                    textcoords=ax.transAxes, fontsize=fs, color=color, ha="left", va="center",
+                    zorder=6, arrowprops=dict(arrowstyle="-", lw=0.4, color=color, alpha=0.55))
+
+
 def _key_below(ax, handles):
     """Put a numbered key BELOW the axes (full names, 2 columns), nothing overlapping the plot."""
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.08), frameon=False,
@@ -463,11 +479,11 @@ def graph_structure(run_dir, label, base, embed_model=None):
         bet = nx.betweenness_centrality(G)
     xs = [deg[n] for n in G]; ys = [bet[n] for n in G]
     ax[0, 1].scatter(xs, ys, s=18, color=blue, alpha=0.6, linewidths=0)
-    brokers = sorted(G, key=lambda n: bet[n], reverse=True)[:5]
-    for n in brokers:
-        ax[0, 1].annotate(_short(G.nodes[n].get("label", n), 16), (deg[n], bet[n]),
-                          fontsize=6.5, color=red,
-                          xytext=(3, 3), textcoords="offset points")
+    brokers = sorted(G, key=lambda n: bet[n], reverse=True)[:6]
+    ax[0, 1].scatter([deg[n] for n in brokers], [bet[n] for n in brokers], s=26, color=red,
+                     alpha=0.9, linewidths=0, zorder=3)
+    _label_column(ax[0, 1], [(deg[n], bet[n], _short(G.nodes[n].get("label", n), 16))
+                             for n in brokers], color=red)   # stacked column, leader lines, no overlap
     ax[0, 1].set_title("(b) Broker ideas (degree vs betweenness)")
     ax[0, 1].set_xlabel("degree"); ax[0, 1].set_ylabel("betweenness")
 
@@ -536,10 +552,8 @@ def graph_structure(run_dir, label, base, embed_model=None):
         cols = [cmap.get(n, 0) for n in nodes]
         ax[0, 2].scatter(P[:, 0], P[:, 1], c=cols, cmap="tab10",
                          s=[40 + 4000 * pr[n] for n in nodes], alpha=0.75, linewidths=0)
-        for n in sorted(G, key=lambda x: pr[x], reverse=True)[:6]:
-            i = nodes.index(n)
-            ax[0, 2].annotate(_short(G.nodes[n].get("label", n), 16), (P[i, 0], P[i, 1]),
-                              fontsize=6.5, xytext=(3, 3), textcoords="offset points")
+        # labels intentionally omitted here (too dense to be readable) — see the standalone
+        # *_semantic_<label> plot, which numbers the top hubs with a full-name key below.
         ax[0, 2].set_title("(e) Semantic map (PCA, color=community)")
         ax[0, 2].set_xlabel("PC1"); ax[0, 2].set_ylabel("PC2")
     else:
@@ -578,6 +592,40 @@ def graph_structure(run_dir, label, base, embed_model=None):
     fig.tight_layout()
     _save(fig, f"{base}_structure_{label.replace(' ', '_')}")
     plt.close(fig)
+
+    # ---- 4-panel version (a, c, d, f) — no scatter panels, paper-ready (reuses computed data) ----
+    fig4, ax4 = plt.subplots(2, 2, figsize=(8.6, 6.8))
+    ax4[0, 0].bar(ks, [csizes[k] for k in ks], color=blue, alpha=0.85)
+    ax4[0, 0].set_title(f"(a) k-core decomposition (max k={max(ks) if ks else 0})")
+    ax4[0, 0].set_xlabel("coreness k"); ax4[0, 0].set_ylabel("# nodes")
+    if split:
+        ax4[0, 1].barh(range(len(split)), [s for _, s in split], color=red, alpha=0.8)
+        ax4[0, 1].set_yticks(range(len(split)))
+        ax4[0, 1].set_yticklabels([_short(G.nodes[n].get("label", n), 18) for n, _ in split], fontsize=7)
+        ax4[0, 1].set_xlabel("extra fragments if removed")
+    else:
+        ax4[0, 1].text(0.5, 0.5, "no articulation points\n(2-connected)", ha="center", va="center")
+    ax4[0, 1].set_title(f"(c) Critical connector ideas  ({len(arts)} cut vertices)")
+    ax4[1, 0].bar(ds, [by_depth[d] for d in ds], color=green, alpha=0.8)
+    ax4[1, 0].set_xlabel("reasoning depth (hops from seed)"); ax4[1, 0].set_ylabel("# new ideas", color=green)
+    if vecs and dv is not None:
+        a2 = ax4[1, 0].twinx(); a2.plot(ds, dv, color=purple, marker="o", ms=3, lw=2)
+        a2.set_ylabel("cumulative diversity", color=purple)
+    ax4[1, 0].set_title("(d) Reasoning-depth profile")
+    if vecs and conn is not None:
+        ax4[1, 1].hist([conn, non], bins=20, color=[green, "0.6"], label=["linked", "random pair"], density=True)
+        ax4[1, 1].axvline(mc, color=green, lw=1.5, ls="--"); ax4[1, 1].axvline(mn, color="0.4", lw=1.5, ls="--")
+        ax4[1, 1].set_title(f"(f) Link homophily  (Δ={mc - mn:+.2f})")
+        ax4[1, 1].set_xlabel("cosine similarity"); ax4[1, 1].set_ylabel("density")
+        ax4[1, 1].legend(fontsize=7, frameon=False)
+    else:
+        ax4[1, 1].axis("off")
+    for a in ax4.flat:
+        a.grid(True, color="0.92", lw=0.5); a.set_axisbelow(True)
+    fig4.suptitle(f"Reasoning structure — {label}  ({G.number_of_nodes()}n / {G.number_of_edges()}e)", y=1.0)
+    fig4.tight_layout()
+    _save(fig4, f"{base}_structure4_{label.replace(' ', '_')}")
+    plt.close(fig4)
 
     # standalone, label-below detail versions of the two crowded panels (b) and (e),
     # reusing the already-computed degree/betweenness/PCA/community/PageRank (no recompute)
