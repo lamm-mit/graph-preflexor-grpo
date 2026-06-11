@@ -217,11 +217,11 @@ def main():
     # ---- load / mine insights ------------------------------------------------
     if args.insights:
         data = json.load(open(args.insights))
-        topic = args.topic or data.get("topic", "")
+        rundir = os.path.dirname(args.insights) or "."
         miners = data.get("miners", {})
         results = [(k, miners.get(k, [])) for k in I.KIND_ORDER]
-        G = I.load_graph(os.path.dirname(args.insights) or ".") if os.path.exists(
-            os.path.join(os.path.dirname(args.insights) or ".", "graph.graphml")) else None
+        G = I.load_graph(rundir) if os.path.exists(os.path.join(rundir, "graph.graphml")) else None
+        topic = args.topic or data.get("topic") or I.read_topic(rundir, G)
     elif args.run:
         topic, G, results = I.load_insights_or_mine(args.run, top=args.top, want_mine=args.mine,
                                                     embed_model=args.embed_model)

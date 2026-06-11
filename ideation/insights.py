@@ -82,6 +82,41 @@ def lbl(G, n, k=64):
     return s if len(s) <= k else s[: k - 1] + "…"
 
 
+def read_topic(run_dir, G=None):
+    """Recover the seed topic even on an UNFINISHED run. Order: summary.json (written at run end),
+    else the first line of transcript.jsonl (the iter-0 seed question, written immediately), else
+    the graph's seed node label (lowest depth/iter)."""
+    sp = os.path.join(run_dir, "summary.json")
+    if os.path.exists(sp):
+        try:
+            t = json.load(open(sp)).get("topic")
+            if t:
+                return t
+        except Exception:
+            pass
+    tp = os.path.join(run_dir, "transcript.jsonl")
+    if os.path.exists(tp):
+        try:
+            with open(tp) as f:
+                t = json.loads(f.readline()).get("question")
+            if t:
+                return t
+        except Exception:
+            pass
+    if G is not None and G.number_of_nodes():
+        try:
+            def _iv(n, k):
+                try:
+                    return int(float(G.nodes[n].get(k, 0)))
+                except Exception:
+                    return 0
+            seed = min(G.nodes, key=lambda n: (_iv(n, "depth"), _iv(n, "iter")))
+            return str(G.nodes[seed].get("label", seed))
+        except Exception:
+            pass
+    return ""
+
+
 def embed_nodes(G, model=None):
     """Re-embed node labels offline (batched: single model load + batched forward passes, with a
     tqdm bar for big graphs). Returns {node: unit-vec} or None. `model` selects the
@@ -443,13 +478,7 @@ def load_insights_or_mine(run_dir, top=10, want_mine=False, embed_model=None):
     Returns (topic, G, results) where results is the mine_all() shape. `embed_model` (or the
     model recorded in the run's summary.json) is used when mining fresh."""
     G = load_graph(run_dir)
-    topic = ""
-    sp = os.path.join(run_dir, "summary.json")
-    if os.path.exists(sp):
-        try:
-            topic = json.load(open(sp)).get("topic", "")
-        except Exception:
-            pass
+    topic = read_topic(run_dir, G)
     jp = os.path.join(run_dir, "insights.json")
     if os.path.exists(jp) and not want_mine and MAX_ITER is None:   # cached json is uncapped
         data = json.load(open(jp))
@@ -609,13 +638,7 @@ def main():
         print(f"[insights] truncating to iter <= {MAX_ITER}")
 
     G = load_graph(args.run)
-    topic = ""
-    sp = os.path.join(args.run, "summary.json")
-    if os.path.exists(sp):
-        try:
-            topic = json.load(open(sp)).get("topic", "")
-        except Exception:
-            pass
+    topic = read_topic(args.run, G)
     from graphstore import resolve_embed_model
     model = resolve_embed_model(args.run, args.embed_model)
     vecs = embed_nodes(G, model)
