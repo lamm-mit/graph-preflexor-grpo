@@ -356,6 +356,9 @@ Produces (PNG + SVG + PDF each, shared styling):
   similar ideas, Δ≈0 = it makes creative leaps). Embeddings are re-derived offline from node
   labels; if `sentence-transformers` is missing the semantic sub-panels (e, f, and d's diversity
   line) are skipped.
+- **`*_structure4_<label>`** — a clean **4-panel** version (a, c, d, f only — the scatter panels b/e
+  dropped) for papers: k-core, critical connectors, reasoning-depth profile, link homophily. No
+  point labels to overlap. Written automatically alongside the 6-panel overview.
 - **`*_brokers_<label>`** and **`*_semantic_<label>`** — **standalone, larger** versions of panels
   (b) and (e), auto-written alongside the structure panel. The top hubs/brokers are marked with
   **numbered badges** on the plot and a **full-name key below** the axes (no labels overlapping the
