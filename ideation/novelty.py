@@ -1,27 +1,34 @@
 #!/usr/bin/env python
 """Quantify and visualize how *novel* an ideation run's concepts and mined insights are.
 
-Built for a publication-grade figure: every panel is a defensible, citeable method, and
-every number is also dumped to `<out>_novelty.json` so it can be quoted in the text.
+Built for publication-grade figures: every panel is a defensible, citeable method, and every
+number is also dumped to `<out>_novelty.json` so it can be quoted in the text. Two images are
+written so each can stand alone in a paper:
+  * `<out>_novelty_map.{png,svg,pdf}`   — the wide concept-space map, panel (A).
+  * `<out>_novelty_stats.{png,svg,pdf}` — panels (B), (C), (D) stacked, full-width.
 
-Panels
-------
+Panels (map image: A, B; stats image: C, D, E)
+-----------------------------------------------
 (A) Concept-space map — UMAP (or PCA) of every concept. The seed is marked; the
     "established region" (earliest-introduced concepts) is shaded via a KDE contour; each
     concept is colored by its **novelty-when-introduced** (distance to the nearest concept
-    that already existed when it appeared). New ideas land *outside* the known region.
-(B) Novelty expands with reasoning — mean nearest-prior-neighbor novelty per iteration
+    that already existed when it appeared). New ideas land *outside* the known region. Kept
+    label-free so the cloud stays readable — the names live in panel (B).
+(B) Ideation dynamics — a horizontal bar of the most novel concepts (names on the y-axis, so
+    they're always legible), bar length = novelty-when-introduced, colored by the iteration
+    each first appeared: *which* ideas were the novel ones, and *when* they emerged.
+(C) Novelty expands with reasoning — mean nearest-prior-neighbor novelty per iteration
     (the open-ended **novelty-search** metric, Lehman & Stanley 2011), with a bootstrap CI
     band. Pass several runs to overlay strategies (frontier vs novelty vs leap).
-(C) Relational-motif significance — z-scores of relation-typed 2-step motifs against a
+(D) Relational-motif significance — z-scores of relation-typed 2-step motifs against a
     relation-label-shuffled null (network-motif significance, Milo et al. Science 2002).
     Over-represented motifs (z>1.96) are the structural basis of the *analogy* insights.
     Community **modularity** z and edge **heterophily** z (degree/label-permutation nulls)
     are annotated — "structure beyond chance".
-(D) Novel combinations — combination **typicality** z of each linked concept pair vs the
+(E) Novel combinations — combination **typicality** z of each linked concept pair vs the
     global pairwise-similarity distribution (adapting Uzzi et al. Science 2013): unusually
     *dissimilar* pairs that are nonetheless connected are novel recombinations. The mined
-    latent links skew into the atypical tail vs existing edges and random pairs
+    conceptual bridges skew into the atypical tail vs existing edges and random pairs
     (Mann-Whitney p reported).
 
 Usage
@@ -362,16 +369,9 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     loaded = [load_run(r, embed_model) for r in runs]
     G0, vecs0, topic0, seed0, model0 = loaded[0]
 
-    fig = plt.figure(figsize=(11.5, 11.5))
-    gs = gridspec.GridSpec(2, 3, height_ratios=[1.6, 1.0], width_ratios=[1, 1, 1],
-                           wspace=0.34, hspace=0.26)
-    axA = fig.add_subplot(gs[0, :])
-    axA.set_box_aspect(1)                              # force a square plotting box
-    axB = fig.add_subplot(gs[1, 0])
-    axC = fig.add_subplot(gs[1, 1])
-    axD = fig.add_subplot(gs[1, 2])
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
 
-    # ---------- (A) concept-space map -------------------------------------- #
+    # ================= Figure 1: concept-space map (wide) ================= #
     print("[novelty] panel A: projecting concept space (UMAP/PCA)…", flush=True)
     nodes = list(vecs0)
     X = np.stack([vecs0[n] for n in nodes])
@@ -385,8 +385,15 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         pr = nx.pagerank(G0) if G0.number_of_edges() else {n: 1.0 for n in G0}
     except Exception:
         pr = {n: 1.0 / max(1, len(nodes)) for n in nodes}
-    # shade the "established region": KDE of the earliest tercile of concepts
-    try:
+
+    import matplotlib as mpl
+    figM = plt.figure(figsize=(13.0, 11.4))
+    gsM = gridspec.GridSpec(2, 1, height_ratios=[2.5, 1.0], hspace=0.30)
+    axA = figM.add_subplot(gsM[0])
+    axN = figM.add_subplot(gsM[1])
+
+    # ---- (A) PCA/UMAP concept-space map (kept clean — no in-cloud labels) ----
+    try:                                              # shade the "established region"
         from scipy.stats import gaussian_kde
         early = P[its <= np.quantile(its, 0.34)]
         if len(early) > 5:
@@ -405,17 +412,52 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
                      alpha=0.85, linewidths=0, zorder=3)
     axA.scatter([pos[seed0][0]], [pos[seed0][1]], marker="*", s=320, color="#d62728",
                 edgecolor="white", linewidths=1.0, zorder=5, label="seed")
-    for n in sorted(nodes, key=lambda n: nov[nodes.index(n)], reverse=True)[:8]:
-        axA.annotate(I.lbl(G0, n, 22), pos[n], fontsize=6.6, zorder=6,
-                     xytext=(3, 3), textcoords="offset points")
-    cax = axA.inset_axes([1.035, 0.12, 0.022, 0.76])  # slim vertical bar in the side whitespace
-    cb = fig.colorbar(sc, cax=cax)
-    cb.set_label("novelty when introduced\n(1 − cosine to nearest prior concept)", fontsize=8)
-    cb.ax.tick_params(labelsize=7)
-    axA.set_title(f"(A) Concept space — {labels[0]}  "
-                  f"({G0.number_of_nodes()} ideas, {proj}); ★ seed, shaded = established region")
+    cb = figM.colorbar(sc, ax=axA, fraction=0.038, pad=0.015)
+    cb.set_label("novelty when introduced\n(1 − cosine to nearest prior concept)", fontsize=9)
+    cb.ax.tick_params(labelsize=8)
+    xr = P[:, 0].max() - P[:, 0].min(); yr = P[:, 1].max() - P[:, 1].min()
+    axA.set_xlim(P[:, 0].min() - 0.04 * xr, P[:, 0].max() + 0.06 * xr)
+    axA.set_ylim(P[:, 1].min() - 0.05 * yr, P[:, 1].max() + 0.06 * yr)
+    axA.set_title(f"(A) Concept space — {labels[0]}  ({G0.number_of_nodes()} ideas, {proj})"
+                  + (f"  ·  topic: {topic0}" if topic0 else "")
+                  + f"  ·  embeddings: {model0}", fontsize=12)
     axA.set_xlabel(f"{proj}-1"); axA.set_ylabel(f"{proj}-2")
-    axA.legend(loc="upper right", frameon=False, fontsize=8)
+    axA.legend(loc="upper left", frameon=False, fontsize=9,
+               title="★ seed · shaded = established region", title_fontsize=8)
+
+    # ---- (B) ideation dynamics: the most novel concepts, and when they emerged ----
+    valid = [i for i in range(len(nodes))
+             if cn0[nodes[i]]["novelty_intro"] == cn0[nodes[i]]["novelty_intro"]]  # not nan
+    K = min(18, len(valid))
+    order = sorted(valid, key=lambda i: nov[i], reverse=True)[:K][::-1]  # highest at top
+    sel_names = [I.lbl(G0, nodes[i], 46) for i in order]
+    sel_val = [float(nov[i]) for i in order]
+    sel_it = [int(its[i]) for i in order]
+    cmap2 = plt.cm.plasma
+    vmin, vmax = float(its.min()), float(its.max())
+    norm2 = mpl.colors.Normalize(vmin=vmin, vmax=(vmax if vmax > vmin else vmin + 1))
+    axN.barh(range(K), sel_val, color=[cmap2(norm2(t)) for t in sel_it], zorder=2)
+    axN.set_yticks(range(K)); axN.set_yticklabels(sel_names, fontsize=8)
+    axN.set_ylim(-0.6, K - 0.4)
+    axN.set_xlabel("novelty when introduced  (1 − cosine to nearest prior concept)")
+    axN.set_title(f"(B) Ideation dynamics — the {K} most novel concepts and when they emerged")
+    axN.grid(True, axis="x", color="0.92", lw=0.5); axN.set_axisbelow(True)
+    sm = mpl.cm.ScalarMappable(norm=norm2, cmap=cmap2); sm.set_array([])
+    cbn = figM.colorbar(sm, ax=axN, fraction=0.030, pad=0.015)
+    cbn.set_label("iteration introduced\n(reasoning order)", fontsize=9)
+    cbn.ax.tick_params(labelsize=8)
+
+    for ext in ("png", "svg", "pdf"):
+        figM.savefig(f"{out}_novelty_map.{ext}", bbox_inches="tight")
+    plt.close(figM)
+    print(f"wrote {out}_novelty_map.png/.svg/.pdf")
+
+    # ============ Figure 2: statistics — B, C, D stacked (wide) =========== #
+    figS = plt.figure(figsize=(11.0, 12.8))
+    gsS = gridspec.GridSpec(3, 1, hspace=0.42)
+    axB = figS.add_subplot(gsS[0])
+    axC = figS.add_subplot(gsS[1])
+    axD = figS.add_subplot(gsS[2])
 
     # ---------- (B) novelty expands with reasoning ------------------------- #
     print("[novelty] panel B: novelty trajectory per run…", flush=True)
@@ -425,14 +467,14 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         if not its_b:
             continue
         mean_b, sem_b = np.array(mean_b), np.array(sem_b)
-        axB.plot(its_b, mean_b, color=col, lw=2, marker="o", ms=3, label=lab)
+        axB.plot(its_b, mean_b, color=col, lw=1.6, marker="o", ms=2.5, label=lab)
         axB.fill_between(its_b, mean_b - sem_b, mean_b + sem_b, color=col, alpha=0.18, lw=0)
         report["trajectories"][lab] = {"iter": list(its_b), "mean_novelty": [float(x) for x in mean_b]}
-    axB.set_title("(B) Novelty expands with reasoning")
-    axB.set_xlabel("reasoning iteration"); axB.set_ylabel("nearest-prior\nnovelty")
+    axB.set_title("(C) Novelty expands with reasoning")
+    axB.set_xlabel("reasoning iteration"); axB.set_ylabel("nearest-prior novelty")
     axB.grid(True, color="0.92", lw=0.5); axB.set_axisbelow(True)
     if len(loaded) > 1:
-        axB.legend(frameon=False, fontsize=7.5, ncol=min(3, len(loaded)))
+        axB.legend(frameon=False, fontsize=8, ncol=min(4, len(loaded)))
 
     # ---------- (C) relational-motif significance -------------------------- #
     # auto-scale the two heaviest nulls down on big graphs (greedy modularity / motif recount
@@ -454,19 +496,20 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         names = [f"{a}·{b}" for (a, b) in [m["signature"] for m in motifs]][::-1]
         cols = ["#2ca02c" if z > 1.96 else "0.6" for z in zs]
         axC.barh(list(ys), zs, color=cols)
-        axC.set_yticks(list(ys)); axC.set_yticklabels([n[:20] for n in names], fontsize=6.6)
+        axC.set_yticks(list(ys)); axC.set_yticklabels([n[:26] for n in names], fontsize=8)
         axC.axvline(1.96, color="#d62728", ls="--", lw=1)
         axC.set_xlabel("motif z-score (vs label-shuffled null)")
-    axC.set_title("(C) Relational-motif significance")
+        axC.set_xlim(0, max(zs) * 1.28)               # headroom so the stats box clears the bars
+    axC.set_title("(D) Relational-motif significance")
     txt = []
     if mod.get("z") is not None:
         txt.append(f"modularity Q={mod['Q']:.2f}  z={mod['z']:+.1f}")
     if het.get("z") is not None:
         txt.append(f"edge heterophily z={het['z']:+.1f}")
-    if txt:
-        axC.text(0.98, 0.04, "\n".join(txt), transform=axC.transAxes, ha="right", va="bottom",
-                 fontsize=7.2, family="monospace",
-                 bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.9))
+    if txt:                                            # top-right, where the (shortest) bars leave space
+        axC.text(0.985, 0.94, "\n".join(txt), transform=axC.transAxes, ha="right", va="top",
+                 fontsize=8.5, family="monospace",
+                 bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.95))
     axC.grid(True, axis="x", color="0.92", lw=0.5); axC.set_axisbelow(True)
 
     # ---------- (D) novel combinations (Uzzi-style) ------------------------ #
@@ -485,13 +528,13 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     series = [(nm, z, c) for nm, z, c in series if len(z) > 1]
     if series:
         lo = min(min(z) for _, z, _ in series); hi = max(max(z) for _, z, _ in series)
-        bins = np.linspace(lo, hi, 24)
+        bins = np.linspace(lo, hi, 30)
         for nm, z, c in series:
             axD.hist(z, bins=bins, density=True, histtype="step", lw=2, color=c, label=nm)
             axD.axvline(np.median(z), color=c, ls="--", lw=1)
-    axD.set_title("(D) Novel combinations (typicality)")
+    axD.set_title("(E) Novel combinations (typicality)")
     axD.set_xlabel("combination z  (← more novel / atypical)"); axD.set_ylabel("density")
-    axD.legend(frameon=False, fontsize=7, loc="upper right")
+    axD.legend(frameon=False, fontsize=8, loc="upper right")
     axD.grid(True, color="0.92", lw=0.5); axD.set_axisbelow(True)
     mw = {}
     try:
@@ -499,22 +542,19 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
         if len(bridge_z) > 1 and len(edge_z) > 1:
             u, p = mannwhitneyu(bridge_z, edge_z, alternative="less")
             mw = {"U": float(u), "p_bridges_more_novel_than_edges": float(p)}
-            axD.text(0.97, 0.55, f"bridges vs edges\nMann–Whitney p={p:.1e}",
-                     transform=axD.transAxes, va="center", ha="right", fontsize=7,
+            axD.text(0.985, 0.62, f"bridges vs edges\nMann–Whitney p={p:.1e}",
+                     transform=axD.transAxes, va="top", ha="right", fontsize=8,
                      family="monospace",
-                     bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.85))
+                     bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.95))
     except Exception:
         pass
 
-    fig.suptitle(f"Novelty of generated concepts & mined insights — {labels[0]}"
-                 + (f"  (topic: {topic0})" if topic0 else "")
-                 + f"   ·  embeddings: {model0}", y=0.995, fontsize=12)
-
-    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    figS.suptitle(f"Novelty statistics — {labels[0]}"
+                  + (f"  (topic: {topic0})" if topic0 else ""), y=0.995, fontsize=12)
     for ext in ("png", "svg", "pdf"):
-        fig.savefig(f"{out}_novelty.{ext}", bbox_inches="tight")
-    plt.close(fig)
-    print(f"wrote {out}_novelty.png/.svg/.pdf")
+        figS.savefig(f"{out}_novelty_stats.{ext}", bbox_inches="tight")
+    plt.close(figS)
+    print(f"wrote {out}_novelty_stats.png/.svg/.pdf")
 
     # ---------- numeric report -------------------------------------------- #
     valid = [d["novelty_intro"] for d in cn0.values() if d["novelty_intro"] == d["novelty_intro"]]

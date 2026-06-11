@@ -65,7 +65,7 @@ python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
 
 ```bash
 python plot_ideation.py --runs runs/exp_leap \
-    --labels leap --out figures/strategy_leap
+    --labels leap --out runs/exp_leap/figures/leap
 ```
 Develop insights:
 ```bash
@@ -419,16 +419,21 @@ ideate.py  →  graph.graphml  →  insights.py  →  insights.json  →  synthe
 
 ## Novelty quantification (`novelty.py`)
 
-Answers the reviewer's question — *how novel are these concepts and insights?* — with a
-**publication-grade figure** (`<out>_novelty.png/svg/pdf`) where every panel is a citeable method,
-and a **`<out>_novelty.json`** of the numbers so they can be quoted in the text. Needs embeddings.
+Answers the reviewer's question — *how novel are these concepts and insights?* — with
+**publication-grade figures** where every panel is a citeable method, plus a
+**`<out>_novelty.json`** of the numbers so they can be quoted in the text. Two images are written
+so each stands alone: **`<out>_novelty_map.*`** (the wide concept-space map, panel A) and
+**`<out>_novelty_stats.*`** (panels B/C/D stacked, full-width). Needs embeddings.
+
+Map image (**`_novelty_map`**): panels A, B.  Stats image (**`_novelty_stats`**): panels C, D, E.
 
 | Panel | Method | The claim it supports |
 |---|---|---|
-| **(A) Concept space** | UMAP (or PCA) of every concept; **seed** marked; "established region" shaded by a KDE of the earliest-introduced concepts; points colored by **novelty-when-introduced** = `1 − cosine` to the nearest concept that already existed when it appeared. | A clean map of *all* ideas — new ones land **outside** the known region. |
-| **(B) Novelty vs reasoning** | mean nearest-prior-neighbour novelty per iteration ± bootstrap CI (open-ended **novelty-search**, Lehman & Stanley 2011); overlays runs if several are passed. | the engine keeps pushing into new territory; lets you **compare strategies** (frontier vs novelty vs leap). |
-| **(C) Motif significance** | z-scores of relation-typed 2-step motifs vs a **relation-label-shuffled null** (network-motif significance, Milo et al. 2002); community **modularity** z (degree-preserving rewiring) + edge **heterophily** z (label permutation) annotated. | over-represented relational motifs (the **analogy** basis) and community structure are **beyond chance**. |
-| **(D) Novel combinations** | combination **typicality** z of linked concept pairs vs the global pairwise-similarity distribution (adapting Uzzi et al. 2013); compares random pairs, existing edges, and **conceptual bridges**, with a Mann–Whitney p. | edges are locally homophilic, but the mined **bridges sit in the atypical tail** — the engine connects concepts across the full semantic diameter. |
+| **(A) Concept space** | UMAP (or PCA) of every concept; **seed** marked; "established region" shaded by a KDE of the earliest-introduced concepts; points colored by **novelty-when-introduced** = `1 − cosine` to the nearest concept that already existed when it appeared. Kept label-free so the cloud stays readable. | A clean map of *all* ideas — new ones land **outside** the known region. |
+| **(B) Ideation dynamics** | horizontal bar of the most novel concepts — **names on the y-axis** (always legible), bar length = novelty-when-introduced, colored by the **iteration** each first appeared. | *which* ideas were the novel ones and *when* they emerged (the names you can't read in the dense map). |
+| **(C) Novelty vs reasoning** | mean nearest-prior-neighbour novelty per iteration ± bootstrap CI (open-ended **novelty-search**, Lehman & Stanley 2011); overlays runs if several are passed. | the engine keeps pushing into new territory; lets you **compare strategies** (frontier vs novelty vs leap). |
+| **(D) Motif significance** | z-scores of relation-typed 2-step motifs vs a **relation-label-shuffled null** (network-motif significance, Milo et al. 2002); community **modularity** z (degree-preserving rewiring) + edge **heterophily** z (label permutation) annotated. | over-represented relational motifs (the **analogy** basis) and community structure are **beyond chance**. |
+| **(E) Novel combinations** | combination **typicality** z of linked concept pairs vs the global pairwise-similarity distribution (adapting Uzzi et al. 2013); compares random pairs, existing edges, and **conceptual bridges**, with a Mann–Whitney p. | edges are locally homophilic, but the mined **bridges sit in the atypical tail** — the engine connects concepts across the full semantic diameter. |
 
 ```bash
 # Single run → figure + json in runs/exp2/figures/
