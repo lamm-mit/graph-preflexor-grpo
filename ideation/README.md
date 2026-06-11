@@ -138,6 +138,19 @@ python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
 python insights.py --run runs/exp_converse --top 12
 ```
 
+**Fair, matched-compute comparison (while converse is still smaller).** Cap *every* run to converse's
+current length so you compare at the same stage — auto-fill `N` from its `growth.csv` (re-run anytime as
+it grows; `--max-iter` is inclusive, so converse is included in full and the others are trimmed to it):
+
+```bash
+N=$(awk -F, 'NR>1 && $1!="" {n=$1} END{print n}' runs/exp_converse/growth.csv)   # converse's last iter
+echo "capping all runs to iter <= $N"
+python embedmap.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --max-iter "$N" --out figures/embedmap_matched
+python scaling.py  --runs runs/exp_novelty_2 runs/exp_converse \
+    --labels novelty converse --max-iter "$N" --out figures/scaling_matched
+```
+
 If `converse`'s scaling panel (b) keeps climbing where `leap`/`novelty` flatten — **and** the
 `embedmap` shows its points/contour extending beyond the others' region **with on-topic concepts** —
 you've shown the saturation was a *strategy* artifact (structure-based strategies only re-probe known
