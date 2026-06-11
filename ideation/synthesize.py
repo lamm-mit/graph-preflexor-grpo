@@ -159,16 +159,22 @@ def answer_hf(system, prompt, *, model, temperature, max_tokens, device, dtype):
                    "float32": torch.float32}.get(dtype, "auto")
     lm = AutoModelForCausalLM.from_pretrained(
         model, torch_dtype=torch_dtype, device_map=(device or "auto"))
+    if tok.pad_token_id is None and tok.eos_token_id is not None:
+        tok.pad_token = tok.eos_token
     msgs = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+    # always build a dict of tensors (input_ids [+ attention_mask]) so generate(**enc) works
+    # regardless of whether apply_chat_template returns a tensor or a BatchEncoding.
     if getattr(tok, "chat_template", None):
-        inputs = tok.apply_chat_template(msgs, add_generation_prompt=True, return_tensors="pt")
+        enc = tok.apply_chat_template(msgs, add_generation_prompt=True,
+                                      return_tensors="pt", return_dict=True)
     else:                                              # no chat template: concatenate
-        inputs = tok(system + "\n\n" + prompt, return_tensors="pt").input_ids
-    inputs = inputs.to(lm.device)
-    gen = lm.generate(inputs, max_new_tokens=max_tokens, do_sample=temperature > 0,
+        enc = tok(system + "\n\n" + prompt, return_tensors="pt")
+    enc = {k: v.to(lm.device) for k, v in dict(enc).items()}
+    input_len = enc["input_ids"].shape[-1]
+    gen = lm.generate(**enc, max_new_tokens=max_tokens, do_sample=temperature > 0,
                       temperature=max(temperature, 1e-5),
                       pad_token_id=tok.pad_token_id or tok.eos_token_id)
-    return tok.decode(gen[0][inputs.shape[-1]:], skip_special_tokens=True).strip()
+    return tok.decode(gen[0][input_len:], skip_special_tokens=True).strip()
 
 
 # --------------------------------------------------------------------------- #
