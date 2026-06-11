@@ -107,11 +107,13 @@ def _series(run_dir, rows, mode, embed_model=None):
         ndep = {n: dep(G.nodes[n]) for n in G}
         edep = [(u, v, dep(d)) for u, v, d in G.edges(data=True)]
         maxd = max(list(ndep.values()) + [e[2] for e in edep] + [0])
-        try:                                              # embed once for diversity-by-depth
-            from graphstore import make_embedder, resolve_embed_model
+        try:                                              # embed once (batched) for diversity-by-depth
+            from graphstore import embed_texts, resolve_embed_model, DEFAULT_EMBED_MODEL
             model = resolve_embed_model(run_dir, embed_model)
-            emb = make_embedder(model) if model else make_embedder()
-            vec = {n: emb(str(G.nodes[n].get("label", n))) for n in G}
+            ns = list(G)
+            print(f"  embedding {len(ns)} concepts for depth-diversity (batched)…", flush=True)
+            V = embed_texts([str(G.nodes[n].get("label", n)) for n in ns], model or DEFAULT_EMBED_MODEL)
+            vec = {n: V[i] for i, n in enumerate(ns)}
         except Exception:
             vec = None
         xs, nn, ee, el, dv = [], [], [], [], []
@@ -351,16 +353,18 @@ def graph_analytics(run_dir, label, base):
 
 
 def _embed_nodes(G, model=None):
-    """Re-embed node labels offline (embeddings aren't stored in graphml).
-    `model` selects the sentence-transformers id (default: embeddinggemma-300m).
+    """Re-embed node labels offline (embeddings aren't stored in graphml). Batched (single model
+    load + batched forward passes, with a tqdm progress bar for big graphs).
     Returns {node: unit-vec} or None if sentence-transformers unavailable."""
     try:
-        from graphstore import make_embedder
-        emb = make_embedder(model) if model else make_embedder()
+        from graphstore import embed_texts, DEFAULT_EMBED_MODEL
+        ns = list(G)
+        print(f"  embedding {len(ns)} concepts for semantic panels (batched)…", flush=True)
+        V = embed_texts([str(G.nodes[n].get("label", n)) for n in ns], model or DEFAULT_EMBED_MODEL)
+        return {n: V[i] for i, n in enumerate(ns)}
     except Exception as e:
         print(f"  (semantic panels skipped: embedder unavailable — {e})")
         return None
-    return {n: emb(str(G.nodes[n].get("label", n))) for n in G}
 
 
 def graph_structure(run_dir, label, base, embed_model=None):
