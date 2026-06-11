@@ -424,12 +424,17 @@ KIND_HEADER = {k: h for k, h, _ in MINERS}
 def mine_all(G, vecs, top=10, log=False):
     """Run every miner and return [(kind, [insight, ...]), ...] in MINERS order.
     Reusable entry point for other tools (e.g. synthesize.py)."""
+    import time
     results = []
-    for kind, header, fn in MINERS:
+    for i, (kind, header, fn) in enumerate(MINERS, 1):
+        if log:
+            print(f"  [{i}/{len(MINERS)}] running {header} …", flush=True)
+        t0 = time.time()
         ins = fn(G, vecs, top=top)
         results.append((kind, ins))
         if log:
-            print(f"  {header:<52s} {len(ins):>3d} candidates")
+            print(f"  [{i}/{len(MINERS)}] {header:<48s} {len(ins):>3d} candidates "
+                  f"({time.time() - t0:.1f}s)", flush=True)
     return results
 
 
