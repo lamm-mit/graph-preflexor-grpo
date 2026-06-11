@@ -83,6 +83,48 @@ python plot_ideation.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
 ```
 
+### 5 Converse method (LLM questioner — break out of saturation)
+
+`converse` feeds the **original question + answer** to the questioner LLM (set it to your
+Llama-instruct) and asks for a genuinely **new direction** — so it can introduce concepts not yet
+in the graph and keep the idea space expanding instead of converging. **Prereq:** serve the
+questioner model on the same OpenAI-compatible endpoint as the generator and set it in `config.yaml`:
+
+```yaml
+questioner:
+  model: meta-llama/Llama-3.2-3B-Instruct   # served on :1234 alongside graph-preflexor
+  temperature: 0.9
+```
+
+```bash
+# run (cost: 2 LLM calls/step — generator + questioner)
+python ideate.py --topic "self-healing biopolymer composites" --strategy converse \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_converse
+
+# figures + insights
+python plot_ideation.py --runs runs/exp_converse --labels converse \
+    --out runs/exp_converse/figures/converse
+python insights.py --run runs/exp_converse --top 12
+python novelty.py  --run runs/exp_converse --out runs/exp_converse/figures/novelty
+python scaling.py  --run runs/exp_converse --out runs/exp_converse/figures/scaling
+```
+
+The headline test — does `converse` beat the structure-based strategies on saturation? Overlay it on
+the scaling figure and watch **(b) idea-space expansion** and **(d) surprising recombinations**:
+
+```bash
+python scaling.py --runs runs/exp_leap runs/exp_novelty runs/exp_converse \
+    --labels leap novelty converse --out figures/scaling_converse
+python plot_ideation.py --runs runs/exp_leap runs/exp_novelty runs/exp_converse \
+    --labels leap novelty converse --out figures/converse_compare
+```
+
+If `converse`'s panel (b) keeps climbing where `leap`/`novelty` flatten, you've shown the saturation
+was a *strategy* artifact (structure-based strategies only re-probe known concepts), not a model
+limit — a clean result on its own. Watch for off-topic **drift** (the questioner isn't
+topic-anchored); if it wanders, lower the questioner temperature or tell me to add a topic anchor.
+
 ### Collecting runs from several machines (archive → HF dataset → analyze locally)
 
 When runs live on different machines and you want to analyze them in one place, archive **only the
