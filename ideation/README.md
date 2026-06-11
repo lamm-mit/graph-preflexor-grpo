@@ -87,14 +87,24 @@ python plot_ideation.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
 
 `converse` feeds the **original question + answer** to the questioner LLM (set it to your
 Llama-instruct) and asks for a genuinely **new direction** — so it can introduce concepts not yet
-in the graph and keep the idea space expanding instead of converging. **Prereq:** serve the
-questioner model on the same OpenAI-compatible endpoint as the generator and set it in `config.yaml`:
+in the graph and keep the idea space expanding instead of converging.
 
+**Prereq — the questioner model must be reachable.** It uses plain **chat-completions**, so the
+easiest path is a **second server** for it (the generator keeps its own endpoint). E.g.:
+
+```bash
+vllm serve meta-llama/Llama-3.2-3B-Instruct --port 8000    # questioner on its own endpoint
+```
 ```yaml
+# config.yaml
 questioner:
-  model: meta-llama/Llama-3.2-3B-Instruct   # served on :1234 alongside graph-preflexor
+  model: meta-llama/Llama-3.2-3B-Instruct
+  base_url: "http://localhost:8000/v1"      # omit if the questioner is served on the main `server`
+  api_key:  "x"
   temperature: 0.9
 ```
+(If your main server is multi-model, e.g. mistral.rs via `models.toml`, just add the questioner
+model there and drop `base_url`. A 404 `model ... does not exist` means it isn't served anywhere.)
 
 ```bash
 # run (cost: 2 LLM calls/step — generator + questioner)

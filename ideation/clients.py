@@ -1,8 +1,11 @@
-"""OpenAI-compatible clients (mistral.rs Responses API) for the ideation loop.
+"""OpenAI-compatible clients for the ideation loop.
 
-One HTTP endpoint serves both models; the `model` field selects which.
-Generator = Graph-PRefLexOR; questioner = the follow-up asker. An optional
-separate `baseline` client (its own base_url) is used for head-to-head runs.
+Generator = Graph-PRefLexOR (uses the Responses API for the <think>/<graph_json> trace).
+Questioner = the follow-up asker (`answer` / `converse` strategies) — uses plain
+chat-completions, which every OpenAI-compatible server supports (vLLM, mistral.rs, OpenAI),
+and may live on its OWN endpoint via `questioner.base_url` (e.g. a second vLLM serving a
+Llama-instruct), falling back to the main server otherwise. An optional `baseline` client
+(its own base_url) is used for head-to-head runs.
 """
 from openai import OpenAI
 
@@ -36,6 +39,11 @@ class Clients:
         self._gen = OpenAI(base_url=s["base_url"], api_key=s.get("api_key", "x"))
         self.gen_cfg = cfg["generator"]
         self.ask_cfg = cfg["questioner"]
+        # questioner may live on its own OpenAI-compatible endpoint (e.g. a second vLLM serving a
+        # Llama-instruct). If questioner.base_url is set, use it; else reuse the main server.
+        q = self.ask_cfg
+        self._ask = (OpenAI(base_url=q["base_url"], api_key=q.get("api_key", s.get("api_key", "x")))
+                     if q.get("base_url") else self._gen)
         # optional baseline on its own endpoint (frontier API or another local model)
         b = cfg.get("baseline")
         self._base = OpenAI(base_url=b["base_url"], api_key=b.get("api_key", "x")) if b else None
@@ -65,5 +73,13 @@ class Clients:
                 "full": _full_text(r), "usage": _usage(r)}
 
     def ask(self, prompt):
-        r = self._responses(self._gen, self.ask_cfg, prompt, None, effort="low")
-        return (getattr(r, "output_text", "") or "").strip(), _usage(r)
+        """Questioner: plain chat-completions (universally supported, unlike the Responses API the
+        generator needs), on its own endpoint if `questioner.base_url` is set, else the main server."""
+        m = self.ask_cfg
+        r = self._ask.chat.completions.create(
+            model=m["model"],
+            messages=[{"role": "user", "content": prompt}],
+            temperature=m.get("temperature", 0.9),
+            max_tokens=m.get("max_tokens", 512))
+        text = (r.choices[0].message.content or "").strip()
+        return text, _usage(r)
