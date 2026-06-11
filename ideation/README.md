@@ -46,13 +46,18 @@ python plot_ideation.py --runs runs/exp2 runs/exp_novelty \
     --labels "frontier" "novelty" --out figures/algo_compare
 
 ```
-Novelty:
+Novelty + scaling (the headline test-time-compute result):
 ```
 python novelty.py --run runs/exp_novelty --out runs/exp_novelty/figures/novelty
 python novelty.py --run runs/exp2 --out runs/exp2/figures/novelty
 python novelty.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/novelty_compare   # great for the paper
 python novelty.py --run runs/exp2 --n-null 500                     # tighter p-values
+
+# surprise-vs-compute scaling (Fig 1 for "more compute → more surprising insights")
+python scaling.py --run runs/exp_leap --out runs/exp_leap/figures/scaling
+python scaling.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+    --labels frontier novelty leap --out figures/scaling_compare
 ```
 
 ### 4 Leap method (divergent)
@@ -156,14 +161,21 @@ python novelty.py --run runs/exp2          --out runs/exp2/figures/novelty
 python novelty.py --run runs/exp_leap      --out runs/exp_leap/figures/novelty
 python novelty.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/novelty
 
-# 4) Three-way comparisons (overlaid)  → figures/strategy_compare*
+# 4) Surprise-vs-compute scaling figures  → <out>_scaling.*  (the test-time-compute result)
+python scaling.py --run runs/exp2          --out runs/exp2/figures/scaling
+python scaling.py --run runs/exp_leap      --out runs/exp_leap/figures/scaling
+python scaling.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/scaling
+
+# 5) Three-way comparisons (overlaid)  → figures/strategy_compare*
 #    (first run = primary for the map/stats panels; panel C overlays all three trajectories)
 python plot_ideation.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
 python novelty.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
+python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
+    --labels frontier novelty leap --out figures/strategy_compare   # surprise vs compute, overlaid
 
-# 5) Synthesize a final insight-enriched answer per run (local Llama-3.2-3B-Instruct)
+# 6) Synthesize a final insight-enriched answer per run (local Llama-3.2-3B-Instruct)
 #    → runs/<run>/answer.md   (gated model: huggingface-cli login once)
 python synthesize.py --run runs/exp2          --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp2/answer.md
@@ -569,6 +581,7 @@ python ideate.py --topic "covalent adaptable networks for recyclable thermoset c
 python insights.py     --run runs/ex_recyclable --top 12
 python plot_ideation.py --runs runs/ex_recyclable --labels recyclable
 python novelty.py      --run runs/ex_recyclable --out runs/ex_recyclable/figures/novelty
+python scaling.py      --run runs/ex_recyclable --out runs/ex_recyclable/figures/scaling
 python synthesize.py   --run runs/ex_recyclable --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_recyclable/answer.md \
     --task "Propose ONE new design principle for a structural polymer that is both fracture-tough and \
@@ -699,10 +712,14 @@ using the cross-domain analogies in the mined insights. Give the mechanism and h
 ```
 
 Each run lands in `runs/ex_<name>/` with the graph, figures, `insights.{json,md}`, novelty figures,
-and a final `answer.md` (the design principle). To overlay several on one comparison figure, pass them
-together: `python novelty.py --runs runs/ex_recyclable runs/ex_cooling runs/ex_impact --labels recyclable
-cooling impact --out figures/examples_compare`. Llama-3.2-3B is gated (`huggingface-cli login` once); or
-drop the `--backend`/`--model` flags and use `--show-prompt` to inspect the assembled prompt without a model.
+and a final `answer.md` (the design principle). Example A above shows the **full per-run pipeline**
+including `scaling.py` — **every example (B–L) takes the same `scaling.py` step**, just swap the run dir:
+`python scaling.py --run runs/ex_<name> --out runs/ex_<name>/figures/scaling`.
+To overlay several on one comparison figure, pass them together, e.g.
+`python novelty.py  --runs runs/ex_recyclable runs/ex_cooling runs/ex_impact --labels recyclable cooling impact --out figures/examples_compare`
+or `python scaling.py --runs runs/ex_recyclable runs/ex_cooling runs/ex_impact --labels recyclable cooling impact --out figures/examples_compare`.
+Llama-3.2-3B is gated (`huggingface-cli login` once); or drop the `--backend`/`--model` flags and use
+`--show-prompt` to inspect the assembled prompt without a model.
 
 ## Novelty quantification (`novelty.py`)
 
@@ -734,6 +751,10 @@ python novelty.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
 python novelty.py --run runs/exp2 --n-null 500
 ```
 
+For the **test-time-compute axis** of the same story (how surprising-insight yield grows *with
+compute*), use the companion **`scaling.py`** (next section) on the same runs:
+`python scaling.py --run runs/exp2 --out runs/exp2/figures/scaling`.
+
 Reuses the run's recorded `embed_model` (override with `--embed-model`); pulls the conceptual
 bridges from `insights.json` when present, else computes a fast approximation (**run `insights.py`
 first** so Panel D uses the canonical mined bridges). `--n-null` trades runtime for tighter
@@ -742,10 +763,37 @@ and every heavy loop shows a **tqdm progress bar**; the per-concept-novelty, pai
 null-model computations are chunked/streamed so they stay memory-safe on large graphs (the exact
 statistics are preserved — only the null **resample count** auto-scales down on very large graphs).
 
+## Scaling with test-time compute (`scaling.py`)
+
+The headline result for *"more test-time compute → more surprising insights"*: how surprising-insight
+yield grows as the model spends more compute. It reconstructs the graph at a grid of compute
+checkpoints (filtering the final graph by `iter <= t` — no re-running) and plots, vs. **cumulative
+tokens** (real test-time compute; `--x iter` for iterations), four **size-robust** metrics:
+
+| Panel | Metric | Why |
+|---|---|---|
+| **(a) Distinct ideas** | node count | fluency — it keeps producing |
+| **(b) Idea-space expansion** | total embedding variance (spread) | the explored space keeps growing |
+| **(c) Frontier reach** | max embedding distance from the seed | it ventures farther from the seed |
+| **(d) Surprising connections** | cumulative # edges whose endpoint pair is **atypical** (combination `z < --z-thr` vs the global similarity null), with a **chance** reference line | the headline: creative/atypical links keep accumulating *above chance* |
+
+It deliberately does **not** use nearest-prior novelty (which is confounded by graph size — it
+*declines* as priors accumulate, so it can't support a "novelty increases" claim). Pass several runs
+to overlay strategies and show which converts compute → surprise most efficiently.
+
+```bash
+python scaling.py --run runs/exp_leap --out runs/exp_leap/figures/scaling
+python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
+    --labels frontier novelty leap --out figures/scaling_compare   # overlay strategies
+```
+
+Writes `<out>_scaling.{png,svg,pdf}` + `<out>_scaling.json`. Needs embeddings (reuses the run's
+recorded `embed_model`; override with `--embed-model`) and `growth.csv` for the token axis.
+
 ## Files
 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
-`clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) ·
+`clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `scaling.py` (surprise vs compute) ·
 `insights.py` (mine the graph for novel leads) · `novelty.py` (novelty stats + paper figure) ·
 `synthesize.py` (LLM answer from query + insights) · `compare.py` (baseline, TODO).
