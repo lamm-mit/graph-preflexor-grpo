@@ -773,9 +773,9 @@ tokens** (real test-time compute; `--x iter` for iterations), four **size-robust
 | Panel | Metric | Why |
 |---|---|---|
 | **(a) Distinct ideas** | node count | fluency — it keeps producing |
-| **(b) Idea-space expansion** | total embedding variance (spread) | the explored space keeps growing |
-| **(c) Frontier reach** | max embedding distance from the seed | it ventures farther from the seed |
-| **(d) Surprising connections** | cumulative # edges whose endpoint pair is **atypical** (combination `z < --z-thr` vs the global similarity null), with a **chance** reference line | the headline: creative/atypical links keep accumulating *above chance* |
+| **(b) Idea-space expansion** | total embedding variance (spread) | the explored space — typically **saturates** (honest finding: the topic's concept space converges) |
+| **(c) Frontier reach** | max embedding distance from the seed | also tends to saturate |
+| **(d) Surprising recombinations** | cumulative # of **atypical** concept pairs (combination `z < --z-thr` vs the global null) the model **bridged via a shared intermediate concept** (graph distance 2, not a direct edge) | **the headline:** recombination/insight yield — can keep growing even when (b)/(c) plateau. *Not* direct edges (those are homophilic — the wrong object). |
 
 It deliberately does **not** use nearest-prior novelty (which is confounded by graph size — it
 *declines* as priors accumulate, so it can't support a "novelty increases" claim). Pass several runs

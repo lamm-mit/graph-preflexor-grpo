@@ -11,11 +11,14 @@ declines as priors accumulate, so it can't support a "novelty increases" claim).
 For each compute checkpoint t it reconstructs the graph-so-far (nodes/edges with iter <= t, read
 straight off the single final graph's provenance) and computes:
   (a) distinct ideas (fluency)
-  (b) idea-space expansion   — total embedding variance (the explored space growing)
-  (c) frontier reach         — max embedding distance from the seed (how far it ventures)
-  (d) surprising connections — cumulative # of edges whose endpoint pair is atypical
-      (combination z < --z-thr vs the GLOBAL pairwise-similarity distribution). A null
-      reference line marks the fraction of atypical pairs expected by chance.
+  (b) idea-space expansion   — total embedding variance (the explored space growing; note this
+      typically SATURATES — a real finding: the topic's concept space converges)
+  (c) frontier reach         — max embedding distance from the seed (also tends to saturate)
+  (d) surprising recombinations — cumulative # of ATYPICAL concept pairs (combination z < --z-thr
+      vs the GLOBAL pairwise-similarity distribution) that the model BRIDGED via a shared
+      intermediate concept (graph distance 2, NOT a direct edge — direct edges are homophilic,
+      so they are the wrong object). This is the recombination/insight signal and can keep
+      growing even when (b)/(c) plateau. **This is the headline panel.**
 
 x-axis defaults to cumulative tokens (the real test-time compute, from growth.csv); use
 `--x iter` for reasoning iterations. Pass several runs to overlay strategies.
@@ -28,7 +31,6 @@ import argparse
 import csv
 import json
 import os
-import math
 
 import numpy as np
 import networkx as nx
@@ -88,12 +90,15 @@ def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens")
     mu = ssum / cnt if cnt else 0.0
     sd = (max(ssq / cnt - mu * mu, 0.0) ** 0.5) if cnt else 1.0
     sd = sd or 1.0
-    # fraction of random pairs that are atypical (z < z_thr) under a normal approx of the null
-    null_frac = 0.5 * (1.0 + math.erf(z_thr / math.sqrt(2.0)))
 
-    # per-edge endpoint-cosine z + the edge's introduction iteration (provenance)
+    # SURPRISING RECOMBINATIONS: atypical concept pairs (combination z < z_thr) that the model
+    # bridged via a shared intermediate concept (graph distance 2, NOT a direct edge — direct
+    # edges are homophilic, so they're the wrong object). For each such pair we record the
+    # iteration it was first realized = max(both node iters, both connecting-edge iters), and
+    # count how many have accumulated by each compute checkpoint. This is the recombination
+    # ("connected two unrelated ideas through reasoning") yield, not local linking.
     U = G.to_undirected()
-    e_iter, e_z = [], []
+    adj = {n: {} for n in nodes}
     for u, v, d in U.edges(data=True):
         if u == v:
             continue
@@ -101,14 +106,41 @@ def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens")
             ei = int(float(d.get("iter", 0)))
         except Exception:
             ei = 0
-        e_iter.append(ei)
-        e_z.append((float(X[idx[u]] @ X[idx[v]]) - mu) / sd)
-    e_iter = np.array(e_iter); e_z = np.array(e_z)
+        if v not in adj[u] or ei < adj[u][v]:
+            adj[u][v] = ei; adj[v][u] = ei
+    node_it = {n: int(node_iter[idx[n]]) for n in nodes}
+    direct = set(frozenset((u, v)) for u, v in U.edges() if u != v)
+
+    HUB, CAP = 200, 400000
+    realize = {}                                          # frozenset(pair) -> earliest realization iter
+    print(f"[scaling] {run_dir}: finding surprising recombinations (distance-2 atypical bridges)…",
+          flush=True)
+    for w in nodes:
+        nb = list(adj[w])
+        if len(nb) > HUB:
+            nb = nb[:HUB]
+        for ii in range(len(nb)):
+            a = nb[ii]
+            for jj in range(ii + 1, len(nb)):
+                b = nb[jj]
+                fs = frozenset((a, b))
+                if fs in direct:
+                    continue
+                rr = max(node_it[a], node_it[b], adj[w][a], adj[w][b])
+                if fs in realize:
+                    if rr < realize[fs]:
+                        realize[fs] = rr
+                    continue
+                if (float(X[idx[a]] @ X[idx[b]]) - mu) / sd < z_thr:   # atypical pair
+                    realize[fs] = rr
+        if len(realize) > CAP:
+            break
+    real_iters = np.array(sorted(realize.values())) if realize else np.array([])
 
     max_it = int(node_iter.max()) if len(node_iter) else 0
     ts = sorted(set(int(round(t)) for t in np.linspace(0, max_it, n_ckpt)))
 
-    ideas, spread, reach, surprising, edges_tot = [], [], [], [], []
+    ideas, spread, reach, recomb = [], [], [], []
     for t in ts:
         m = node_iter <= t
         nt = int(m.sum())
@@ -119,9 +151,7 @@ def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens")
             reach.append(float(1.0 - float((Xt @ sv).min())))
         else:
             spread.append(0.0); reach.append(0.0)
-        em = e_iter <= t
-        edges_tot.append(int(em.sum()))
-        surprising.append(int(np.sum(em & (e_z < z_thr))))
+        recomb.append(int(np.searchsorted(real_iters, t, side="right")) if real_iters.size else 0)
 
     # x-axis: cumulative tokens (real compute) or iteration
     tm = _token_map(run_dir)
@@ -133,9 +163,8 @@ def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens")
         xlabel = "reasoning iteration"
 
     return {"x": xs.tolist(), "xlabel": xlabel, "iters": ts,
-            "ideas": ideas, "spread": spread, "reach": reach,
-            "surprising": surprising, "edges_total": edges_tot,
-            "null_frac": float(null_frac), "z_thr": z_thr, "model": model,
+            "ideas": ideas, "spread": spread, "reach": reach, "recomb": recomb,
+            "n_recomb": len(realize), "z_thr": z_thr, "model": model,
             "n_nodes": G.number_of_nodes(), "n_edges": G.number_of_edges()}
 
 
@@ -153,17 +182,13 @@ def make_figure(runs, labels, out, embed_model=None, n_ckpt=40, z_thr=-1.0, x="t
         ax[0, 0].plot(xs, c["ideas"], color=col, lw=2, marker="o", ms=3, label=lab)
         ax[0, 1].plot(xs, c["spread"], color=col, lw=2, marker="o", ms=3, label=lab)
         ax[1, 0].plot(xs, c["reach"], color=col, lw=2, marker="o", ms=3, label=lab)
-        ax[1, 1].plot(xs, c["surprising"], color=col, lw=2, marker="o", ms=3, label=lab)
-    # null expectation for panel (d): atypical edges if links were random combinations
-    for c, col in zip(curves, PALETTE):
-        exp = [c["null_frac"] * e for e in c["edges_total"]]
-        ax[1, 1].plot(c["x"], exp, color=col, lw=1.0, ls=":", alpha=0.7)
+        ax[1, 1].plot(xs, c["recomb"], color=col, lw=2, marker="o", ms=3, label=lab)
 
     ax[0, 0].set_title("(a) Distinct ideas (fluency)"); ax[0, 0].set_ylabel("# ideas")
     ax[0, 1].set_title("(b) Idea-space expansion"); ax[0, 1].set_ylabel("embedding spread (total variance)")
     ax[1, 0].set_title("(c) Frontier reach"); ax[1, 0].set_ylabel("max distance from seed")
-    ax[1, 1].set_title(f"(d) Surprising connections  (atypical, z < {z_thr})")
-    ax[1, 1].set_ylabel("cumulative count  (·· = chance)")
+    ax[1, 1].set_title(f"(d) Surprising recombinations  (atypical pairs bridged, z < {z_thr})")
+    ax[1, 1].set_ylabel("cumulative count")
     for a in ax.flat:
         a.set_xlabel(xlabel); a.grid(True, color="0.92", lw=0.5); a.set_axisbelow(True)
     ax[0, 0].legend(frameon=False, fontsize=9, ncol=min(3, len(runs)))
@@ -180,11 +205,9 @@ def make_figure(runs, labels, out, embed_model=None, n_ckpt=40, z_thr=-1.0, x="t
     with open(f"{out}_scaling.json", "w") as f:
         json.dump(report, f, indent=2)
     print(f"wrote {out}_scaling.json")
-    # headline numbers
     for lab, c in zip(labels, curves):
-        s = c["surprising"]; et = c["edges_total"]
-        print(f"[scaling] {lab}: {c['n_nodes']} ideas, {s[-1]} surprising connections "
-              f"({100*s[-1]/max(1,et[-1]):.0f}% of edges; chance ≈ {100*c['null_frac']:.0f}%)")
+        print(f"[scaling] {lab}: {c['n_nodes']} ideas, {c['recomb'][-1]} surprising recombinations "
+              f"(atypical pairs bridged via a shared concept)")
 
 
 def main():
