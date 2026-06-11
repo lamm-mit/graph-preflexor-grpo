@@ -11,10 +11,15 @@ generator:                                # Graph-PRefLexOR
   temperature: 0.1
   max_tokens: 8000
 
-questioner:                               # follow-up asker
-  model: "Qwen/Qwen3-8B"
+questioner:                               # follow-up asker (used by `answer` / `converse` strategies)
+  model: "Qwen/Qwen3-8B"                  # must be reachable on `server` OR on `base_url` below
   temperature: 0.2
   max_tokens: 8000
+  # If the questioner is NOT served on the main `server`, point it at its own OpenAI-compatible
+  # endpoint (e.g. a second vLLM:  vllm serve meta-llama/Llama-3.2-3B-Instruct --port 8000).
+  # Uses plain chat-completions, so any OpenAI-compatible server works.
+  # base_url: "http://localhost:8000/v1"
+  # api_key:  "x"
 
 # Optional head-to-head baseline (a frontier API or another local model on its own endpoint).
 # baseline:
