@@ -86,13 +86,7 @@ def load_run(run_dir, embed_model=None):
         raise SystemExit(f"{run_dir}: embeddings unavailable with '{model}' ({e}) — novelty "
                          f"analysis needs them. Authenticate the gated model "
                          f"(huggingface-cli login) or pass --embed-model all-MiniLM-L6-v2.")
-    topic = ""
-    sp = os.path.join(run_dir, "summary.json")
-    if os.path.exists(sp):
-        try:
-            topic = json.load(open(sp)).get("topic", "")
-        except Exception:
-            pass
+    topic = I.read_topic(run_dir, G)                  # works on unfinished runs (transcript/seed)
     # seed = the depth-0 / lowest-iter node (falls back to the topic-labelled node)
     seed = min(G.nodes, key=lambda n: (_intattr(G, n, "depth", 0), _intattr(G, n, "iter", 0)))
     if topic:
