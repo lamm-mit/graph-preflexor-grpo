@@ -41,12 +41,15 @@ def load_run(path):
     if not os.path.exists(gp):
         raise SystemExit(f"{gp} not found — has the run produced any steps yet?")
     rows = [{k: float(v) for k, v in r.items()} for r in csv.DictReader(open(gp))]
+    if MAX_ITER is not None:                           # truncate to a common length
+        rows = [r for r in rows if r.get("iter", 0) <= MAX_ITER]
     return summary, rows
 
 
 def final_metrics(summary, rows):
-    """Use summary.json metrics if present, else derive what we can from growth.csv."""
-    if summary and "metrics" in summary:
+    """Use summary.json metrics if present, else derive what we can from growth.csv. When a
+    --max-iter cap is active, ignore the (full-run) summary metrics and derive from capped rows."""
+    if MAX_ITER is None and summary and "metrics" in summary:
         return summary["metrics"]
     if not rows:
         return {}
@@ -64,12 +67,37 @@ def _save(fig, base):
     print(f"wrote {base}.png/.svg/.pdf")
 
 
+# Module-level iteration cap (set from --max-iter); applied to every graph/rows read so all
+# analysis functions truncate consistently for fair cross-run figures. None = no cap.
+MAX_ITER = None
+
+
+def read_graph(run_dir):
+    """Read <run>/graph.graphml, tolerating a still-running ideate.py (which truncates and
+    rewrites that file every step). On an empty/corrupt read, fall back to the newest stable
+    per-iteration snapshot in graphml/ (written once, never rewritten). Truncates to MAX_ITER.
+    Returns G or None."""
+    import glob
+    from graphstore import cap_graph
+    candidates = []
+    gp = os.path.join(run_dir, "graph.graphml")
+    if os.path.exists(gp) and os.path.getsize(gp) > 0:
+        candidates.append(gp)
+    candidates += sorted(glob.glob(os.path.join(run_dir, "graphml", "iter_*.graphml")))[::-1]
+    for path in candidates:
+        try:
+            if os.path.getsize(path) > 0:
+                return cap_graph(nx.read_graphml(path), MAX_ITER)
+        except Exception:
+            continue
+    return None
+
+
 def _series(run_dir, rows, mode, embed_model=None):
     """Return (x, xlabel, nodes, edges, elab, div) for the curves, by 'iteration' or
     'depth' (reasoning depth = hops from seed, aggregated from graph.graphml provenance)."""
-    gp = os.path.join(run_dir, "graph.graphml")
-    if mode == "depth" and os.path.exists(gp):
-        G = nx.read_graphml(gp)
+    G = read_graph(run_dir) if mode == "depth" else None
+    if mode == "depth" and G is not None:
 
         def dep(a):
             try:
@@ -138,11 +166,10 @@ def bars(metrics_list, labels, base):
 
 
 def graph_snapshot(run_dir, label, base):
-    gp = os.path.join(run_dir, "graph.graphml")
-    if not os.path.exists(gp):
-        print(f"  (skip graph snapshot for {label}: {gp} not found — run not finished?)")
+    G = read_graph(run_dir)
+    if G is None:
+        print(f"  (skip graph snapshot for {label}: no readable graph yet — run still writing?)")
         return
-    G = nx.read_graphml(gp)
     fig, a = plt.subplots(figsize=(6.0, 6.0))
     pos = nx.spring_layout(G, seed=0, k=0.6)
     deg = dict(G.degree())
@@ -156,11 +183,10 @@ def graph_snapshot(run_dir, label, base):
 def graph_growth(run_dir, label, base, frames=6):
     """Montage of the idea-graph at increasing iterations, reconstructed from the
     per-node/edge `iter` provenance in graph.graphml (fixed layout across frames)."""
-    gp = os.path.join(run_dir, "graph.graphml")
-    if not os.path.exists(gp):
-        print(f"  (skip graph figure for {label}: {gp} not found — run not finished?)")
+    G = read_graph(run_dir)
+    if G is None:
+        print(f"  (skip graph growth for {label}: no readable graph yet — run still writing?)")
         return
-    G = nx.read_graphml(gp)
     if G.number_of_nodes() == 0:
         return
 
@@ -195,11 +221,10 @@ def graph_growth(run_dir, label, base, frames=6):
 def graph_movie(run_dir, label, base, fps=2):
     """Animated GIF of the idea-graph accreting over iterations (fixed layout)."""
     from matplotlib.animation import FuncAnimation, PillowWriter
-    gp = os.path.join(run_dir, "graph.graphml")
-    if not os.path.exists(gp):
-        print(f"  (skip graph figure for {label}: {gp} not found — run not finished?)")
+    G = read_graph(run_dir)
+    if G is None:
+        print(f"  (skip movie for {label}: no readable graph yet — run still writing?)")
         return
-    G = nx.read_graphml(gp)
     if G.number_of_nodes() == 0:
         return
 
@@ -251,11 +276,10 @@ def _short(s, n=22):
 
 def graph_analytics(run_dir, label, base):
     """Rich journal-quality 2x3 panel of graph properties + a graph_analysis JSON."""
-    gp = os.path.join(run_dir, "graph.graphml")
-    if not os.path.exists(gp):
-        print(f"  (skip analytics for {label}: {gp} not found)")
+    G = read_graph(run_dir)
+    if G is None:
+        print(f"  (skip analytics for {label}: no readable graph yet — run still writing?)")
         return
-    G = nx.read_graphml(gp)
     if G.number_of_nodes() < 3:
         print(f"  (skip analytics for {label}: graph too small)")
         return
@@ -343,11 +367,10 @@ def graph_structure(run_dir, label, base, embed_model=None):
     """Second analytics panel: structural 'shape of reasoning' properties that the
     first panel doesn't cover — k-core, brokers, articulation points, depth profile,
     a semantic embedding map, and structural-vs-semantic homophily."""
-    gp = os.path.join(run_dir, "graph.graphml")
-    if not os.path.exists(gp):
-        print(f"  (skip structure panel for {label}: {gp} not found)")
+    G = read_graph(run_dir)
+    if G is None:
+        print(f"  (skip structure panel for {label}: no readable graph yet — run still writing?)")
         return
-    G = nx.read_graphml(gp)
     if G.number_of_nodes() < 4:
         print(f"  (skip structure panel for {label}: graph too small)")
         return
@@ -504,7 +527,14 @@ def main():
     p.add_argument("--embed-model", dest="embed_model", default=None,
                    help="sentence-transformers id for re-embedding the semantic panels "
                         "(default: each run's recorded model, else embeddinggemma-300m)")
+    p.add_argument("--max-iter", dest="max_iter", type=int, default=None,
+                   help="truncate every run to iter <= this for fair cross-run figures "
+                        "(applies to all panels/metrics)")
     args = p.parse_args()
+    global MAX_ITER
+    MAX_ITER = args.max_iter
+    if MAX_ITER is not None:
+        print(f"[plot] truncating all runs to iter <= {MAX_ITER}")
     if args.out is None:                                  # default: inside the (first) run dir
         args.out = os.path.join(args.runs[0].rstrip("/"), "figures", "ideation")
     labels = args.labels or [os.path.basename(r.rstrip("/")) for r in args.runs]

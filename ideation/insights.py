@@ -43,13 +43,37 @@ import numpy as np
 # --------------------------------------------------------------------------- #
 #  Loading + embedding
 # --------------------------------------------------------------------------- #
+# Module-level iteration cap (set from --max-iter); truncates the mined graph to iter <= this
+# so insights/novelty match plot_ideation when making fair cross-run figures. None = no cap.
+MAX_ITER = None
+
+
 def load_graph(run_dir):
+    """Read <run>/graph.graphml, tolerating a still-running ideate.py (which truncates and
+    rewrites it each step) by falling back to the newest stable graphml/iter_*.graphml snapshot.
+    Truncates to MAX_ITER when set."""
+    import glob
+    from graphstore import cap_graph
+    candidates = []
     gp = os.path.join(run_dir, "graph.graphml")
-    if not os.path.exists(gp):
-        raise SystemExit(f"{gp} not found — has the run finished (graph.graphml is written at the end)?")
-    G = nx.read_graphml(gp)
+    if os.path.exists(gp) and os.path.getsize(gp) > 0:
+        candidates.append(gp)
+    candidates += sorted(glob.glob(os.path.join(run_dir, "graphml", "iter_*.graphml")))[::-1]
+    G = None
+    for path in candidates:
+        try:
+            if os.path.getsize(path) > 0:
+                G = nx.read_graphml(path)
+                break
+        except Exception:
+            continue
+    if G is None:
+        raise SystemExit(f"{gp}: no readable graph (empty/locked, and no graphml/ snapshot). "
+                         f"Is the run still starting up?")
+    G = cap_graph(G, MAX_ITER)
     if G.number_of_nodes() < 3:
-        raise SystemExit(f"graph too small ({G.number_of_nodes()} nodes) to mine.")
+        raise SystemExit(f"graph too small ({G.number_of_nodes()} nodes) to mine"
+                         + (f" at iter <= {MAX_ITER}" if MAX_ITER is not None else "") + ".")
     return G
 
 
@@ -389,7 +413,7 @@ def load_insights_or_mine(run_dir, top=10, want_mine=False, embed_model=None):
         except Exception:
             pass
     jp = os.path.join(run_dir, "insights.json")
-    if os.path.exists(jp) and not want_mine:
+    if os.path.exists(jp) and not want_mine and MAX_ITER is None:   # cached json is uncapped
         data = json.load(open(jp))
         topic = topic or data.get("topic", "")
         miners = data.get("miners", {})
@@ -525,8 +549,15 @@ def main():
     p.add_argument("--embed-model", dest="embed_model", default=None,
                    help="sentence-transformers id for re-embedding "
                         "(default: model recorded by the run, else embeddinggemma-300m)")
+    p.add_argument("--max-iter", dest="max_iter", type=int, default=None,
+                   help="truncate the graph to iter <= this before mining (fair cross-run cutoff)")
     args = p.parse_args()
     out = args.out or os.path.join(args.run.rstrip("/"), "insights")
+
+    global MAX_ITER
+    MAX_ITER = args.max_iter
+    if MAX_ITER is not None:
+        print(f"[insights] truncating to iter <= {MAX_ITER}")
 
     G = load_graph(args.run)
     topic = ""

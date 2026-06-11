@@ -43,6 +43,25 @@ def make_embedder(model_name=DEFAULT_EMBED_MODEL, prompt_name=None):
     return embed
 
 
+def cap_graph(G, max_iter):
+    """Return the subgraph of nodes/edges introduced at `iter <= max_iter` (provenance from the
+    'iter' attribute). Lets every analysis truncate runs to a common length for fair cross-run
+    journal figures. `max_iter=None` returns G unchanged."""
+    if max_iter is None:
+        return G
+
+    def _it(d):
+        try:
+            return int(float(d.get("iter", 0)))
+        except Exception:
+            return 0
+    H = G.__class__()
+    H.add_nodes_from((n, d) for n, d in G.nodes(data=True) if _it(d) <= max_iter)
+    H.add_edges_from((u, v, d) for u, v, d in G.edges(data=True)
+                     if _it(d) <= max_iter and u in H and v in H)
+    return H
+
+
 def embed_texts(texts, model_name=DEFAULT_EMBED_MODEL, prompt_name=None, batch_size=64):
     """Batched embedding of many texts -> (n, d) unit-norm float32 array. Far faster than
     calling make_embedder() once per text for large node sets (single load, batched forward
