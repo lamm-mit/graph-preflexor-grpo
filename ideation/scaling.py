@@ -224,7 +224,13 @@ def main():
                    help="atypical-combination threshold (edge endpoint z below this = surprising)")
     p.add_argument("--embed-model", dest="embed_model", default=None,
                    help="override the sentence-transformers id used for re-embedding")
+    p.add_argument("--max-iter", dest="max_iter", type=int, default=None,
+                   help="truncate every run to iter <= this for a fair (matched-compute) comparison")
     args = p.parse_args()
+
+    if args.max_iter is not None:                      # shared cap: insights.load_graph applies it
+        I.MAX_ITER = args.max_iter
+        print(f"[scaling] truncating all runs to iter <= {args.max_iter}")
 
     runs = args.runs or ([args.run] if args.run else None)
     if not runs:
