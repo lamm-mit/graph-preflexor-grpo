@@ -356,6 +356,11 @@ Produces (PNG + SVG + PDF each, shared styling):
   similar ideas, Δ≈0 = it makes creative leaps). Embeddings are re-derived offline from node
   labels; if `sentence-transformers` is missing the semantic sub-panels (e, f, and d's diversity
   line) are skipped.
+- **`*_brokers_<label>`** and **`*_semantic_<label>`** — **standalone, larger** versions of panels
+  (b) and (e), auto-written alongside the structure panel. The top hubs/brokers are marked with
+  **numbered badges** on the plot and a **full-name key below** the axes (no labels overlapping the
+  point cloud — readable even at thousands of nodes). They reuse the structure panel's computed
+  degree/betweenness/PCA/community/PageRank (no recompute).
 - **`*_growth_<label>`** — spring-layout montage of the graph **over iterations** (fixed layout
   so nodes hold position). **OFF by default** (slow); enable with `--growth-frames N` (e.g. 6).
 - **`*_movie_<label>.gif`** — animated growth (one frame per iteration). Add `--movie`

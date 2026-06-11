@@ -373,10 +373,61 @@ def _embed_nodes(G, model=None):
         return None
 
 
+def _key_below(ax, handles):
+    """Put a numbered key BELOW the axes (full names, 2 columns), nothing overlapping the plot."""
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.08), frameon=False,
+              fontsize=8, ncol=2, handlelength=1.2, columnspacing=1.4,
+              title="numbers mark the points above (full names below)", title_fontsize=9)
+
+
+def broker_detail(G, deg, bet, label, base, topk=15):
+    """Standalone, larger broker scatter (degree vs betweenness) with the top-`topk` brokers
+    numbered on the plot and a full-name key BELOW it — no labels overlapping the cloud."""
+    fig, ax = plt.subplots(figsize=(8.5, 8.8))
+    ax.scatter([deg[n] for n in G], [bet[n] for n in G], s=16, color="#1f77b4", alpha=0.45,
+               linewidths=0, zorder=1)
+    handles = []
+    for i, n in enumerate(sorted(G, key=lambda n: bet[n], reverse=True)[:topk], 1):
+        h = ax.scatter([deg[n]], [bet[n]], s=140, color="#d62728", edgecolor="white",
+                       linewidths=1.0, zorder=3, label=f"{i}.  {G.nodes[n].get('label', n)}")
+        ax.annotate(str(i), (deg[n], bet[n]), color="white", fontsize=7.5, fontweight="bold",
+                    ha="center", va="center", zorder=4)
+        handles.append(h)
+    ax.set_title(f"Broker ideas — {label}  (degree vs betweenness)")
+    ax.set_xlabel("degree  (# ideas it connects to)")
+    ax.set_ylabel("betweenness  (how often it bridges others)")
+    ax.grid(True, color="0.92", lw=0.5); ax.set_axisbelow(True)
+    _key_below(ax, handles)
+    _save(fig, f"{base}_brokers_{label.replace(' ', '_')}"); plt.close(fig)
+
+
+def semantic_detail(G, P, cmap_dict, pr, label, base, topk=15):
+    """Standalone, larger semantic map (PCA, color=community, size=PageRank) with the top-`topk`
+    hubs numbered and a full-name key BELOW it."""
+    nodes = list(G.nodes)
+    pos = {n: P[i] for i, n in enumerate(nodes)}
+    fig, ax = plt.subplots(figsize=(9.0, 9.2))
+    ax.scatter(P[:, 0], P[:, 1], c=[cmap_dict.get(n, 0) for n in nodes], cmap="tab10",
+               s=[30 + 4000 * pr[n] for n in nodes], alpha=0.6, linewidths=0, zorder=1)
+    handles = []
+    for i, n in enumerate(sorted(G, key=lambda x: pr[x], reverse=True)[:topk], 1):
+        h = ax.scatter([pos[n][0]], [pos[n][1]], s=150, color="black", edgecolor="white",
+                       linewidths=1.0, zorder=3, label=f"{i}.  {G.nodes[n].get('label', n)}")
+        ax.annotate(str(i), pos[n], color="white", fontsize=7.5, fontweight="bold",
+                    ha="center", va="center", zorder=4)
+        handles.append(h)
+    ax.set_title(f"Semantic map — {label}  (PCA; color = community, size = PageRank)")
+    ax.set_xlabel("PC1"); ax.set_ylabel("PC2")
+    ax.grid(True, color="0.92", lw=0.5); ax.set_axisbelow(True)
+    _key_below(ax, handles)
+    _save(fig, f"{base}_semantic_{label.replace(' ', '_')}"); plt.close(fig)
+
+
 def graph_structure(run_dir, label, base, embed_model=None):
     """Second analytics panel: structural 'shape of reasoning' properties that the
     first panel doesn't cover — k-core, brokers, articulation points, depth profile,
-    a semantic embedding map, and structural-vs-semantic homophily."""
+    a semantic embedding map, and structural-vs-semantic homophily.
+    Also emits standalone, label-below detail plots of panels (b) and (e)."""
     G = read_graph(run_dir)
     if G is None:
         print(f"  (skip structure panel for {label}: no readable graph yet — run still writing?)")
@@ -526,6 +577,16 @@ def graph_structure(run_dir, label, base, embed_model=None):
                  f"({G.number_of_nodes()}n / {G.number_of_edges()}e)", y=1.0)
     fig.tight_layout()
     _save(fig, f"{base}_structure_{label.replace(' ', '_')}")
+    plt.close(fig)
+
+    # standalone, label-below detail versions of the two crowded panels (b) and (e),
+    # reusing the already-computed degree/betweenness/PCA/community/PageRank (no recompute)
+    try:
+        broker_detail(G, deg, bet, label, base)
+        if vecs:
+            semantic_detail(G, P, cmap, pr, label, base)
+    except Exception as e:
+        print(f"  (detail plots skipped for {label}: {e})")
 
 
 def main():
