@@ -171,6 +171,14 @@ Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.
 | `--fanout` | questions spawned per step |
 | `--dedup-threshold` | node-merge cosine (higher = stricter) |
 
+**Truncating runs for fair figures.** All analysis tools accept **`--max-iter N`** — they keep
+only nodes/edges/rows with `iter <= N` (provenance is on every node/edge), so you can cut every
+run to a common length (e.g. 1500 iterations) for apples-to-apples journal plots:
+`plot_ideation.py --max-iter 1500`, `insights.py --max-iter 1500`, `novelty.py --max-iter 1500`,
+`synthesize.py --max-iter 1500`. When a cap is active, `plot_ideation` derives final metrics from
+the capped data (not the full-run `summary.json`), and `insights`/`novelty` re-mine the capped
+graph instead of reading the (uncapped) `insights.json`.
+
 ## How it works
 
 ### The loop (`loop.py`)

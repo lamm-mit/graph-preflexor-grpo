@@ -185,6 +185,8 @@ def main():
     src.add_argument("--embed-model", dest="embed_model", default=None,
                      help="sentence-transformers id used when mining (--mine / no insights.json); "
                           "default: the run's recorded model, else embeddinggemma-300m")
+    src.add_argument("--max-iter", dest="max_iter", type=int, default=None,
+                     help="truncate the graph to iter <= this when mining (fair cross-run cutoff)")
 
     pr = p.add_argument_group("prompt")
     pr.add_argument("--style", default="report", choices=list(STYLES),
@@ -208,6 +210,9 @@ def main():
 
     p.add_argument("--out", help="write the answer here (default: <run>/answer.md or ./answer.md)")
     args = p.parse_args()
+
+    if args.max_iter is not None:                      # shared cap: insights.load_graph applies it
+        I.MAX_ITER = args.max_iter
 
     # ---- load / mine insights ------------------------------------------------
     if args.insights:
