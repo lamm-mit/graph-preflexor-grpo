@@ -341,7 +341,14 @@ def broker_ideas(G, vecs, top=10):
     """High-betweenness, multi-community, low-constraint nodes: the interdisciplinary
     connectors where recombination/novelty concentrates (Burt's structural holes)."""
     U = G.to_undirected()
-    bet = nx.betweenness_centrality(G) if G.number_of_nodes() > 3 else {n: 0.0 for n in G}
+    nN = G.number_of_nodes()
+    if nN <= 3:
+        bet = {n: 0.0 for n in G}
+    elif nN > 1500:                                # approx betweenness — exact is minutes on ~7k nodes
+        print(f"  broker_ideas: approx betweenness (k=400) on {nN} nodes…", flush=True)
+        bet = nx.betweenness_centrality(G, k=min(400, nN), seed=0)
+    else:
+        bet = nx.betweenness_centrality(G)
     try:
         comms = list(nx.community.greedy_modularity_communities(U))
         cmap = {n: i for i, c in enumerate(comms) for n in c}

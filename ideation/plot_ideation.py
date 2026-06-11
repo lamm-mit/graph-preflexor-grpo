@@ -173,6 +173,8 @@ def graph_snapshot(run_dir, label, base):
         print(f"  (skip graph snapshot for {label}: no readable graph yet — run still writing?)")
         return
     fig, a = plt.subplots(figsize=(6.0, 6.0))
+    print(f"  graph snapshot [{label}]: spring_layout on {G.number_of_nodes()} nodes "
+          f"(slow on big graphs)…", flush=True)
     pos = nx.spring_layout(G, seed=0, k=0.6)
     deg = dict(G.degree())
     nx.draw_networkx_edges(G, pos, ax=a, alpha=0.25, arrows=False, width=0.8)
@@ -200,6 +202,8 @@ def graph_growth(run_dir, label, base, frames=6):
 
     max_it = max([it(G.nodes[n]) for n in G] + [0])
     checkpoints = sorted(set(int(round(x)) for x in np.linspace(0, max_it, frames)))
+    print(f"  graph growth [{label}]: spring_layout on {G.number_of_nodes()} nodes "
+          f"(slow on big graphs)…", flush=True)
     pos = nx.spring_layout(G, seed=0, k=0.6)              # fixed layout (final graph)
     deg = dict(G.degree())
     ncol = min(len(checkpoints), 3)
@@ -285,6 +289,8 @@ def graph_analytics(run_dir, label, base):
     if G.number_of_nodes() < 3:
         print(f"  (skip analytics for {label}: graph too small)")
         return
+    print(f"  analytics [{label}]: centralities + advanced metrics on "
+          f"{G.number_of_nodes()}n/{G.number_of_edges()}e…", flush=True)
     cents = M.centralities(G)
     adv = M.advanced_metrics(G)
     with open(f"{base}_analysis_{label.replace(' ', '_')}.json", "w") as f:
@@ -396,7 +402,14 @@ def graph_structure(run_dir, label, base, embed_model=None):
 
     # (b) brokers — degree vs betweenness; top brokers connect separate clusters
     deg = dict(G.degree())
-    bet = nx.betweenness_centrality(G) if G.number_of_nodes() > 3 else {n: 0.0 for n in G}
+    nN = G.number_of_nodes()
+    if nN <= 3:
+        bet = {n: 0.0 for n in G}
+    elif nN > 1500:                                       # approx (viz only) — exact is minutes
+        print(f"  structure [{label}]: approx betweenness (k=400) on {nN} nodes…", flush=True)
+        bet = nx.betweenness_centrality(G, k=min(400, nN), seed=0)
+    else:
+        bet = nx.betweenness_centrality(G)
     xs = [deg[n] for n in G]; ys = [bet[n] for n in G]
     ax[0, 1].scatter(xs, ys, s=18, color=blue, alpha=0.6, linewidths=0)
     brokers = sorted(G, key=lambda n: bet[n], reverse=True)[:5]
@@ -521,11 +534,16 @@ def main():
     p.add_argument("--labels", nargs="+", help="legend labels (default: dir names)")
     p.add_argument("--out", default=None,
                    help="figure basename (default: <first-run-dir>/figures/ideation)")
-    p.add_argument("--no-graph", action="store_true", help="skip graph snapshots")
+    p.add_argument("--no-graph", action="store_true",
+                   help="skip the per-run graph figures entirely (analytics + structure too)")
     p.add_argument("--no-structure", action="store_true",
                    help="skip the second (reasoning-structure) analytics panel")
-    p.add_argument("--growth-frames", type=int, default=6,
-                   help="frames in the graph-growth montage (0 = skip)")
+    p.add_argument("--graph-snapshot", action="store_true",
+                   help="also draw the spring-layout node-link snapshot (OFF by default — slow "
+                        "on big graphs; open the graphml files in Gephi instead)")
+    p.add_argument("--growth-frames", type=int, default=0,
+                   help="frames in the spring-layout graph-growth montage (default 0 = skip; "
+                        "slow on big graphs)")
     p.add_argument("--movie", action="store_true", help="also render an animated GIF of growth")
     p.add_argument("--movie-fps", type=int, default=2)
     p.add_argument("--embed-model", dest="embed_model", default=None,
@@ -548,11 +566,12 @@ def main():
     bars([final_metrics(s, rows) for s, rows in loaded], labels, args.out)
     if not args.no_graph:
         for rd, lab in zip(args.runs, labels):
-            graph_snapshot(rd, lab, args.out)
+            if args.graph_snapshot:                       # opt-in: spring-layout node-link snapshot
+                graph_snapshot(rd, lab, args.out)
             graph_analytics(rd, lab, args.out)
             if not args.no_structure:
                 graph_structure(rd, lab, args.out, embed_model=args.embed_model)
-            if args.growth_frames > 0:
+            if args.growth_frames > 0:                     # opt-in: spring-layout growth montage
                 graph_growth(rd, lab, args.out, frames=args.growth_frames)
             if args.movie:
                 graph_movie(rd, lab, args.out, fps=args.movie_fps)
