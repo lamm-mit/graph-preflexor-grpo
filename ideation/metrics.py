@@ -81,6 +81,23 @@ def _largest_cc_undirected(G):
     return U.subgraph(max(nx.connected_components(U), key=len)).copy()
 
 
+def _avg_shortest_path(U, sample_above=1500, sources=300):
+    """Mean shortest-path length on U. Exact for small graphs; on large ones, average over BFS
+    from a random sample of sources (exact all-pairs is O(V*(V+E)) — minutes on ~7k nodes)."""
+    import random as _random
+    n = U.number_of_nodes()
+    if n <= sample_above:
+        return nx.average_shortest_path_length(U)
+    src = _random.Random(0).sample(list(U), min(sources, n))
+    print(f"    small-world: sampling avg path length from {len(src)} sources on {n} nodes…",
+          flush=True)
+    tot = cnt = 0
+    for s in src:
+        for d in nx.single_source_shortest_path_length(U, s).values():
+            tot += d; cnt += 1
+    return tot / max(1, cnt - len(src))                   # exclude the d=0 self terms
+
+
 def small_worldness(G):
     """Analytic small-world coefficients on the largest connected component.
     sigma = (C/C_rand)/(L/L_rand) > 1 and omega ~ 0 indicate small-world structure.
@@ -91,7 +108,7 @@ def small_worldness(G):
         return {}
     k = 2 * m / n
     C = nx.average_clustering(U)
-    L = nx.average_shortest_path_length(U)
+    L = _avg_shortest_path(U)
     C_rand = k / (n - 1)
     L_rand = math.log(n) / math.log(k) if k > 1 else float("nan")
     C_latt = 3 * (k - 2) / (4 * (k - 1)) if k > 2 else float("nan")
@@ -121,22 +138,44 @@ def advanced_metrics(G):
         pass
     try:
         Ucc = _largest_cc_undirected(G)
-        out["diameter"] = nx.diameter(Ucc) if Ucc.number_of_nodes() > 1 else 0
+        nU = Ucc.number_of_nodes()
+        if nU <= 1:
+            out["diameter"] = 0
+        elif nU <= 1500:                                  # exact diameter is O(V*(V+E)) — skip on big graphs
+            out["diameter"] = nx.diameter(Ucc)
     except Exception:
         pass
     out["density"] = nx.density(G) if G.number_of_nodes() > 1 else 0.0
     return out
 
 
-def centralities(G):
+def centralities(G, approx_above=1500, pivots=400):
+    """Degree/betweenness/closeness/PageRank for the viz panels. On large graphs (> approx_above
+    nodes) betweenness uses k-pivot sampling and closeness is computed on a node sample — exact
+    versions are O(V*(V+E)) in pure-Python NetworkX (minutes on ~7k nodes), and these only feed
+    distribution plots / the broker scatter, so the approximation changes no quantitative claim."""
+    import random as _random
     n = G.number_of_nodes()
+    big = n > approx_above
     deg = dict(G.degree())
     try:
-        bet = nx.betweenness_centrality(G) if n > 2 else {x: 0.0 for x in G}
+        if n <= 2:
+            bet = {x: 0.0 for x in G}
+        elif big:
+            print(f"    centralities: approx betweenness (k={pivots} pivots) on {n} nodes…", flush=True)
+            bet = nx.betweenness_centrality(G, k=min(pivots, n), seed=0)
+        else:
+            print(f"    centralities: exact betweenness on {n} nodes…", flush=True)
+            bet = nx.betweenness_centrality(G)
     except Exception:
         bet = {x: 0.0 for x in G}
     try:
-        clo = nx.closeness_centrality(G)
+        if big:                                        # closeness has no k-sampling; sample nodes
+            samp = set(_random.Random(0).sample(list(G), min(pivots, n)))
+            print(f"    centralities: closeness on a {len(samp)}-node sample…", flush=True)
+            clo = {x: nx.closeness_centrality(G, u=x) for x in samp}
+        else:
+            clo = nx.closeness_centrality(G)
     except Exception:
         clo = {x: 0.0 for x in G}
     try:

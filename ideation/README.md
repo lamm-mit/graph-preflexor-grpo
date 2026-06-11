@@ -273,7 +273,9 @@ Produces (PNG + SVG + PDF each, shared styling):
 - **`*_curves_index`** — the same four panels vs **reasoning index** (the per-step iteration
   counter). Both variants are written every run.
 - **`*_bars`** — final-metric comparison (fluency, ideas/call, diversity, flexibility, …).
-- **`*_graph_<label>`** — spring-layout snapshot of the final accumulated idea graph.
+- **`*_graph_<label>`** — spring-layout node-link snapshot of the final idea graph. **OFF by
+  default** (slow on big graphs); enable with `--graph-snapshot`. For interactive exploration,
+  open the `graph.graphml` / `graphml/iter_*.graphml` files (written by `ideate.py`) in Gephi.
 - **`*_analytics_<label>`** — rich 2×3 graph-property panel: degree distribution (+ log-log),
   centrality distributions (betweenness/closeness/PageRank), top **hub ideas** by PageRank,
   **relation-type** frequency, **community** sizes (modularity), and a global-metrics card
@@ -291,9 +293,8 @@ Produces (PNG + SVG + PDF each, shared styling):
   similar ideas, Δ≈0 = it makes creative leaps). Embeddings are re-derived offline from node
   labels; if `sentence-transformers` is missing the semantic sub-panels (e, f, and d's diversity
   line) are skipped.
-- **`*_growth_<label>`** — montage of the graph **over iterations** (reconstructed from each
-  node/edge's `iter` provenance, fixed layout so nodes hold position). Control with
-  `--growth-frames N` (default 6; `0` to skip).
+- **`*_growth_<label>`** — spring-layout montage of the graph **over iterations** (fixed layout
+  so nodes hold position). **OFF by default** (slow); enable with `--growth-frames N` (e.g. 6).
 - **`*_movie_<label>.gif`** — animated growth (one frame per iteration). Add `--movie`
   (and `--movie-fps N`); needs `pillow`.
 
