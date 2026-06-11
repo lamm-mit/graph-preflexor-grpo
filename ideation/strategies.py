@@ -33,6 +33,26 @@ def answer_driven(ctx):
     return [{"q": q, "anchor": None} for q in qs]
 
 
+# ---- conversational expansion: LLM questioner reasons over (question + answer) to open NEW
+#      directions the graph-structure strategies can't reach (they only probe existing nodes,
+#      so they saturate). The questioner can introduce concepts not yet in the graph. ----
+def converse_driven(ctx):
+    """Feed the ORIGINAL question + the model's prose answer to the questioner LLM (e.g. a
+    Llama-instruct, set via `questioner.model`) and ask for genuinely NEW questions that open an
+    unexplored direction — an implication, a tension/contradiction, a cross-domain analogy, or a
+    deeper mechanism. Because the questioner reasons over content (not graph structure), it can
+    leave a saturated region. Cost: 2 LLM calls/step (generator + questioner), like `answer`."""
+    k = ctx["cfg"]["fanout"]
+    prompt = (f"Original question:\n{ctx['question']}\n\nAnswer:\n{ctx['parse']['answer']}\n\n"
+              f"Pose {k} NEW, specific question(s) that open an UNEXPLORED direction this answer "
+              f"hints at but did not address — an implication, a tension or contradiction, a "
+              f"cross-domain analogy, or a deeper underlying mechanism. Do NOT restate or merely "
+              f"narrow the original question; aim for new territory. One per line, no numbering.")
+    text, _ = ctx["clients"].ask(prompt)
+    qs = [ln.strip("-•*1234567890. ").strip() for ln in text.splitlines() if ln.strip()][:k]
+    return [{"q": q, "anchor": None} for q in qs]
+
+
 # ---- densify: probe likely-but-missing links (embedding-close, unconnected) ----
 def edge_driven(ctx):
     G, vecs = ctx["store"].G, ctx["store"].node_vectors()
@@ -132,6 +152,7 @@ def leap_driven(ctx):
 _REGISTRY = {
     "node": node_driven, "answer": answer_driven, "edge": edge_driven,
     "frontier": frontier_driven, "novelty": novelty_driven, "leap": leap_driven,
+    "converse": converse_driven,
 }
 
 

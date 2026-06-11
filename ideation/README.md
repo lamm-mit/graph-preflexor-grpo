@@ -240,7 +240,7 @@ Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.
 
 | Flag | Meaning |
 |------|---------|
-| `--strategy` | `frontier` (graph-analytic, default) · `node` (breadth) · `answer` (depth, LLM follow-ups) · `edge` (densify/missing links) · `novelty` · `leap` (aggressive exploration) · `mixed` |
+| `--strategy` | `frontier` (graph-analytic, default) · `node` (breadth) · `answer` (depth, LLM follow-ups) · `edge` (densify/missing links) · `novelty` · `leap` (aggressive exploration) · `converse` (LLM questioner opens NEW directions — best against saturation) · `mixed` |
 | `--context-mode` | `fresh` (independent single turns — default, matches single-turn training) · `chained` / `branched` (multi-turn, **experimental**) |
 | `--budget-calls / --budget-tokens / --max-iters` | compute budget (first to hit wins; novelty-stop also applies) |
 | `--fanout` | questions spawned per step |
@@ -286,6 +286,7 @@ Every templated question is wrapped by `_q(text, topic)` to stay anchored to the
 | `leap` | peripheral node `a` + its most embedding-**dissimilar** partner `b`; and peripheral nodes for cross-domain transfer | `What radically new approach … by combining '{a}' and '{b}' …?` and `What principle from a completely different field could transform '{t}' …?` | no |
 | `mixed` | rotates frontier→node→edge→novelty→leap | (those) | no |
 | `answer` | — | sends the prose answer to the questioner asking for `fanout` follow-ups | **yes** |
+| `converse` | — | sends the **original question + answer** to the questioner asking for `fanout` questions that open a **new, unexplored direction** (implication / contradiction / cross-domain analogy / deeper mechanism). The questioner reasons over *content*, so it can introduce concepts not yet in the graph — the one strategy that can break out of a **saturated** region. | **yes** |
 
 Cost per step: heuristic strategies = **1 LLM call** (generator); `answer` = **2** (generator +
 questioner).

@@ -26,7 +26,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--config", default="config.yaml")
     p.add_argument("--topic", required=True)
-    p.add_argument("--strategy", help="frontier|node|answer|edge|novelty|leap|mixed")
+    p.add_argument("--strategy", help="frontier|node|answer|edge|novelty|leap|converse|mixed")
     p.add_argument("--context-mode", dest="context_mode", help="fresh|chained|branched")
     p.add_argument("--budget-calls", type=int)
     p.add_argument("--budget-tokens", type=int)
