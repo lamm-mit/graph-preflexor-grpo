@@ -598,6 +598,96 @@ python synthesize.py   --run runs/ex_structbattery --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_structbattery/answer.md \
     --task "Articulate a design principle that lets one material carry mechanical load AND store energy \
 without compromising either, using the analogies and feedback loops in the mined insights."
+
+# E. Bioinspired — atmospheric water harvesting (no power)
+python ideate.py --topic "bioinspired atmospheric water harvesting surfaces" \
+    --strategy leap --budget-calls 50 --max-iters 50 --out runs/ex_water
+python insights.py     --run runs/ex_water --top 12
+python plot_ideation.py --runs runs/ex_water --labels water
+python novelty.py      --run runs/ex_water --out runs/ex_water/figures/novelty
+python synthesize.py   --run runs/ex_water --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_water/answer.md \
+    --task "Propose a new design principle for a surface that pulls drinkable water from dry air with no \
+power input, drawing on the cross-domain leads in the mined insights. Give the mechanism and a test."
+
+# F. Energy materials — safe, fast solid-state electrolytes
+python ideate.py --topic "solid-state fast-ion conductors for dendrite-free batteries" \
+    --strategy frontier --budget-calls 50 --max-iters 50 --out runs/ex_electrolyte
+python insights.py     --run runs/ex_electrolyte --top 12
+python plot_ideation.py --runs runs/ex_electrolyte --labels electrolyte
+python novelty.py      --run runs/ex_electrolyte --out runs/ex_electrolyte/figures/novelty
+python synthesize.py   --run runs/ex_electrolyte --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_electrolyte/answer.md \
+    --task "Explain a design principle for a solid electrolyte that is simultaneously highly ion-conductive \
+and dendrite-proof, grounded in the mined connections. State the mechanism and a falsifiable prediction."
+
+# G. Engineered living materials — grow and self-repair
+python ideate.py --topic "engineered living materials that grow and self-repair" \
+    --strategy leap --budget-calls 50 --max-iters 50 --out runs/ex_living
+python insights.py     --run runs/ex_living --top 12
+python plot_ideation.py --runs runs/ex_living --labels living
+python novelty.py      --run runs/ex_living --out runs/ex_living/figures/novelty
+python synthesize.py   --run runs/ex_living --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_living/answer.md \
+    --task "Lay out a design principle for a material that biologically regrows after damage, combining two \
+unrelated mechanisms surfaced by the mined conceptual bridges. Give the mechanism and how to test it."
+
+# H. Green catalysis — enzyme-like selectivity at scale
+python ideate.py --topic "bioinspired single-atom catalysts and enzyme mimics" \
+    --strategy mixed --budget-calls 50 --max-iters 50 --out runs/ex_catalyst
+python insights.py     --run runs/ex_catalyst --top 12
+python plot_ideation.py --runs runs/ex_catalyst --labels catalyst
+python novelty.py      --run runs/ex_catalyst --out runs/ex_catalyst/figures/novelty
+python synthesize.py   --run runs/ex_catalyst --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_catalyst/answer.md \
+    --task "Articulate a design principle for a heterogeneous catalyst that matches enzyme selectivity at \
+industrial scale, using the analogies and feedback loops in the mined insights."
+
+# --- Protein science ---
+
+# I. De novo protein design — high-affinity, specific binders
+python ideate.py --topic "de novo protein design for high-affinity target binding" \
+    --strategy leap --budget-calls 50 --max-iters 50 --out runs/ex_binder
+python insights.py     --run runs/ex_binder --top 12
+python plot_ideation.py --runs runs/ex_binder --labels binder
+python novelty.py      --run runs/ex_binder --out runs/ex_binder/figures/novelty
+python synthesize.py   --run runs/ex_binder --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_binder/answer.md \
+    --task "Propose a new design principle for de novo proteins that bind an arbitrary target with both high \
+affinity and specificity, grounded in the mined bridges and analogies. Give the mechanism and a test."
+
+# J. Protein folding — suppress pathological aggregation
+python ideate.py --topic "protein misfolding and amyloid aggregation mechanisms" \
+    --strategy frontier --budget-calls 50 --max-iters 50 --out runs/ex_amyloid
+python insights.py     --run runs/ex_amyloid --top 12
+python plot_ideation.py --runs runs/ex_amyloid --labels amyloid
+python novelty.py      --run runs/ex_amyloid --out runs/ex_amyloid/figures/novelty
+python synthesize.py   --run runs/ex_amyloid --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_amyloid/answer.md \
+    --task "Explain a design principle to suppress pathological protein aggregation while preserving native \
+function, drawn from the mined connections. State the mechanism and a falsifiable prediction."
+
+# K. Enzyme engineering — active AND thermostable
+python ideate.py --topic "enzyme active-site engineering and biocatalysis" \
+    --strategy mixed --budget-calls 50 --max-iters 50 --out runs/ex_enzyme
+python insights.py     --run runs/ex_enzyme --top 12
+python plot_ideation.py --runs runs/ex_enzyme --labels enzyme
+python novelty.py      --run runs/ex_enzyme --out runs/ex_enzyme/figures/novelty
+python synthesize.py   --run runs/ex_enzyme --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_enzyme/answer.md \
+    --task "Lay out a design principle for an engineered enzyme that is simultaneously highly active and \
+thermostable, combining mechanisms surfaced by the mined conceptual bridges."
+
+# L. Protein-based materials — beyond spider silk
+python ideate.py --topic "structural proteins: silk, collagen, and elastin mechanics" \
+    --strategy leap --budget-calls 50 --max-iters 50 --out runs/ex_silk
+python insights.py     --run runs/ex_silk --top 12
+python plot_ideation.py --runs runs/ex_silk --labels silk
+python novelty.py      --run runs/ex_silk --out runs/ex_silk/figures/novelty
+python synthesize.py   --run runs/ex_silk --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_silk/answer.md \
+    --task "Articulate a design principle for a protein-based fiber that exceeds spider silk in toughness, \
+using the cross-domain analogies in the mined insights. Give the mechanism and how to test it."
 ```
 
 Each run lands in `runs/ex_<name>/` with the graph, figures, `insights.{json,md}`, novelty figures,
