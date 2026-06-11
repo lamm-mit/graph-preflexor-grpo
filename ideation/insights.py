@@ -546,7 +546,7 @@ def insight_map(base, G, vecs, results):
         pr = nx.pagerank(G) if G.number_of_edges() else {n: 1.0 for n in G}
     except Exception:
         pr = {n: 1.0 / max(1, len(nodes)) for n in G}
-    fig, ax = plt.subplots(figsize=(8.5, 7.0))
+    fig, ax = plt.subplots(figsize=(8.5, 8.4))
     for u, v in G.to_undirected().edges:
         ax.plot([pos[u][0], pos[v][0]], [pos[u][1], pos[v][1]], color="0.85", lw=0.5, zorder=1)
     ax.scatter([pos[n][0] for n in nodes], [pos[n][1] for n in nodes],
@@ -554,22 +554,33 @@ def insight_map(base, G, vecs, results):
                linewidths=0, zorder=2)
     bridges = next((ins for kind, ins in results if kind == "conceptual_bridge"), [])
     colors = ["#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf"]
+    handles = []
     for i, b in enumerate(bridges[:5]):
+        c = colors[i % len(colors)]
         pth = b["path"]
         xs = [pos[n][0] for n in pth]; ys = [pos[n][1] for n in pth]
-        ax.plot(xs, ys, color=colors[i % len(colors)], lw=2.2, zorder=3,
-                label=f"{lbl(G, pth[0], 18)} ⇝ {lbl(G, pth[-1], 18)}")
+        line, = ax.plot(xs, ys, color=c, lw=2.2, zorder=3,
+                        label=f"{i+1}.  {lbl(G, pth[0], 40)}  ⇝  {lbl(G, pth[-1], 40)}")
+        handles.append(line)
+        # mark each endpoint with a small numbered badge (no overlapping text labels)
         for n in (pth[0], pth[-1]):
-            ax.annotate(lbl(G, n, 20), pos[n], fontsize=7, zorder=4,
-                        xytext=(3, 3), textcoords="offset points")
-    ax.legend(fontsize=7, frameon=False, loc="best")
+            ax.scatter([pos[n][0]], [pos[n][1]], s=150, color=c, zorder=4,
+                       edgecolor="white", linewidths=1.0)
+            ax.annotate(str(i + 1), pos[n], color="white", fontsize=8, fontweight="bold",
+                        ha="center", va="center", zorder=5)
     ax.set_title("Idea landscape + top conceptual bridges")
     ax.set_xlabel("PC1"); ax.set_ylabel("PC2")
     ax.grid(True, color="0.93", lw=0.5); ax.set_axisbelow(True)
-    fig.tight_layout()
+    # legend BELOW the plot, full (untruncated) names, one per row so nothing is cut off
+    if handles:
+        ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.09),
+                  frameon=False, fontsize=8, ncol=1, handlelength=1.6,
+                  title="top conceptual bridges  (numbers mark endpoints above)",
+                  title_fontsize=9)
     os.makedirs(os.path.dirname(base) or ".", exist_ok=True)
     for ext in ("png", "svg", "pdf"):
         fig.savefig(f"{base}_map.{ext}", bbox_inches="tight")
+    plt.close(fig)
     print(f"wrote {base}_map.png/.svg/.pdf")
 
 

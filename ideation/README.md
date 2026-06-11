@@ -78,20 +78,69 @@ python plot_ideation.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
 ```
 
-Zip/download files from a remote machine:
+### Collecting runs from several machines (archive → HF dataset → analyze locally)
+
+When runs live on different machines and you want to analyze them in one place, archive **only the
+`ideate.py` outputs** (so you regenerate all figures/insights fresh locally), stage them on a
+**private Hugging Face dataset**, then pull everything down.
+
+**1. Archive each run** (one command per machine, from the `ideation/` dir). The explicit file list
+captures exactly `ideate.py`'s outputs — `graph.graphml`, the `graphml/` snapshots, `transcript.jsonl`,
+`growth.csv`, `summary.json` — and **nothing else** (no `figures/`, no `insights.*`). `--ignore-failed-read`
+tolerates a missing `summary.json` on an **unfinished** run (it's only written when the loop stops):
 
 ```bash
-cd ~/LOCAL/graph-preflexor-grpo/ideation
-tar czf runs_exp2.tar.gz runs/exp2         
-tar czf runs_novelty.tar.gz runs/exp_novelty
+tar czf exp2_ideate.tar.gz --ignore-failed-read \
+  runs/exp2/graph.graphml runs/exp2/graphml \
+  runs/exp2/transcript.jsonl runs/exp2/growth.csv runs/exp2/summary.json
+```
+(drop `runs/exp2/graphml` to skip the big per-iteration snapshots; repeat per run/machine.)
+
+**2. Push to a private HF dataset** (`huggingface_hub` handles large files via LFS/Xet). One-time:
+
+```bash
+pip install -U "huggingface_hub[cli]"
+huggingface-cli repo create graph-preflexor-runs --type dataset --private   # → lamm-mit/graph-preflexor-runs
+```
+Then on each machine (headless-friendly — token via env, not stored):
+```bash
+export HF_TOKEN=hf_xxxxxxxx     # WRITE token: https://huggingface.co/settings/tokens
+huggingface-cli upload lamm-mit/graph-preflexor-runs exp2_ideate.tar.gz \
+    exp2_ideate.tar.gz --repo-type dataset
+# syntax: upload <repo_id> <local_path> <path_in_repo> --repo-type dataset
 ```
 
-### COMPLETE
+**3. Pull everything down locally and extract** into `ideation/runs/`. The archives store relative
+`runs/<run>/…` paths, so `tar xzf` recreates them under whatever your **current dir** is — extract while
+your cwd is the `ideation/` dir so the analysis commands (`--runs runs/exp2 …`) find them:
 
 ```bash
-# === Analysis pipeline for exp2, exp_leap, exp_novelty_2 ===
-# (run from the ideation/ dir; insights MUST run before novelty so Panel E uses the canonical bridges)
+cd ideation/        # the dir you run the analysis from
+huggingface-cli download lamm-mit/graph-preflexor-runs --repo-type dataset --local-dir ./_hf_dl
+for f in ./_hf_dl/*_ideate.tar.gz; do tar xzf "$f"; done   # → ideation/runs/exp2, runs/exp_leap, …
+rm -rf ./_hf_dl                                             # optional: drop the downloaded archives
+ls runs/                                                    # verify: exp2  exp_leap  exp_novelty_2
+```
 
+Analysis works on **unfinished** runs: `summary.json` is optional everywhere, and the tools fall back to
+the newest stable `graphml/iter_*.graphml` snapshot if `graph.graphml` was caught mid-write. Without
+`summary.json` the embed model isn't recorded, so pass `--embed-model` consistently (or accept the
+embeddinggemma default), and use `--max-iter N` to compare runs of different (unfinished) lengths fairly.
+
+Quick whole-dir variants (includes figures/insights if present — use when a run is finished and you want
+*everything*): `tar czf exp2.tar.gz runs/exp2`. Non-HF alternatives: `rsync -avP exp2_ideate.tar.gz
+user@server:/path/`, `scp`, or `rclone copy` to S3/GDrive.
+
+### Full analysis pipeline (per-run + three-way comparison)
+
+Complete recipe to analyze three runs (`exp2`/frontier, `exp_leap`/leap, `exp_novelty_2`/novelty) and
+overlay them. Run from the `ideation/` dir. **Order matters:** run `insights.py` before `novelty.py` so
+Panel (E) uses the canonical mined conceptual bridges (otherwise it falls back to an approximation).
+
+For a fair journal comparison of runs at different (or unfinished) lengths, add **`--max-iter 1500`** to
+*every* command below — it truncates all runs to `iter <= 1500` consistently. Drop it to use each run in full.
+
+```bash
 # 1) Mine insights for each run  → runs/<run>/insights.{json,md} + insights_map.*
 python insights.py --run runs/exp2          --top 12
 python insights.py --run runs/exp_leap      --top 12
@@ -108,11 +157,25 @@ python novelty.py --run runs/exp_leap      --out runs/exp_leap/figures/novelty
 python novelty.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/novelty
 
 # 4) Three-way comparisons (overlaid)  → figures/strategy_compare*
+#    (first run = primary for the map/stats panels; panel C overlays all three trajectories)
 python plot_ideation.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
 python novelty.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
+
+# 5) Synthesize a final insight-enriched answer per run (local Llama-3.2-3B-Instruct)
+#    → runs/<run>/answer.md   (gated model: huggingface-cli login once)
+python synthesize.py --run runs/exp2          --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp2/answer.md
+python synthesize.py --run runs/exp_leap      --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_leap/answer.md
+python synthesize.py --run runs/exp_novelty_2 --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty_2/answer.md
 ```
+
+Tips: add `--n-null 500` to the `novelty.py` lines for tighter p-values in final figures; add
+`--graph-snapshot` / `--growth-frames 6` to `plot_ideation.py` if you want the (slower) spring-layout
+node-link figures; pass `--embed-model all-MiniLM-L6-v2` everywhere for a lighter/faster embedder.
 
 
 ## 1. Serve both models (mistral.rs, vLLM, etc.)
@@ -443,6 +506,22 @@ python synthesize.py --run runs/exp2 --show-prompt \
     --task "Rank the 3 most testable hypotheses and give a falsifying experiment for each."
 ```
 
+**Per-run, with a local Llama-3.2-3B-Instruct** (HF backend; gated model — `huggingface-cli login`
++ accept its license once). Run `insights.py` on each run first (or add `--mine`):
+
+```bash
+python synthesize.py --run runs/exp2          --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp2/answer.md
+python synthesize.py --run runs/exp_leap      --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_leap/answer.md
+python synthesize.py --run runs/exp_novelty_2 --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty_2/answer.md
+```
+
+Each writes `runs/<run>/answer.md`. Add `--mine` to skip the separate `insights.py` step (mines on
+the fly), `--style proposal|hypotheses|review|brief` to change the format, and `--topic "…"` if the run
+has no `summary.json` yet (unfinished runs). For the exact 1500-iter cutoff, add `--max-iter 1500`.
+
 Writes **`answer.md`** (a provenance header — question, backend, model, style, #leads — followed by
 the generated answer) and echoes it to stdout. `synthesize.py` needs `insights.json` (run
 `insights.py` first, or pass `--mine` to compute it on the fly), and a `summary.json` in the run dir
@@ -454,6 +533,78 @@ for the topic (or supply `--topic`).
 ideate.py  →  graph.graphml  →  insights.py  →  insights.json  →  synthesize.py  →  answer.md
  (grow)        (accumulate)      (mine structure)  (ranked leads)   (LLM synthesis)   (final answer)
 ```
+
+## Worked examples — idea → insight → answer (50 iterations each)
+
+Short, self-contained runs (`--budget-calls 50 --max-iters 50`) that take a seed topic all the way
+through the full pipeline and end with a **new design principle** written by a local
+Llama-3.2-3B-Instruct, steered by the mined connections. Each block is independent — pick an area and
+run it. (Swap `--strategy` to taste; `leap` favors cross-domain leaps, `frontier` balanced coverage.)
+
+**Beginning → end.** First, one-time setup (serve the generator + install + authenticate the gated
+embedding/synthesis models), then run any example block below:
+
+```bash
+# 0. one-time setup (see §1–§2 for details)
+cd ideation/
+pip install -r requirements.txt
+cp config.example.yaml config.yaml                       # endpoints / model ids
+huggingface-cli login                                    # for embeddinggemma-300m + Llama-3.2-3B (gated)
+HF_TOKEN=... vllm serve lamm-mit/Graph-Preflexor-3b_08012026 --port 1234 &   # the generator (or mistral.rs)
+curl -s http://localhost:1234/v1/models                  # verify it's up before running ideate.py
+```
+
+```bash
+# A. Materials science — tough AND recyclable structural polymers
+python ideate.py --topic "covalent adaptable networks for recyclable thermoset composites" \
+    --strategy leap --budget-calls 50 --max-iters 50 --out runs/ex_recyclable
+python insights.py     --run runs/ex_recyclable --top 12
+python plot_ideation.py --runs runs/ex_recyclable --labels recyclable
+python novelty.py      --run runs/ex_recyclable --out runs/ex_recyclable/figures/novelty
+python synthesize.py   --run runs/ex_recyclable --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_recyclable/answer.md \
+    --task "Propose ONE new design principle for a structural polymer that is both fracture-tough and \
+fully recyclable. Ground it in the mined connections; give the mechanism and a falsifiable prediction."
+
+# B. Bioinspired — passive radiative cooling surfaces (no energy input)
+python ideate.py --topic "bioinspired passive radiative cooling surfaces" \
+    --strategy frontier --budget-calls 50 --max-iters 50 --out runs/ex_cooling
+python insights.py     --run runs/ex_cooling --top 12
+python plot_ideation.py --runs runs/ex_cooling --labels cooling
+python novelty.py      --run runs/ex_cooling --out runs/ex_cooling/figures/novelty
+python synthesize.py   --run runs/ex_cooling --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_cooling/answer.md \
+    --task "Explain a new design principle for a surface that cools itself below ambient with no power, \
+inspired by a biological structure from the mined leads. State the mechanism and how to test it."
+
+# C. Bioinspired mechanics — impact-resistant, lightweight architected materials
+python ideate.py --topic "bioinspired impact-resistant architected metamaterials" \
+    --strategy leap --budget-calls 50 --max-iters 50 --out runs/ex_impact
+python insights.py     --run runs/ex_impact --top 12
+python plot_ideation.py --runs runs/ex_impact --labels impact
+python novelty.py      --run runs/ex_impact --out runs/ex_impact/figures/novelty
+python synthesize.py   --run runs/ex_impact --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_impact/answer.md \
+    --task "Lay out a design principle for an ultralight architected material that survives repeated \
+impact, combining two unrelated mechanisms surfaced by the mined conceptual bridges."
+
+# D. Cross-disciplinary — multifunctional structural energy storage
+python ideate.py --topic "structural batteries: load-bearing energy storage composites" \
+    --strategy mixed --budget-calls 50 --max-iters 50 --out runs/ex_structbattery
+python insights.py     --run runs/ex_structbattery --top 12
+python plot_ideation.py --runs runs/ex_structbattery --labels structbattery
+python novelty.py      --run runs/ex_structbattery --out runs/ex_structbattery/figures/novelty
+python synthesize.py   --run runs/ex_structbattery --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_structbattery/answer.md \
+    --task "Articulate a design principle that lets one material carry mechanical load AND store energy \
+without compromising either, using the analogies and feedback loops in the mined insights."
+```
+
+Each run lands in `runs/ex_<name>/` with the graph, figures, `insights.{json,md}`, novelty figures,
+and a final `answer.md` (the design principle). To overlay several on one comparison figure, pass them
+together: `python novelty.py --runs runs/ex_recyclable runs/ex_cooling runs/ex_impact --labels recyclable
+cooling impact --out figures/examples_compare`. Llama-3.2-3B is gated (`huggingface-cli login` once); or
+drop the `--backend`/`--model` flags and use `--show-prompt` to inspect the assembled prompt without a model.
 
 ## Novelty quantification (`novelty.py`)
 
