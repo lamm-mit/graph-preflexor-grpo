@@ -209,7 +209,7 @@ def main():
     be.add_argument("--base-url", help="[openai] OpenAI-compatible server base url (e.g. http://localhost:8000/v1)")
     be.add_argument("--api-key", help="[openai] api key (else $OPENAI_API_KEY)")
     be.add_argument("--temperature", type=float, default=0.7)
-    be.add_argument("--max-tokens", type=int, default=2048)
+    be.add_argument("--max-tokens", type=int, default=8000)
     be.add_argument("--device", help="[hf] device_map (default auto)")
     be.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16", "float32"],
                     help="[hf] torch dtype")
@@ -264,10 +264,11 @@ def main():
 
     # ---- write ---------------------------------------------------------------
     out = args.out or (os.path.join(args.run.rstrip("/"), "answer.md") if args.run else "answer.md")
+    ask = args.task or f"(style preset: {args.style})"      # the actual instruction the model answered
     header = (f"# Insight-enriched answer\n\n"
-              f"*Question:* {topic}\n\n"
-              f"*Backend:* {args.backend} · *Model:* {args.model} · *Style:* {args.style} · "
-              f"*Leads used:* {n_leads}\n\n---\n\n")
+              f"*Topic:* {topic}\n\n"
+              f"*Task:* {ask}\n\n"
+              f"*Backend:* {args.backend} · *Model:* {args.model} · *Leads used:* {n_leads}\n\n---\n\n")
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w") as f:
         f.write(header + answer.strip() + "\n")
