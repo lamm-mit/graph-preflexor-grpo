@@ -83,15 +83,18 @@ def lbl(G, n, k=64):
 
 
 def embed_nodes(G, model=None):
-    """Re-embed node labels offline; returns {node: unit-vec} or None. `model` selects the
+    """Re-embed node labels offline (batched: single model load + batched forward passes, with a
+    tqdm bar for big graphs). Returns {node: unit-vec} or None. `model` selects the
     sentence-transformers id (default: graphstore.DEFAULT_EMBED_MODEL = embeddinggemma)."""
     try:
-        from graphstore import make_embedder
-        emb = make_embedder(model) if model else make_embedder()
+        from graphstore import embed_texts, DEFAULT_EMBED_MODEL
+        ns = list(G)
+        print(f"[insights] embedding {len(ns)} concepts (batched)…", flush=True)
+        V = embed_texts([str(G.nodes[n].get("label", n)) for n in ns], model or DEFAULT_EMBED_MODEL)
+        return {n: V[i] for i, n in enumerate(ns)}
     except Exception as e:
         print(f"[insights] embeddings unavailable ({e}); running structural miners only.")
         return None
-    return {n: emb(str(G.nodes[n].get("label", n))) for n in G}
 
 
 def _cos(vecs, a, b):
@@ -108,24 +111,24 @@ def conceptual_bridges(G, vecs, top=10, min_len=2):
         return []
     U = G.to_undirected()
     out = []
-    # candidate endpoint pairs: most embedding-distant pairs that are still connected
+    # candidate endpoint pairs: most embedding-distant pairs that are still connected.
+    # Sample random index pairs (vectorized) instead of materializing all O(N^2) combinations.
     nodes = list(G.nodes)
+    N = len(nodes)
+    X = np.stack([vecs[n] for n in nodes])
     rng = np.random.default_rng(0)
-    # sample pairs if the graph is large to keep it O(manageable)
-    pairs = list(itertools.combinations(nodes, 2))
-    if len(pairs) > 20000:
-        idx = rng.choice(len(pairs), 20000, replace=False)
-        pairs = [pairs[i] for i in idx]
-    scored = []
-    for a, b in pairs:
-        d = 1.0 - _cos(vecs, a, b)            # embedding distance (want HIGH)
-        scored.append((d, a, b))
-    scored.sort(reverse=True)
+    M = min(20000, N * (N - 1) // 2)
+    ii = rng.integers(0, N, 2 * M); jj = rng.integers(0, N, 2 * M)
+    m = ii != jj
+    ii, jj = ii[m][:M], jj[m][:M]
+    dist_all = 1.0 - np.einsum("ij,ij->i", X[ii], X[jj])     # vectorized cosine distance
+    order = np.argsort(dist_all)[::-1]                       # most distant first
     seen_pairs = 0
-    for dist, a, b in scored:
+    for k in order:
         if seen_pairs >= top * 6:
             break
         seen_pairs += 1
+        a, b, dist = nodes[ii[k]], nodes[jj[k]], float(dist_all[k])
         if not nx.has_path(U, a, b):
             continue
         path = nx.shortest_path(U, a, b)
@@ -155,13 +158,24 @@ def latent_links(G, vecs, top=12, alpha=0.5):
     neighbours) with semantic cosine. High = a relationship the graph implies but lacks."""
     U = nx.Graph(G.to_undirected())
     U.remove_edges_from(nx.selfloop_edges(U))
-    nodes = list(U.nodes)
     eset = {frozenset(e) for e in U.edges}
-    # structural: Adamic-Adar over non-adjacent pairs that share >=1 neighbour
-    nonedges = ((u, v) for u, v in itertools.combinations(nodes, 2)
-                if frozenset((u, v)) not in eset)
+    # Only pairs sharing >=1 neighbour have nonzero Adamic-Adar, so enumerate candidates from
+    # each node's neighbour pairs (O(sum deg^2)) instead of all O(N^2) non-edges. Cap hub fan-out
+    # and the total candidate set to stay fast on large graphs.
+    cand, CAP, HUB = set(), 200000, 200
+    for w in U:
+        nb = list(U[w])
+        if len(nb) > HUB:
+            nb = nb[:HUB]
+        for a, b in itertools.combinations(nb, 2):
+            fs = frozenset((a, b))
+            if a != b and fs not in eset:
+                cand.add(fs)
+        if len(cand) >= CAP:
+            break
     try:
-        aa = {frozenset((u, v)): p for u, v, p in nx.adamic_adar_index(U, nonedges)}
+        aa = {frozenset((u, v)): p
+              for u, v, p in nx.adamic_adar_index(U, [tuple(fs) for fs in cand])}
     except Exception:
         aa = {}
     if not aa:
@@ -230,10 +244,13 @@ def relational_analogies(G, vecs, top=10):
                 r2 = G[b][c].get("relation", "related_to")
                 sig.setdefault((r1, r2), []).append((a, b, c))
     out = []
+    MAX_INST = 60                                   # cap per-signature instances (pairs are O(n^2))
     for (r1, r2), insts in sig.items():
         if len(insts) < 2:
             continue
-        # compare disjoint instance pairs; cap to keep it cheap
+        if len(insts) > MAX_INST:
+            insts = insts[:MAX_INST]
+        # compare disjoint instance pairs
         for i in range(len(insts)):
             for j in range(i + 1, len(insts)):
                 A, B, C = insts[i]
@@ -265,18 +282,19 @@ def relational_analogies(G, vecs, top=10):
     return out[:top]
 
 
-def feedback_loops(G, vecs, top=10, max_len=6):
+def feedback_loops(G, vecs, top=10, max_len=6, max_cycles=4000):
     """Directed simple cycles = candidate feedback / self-reinforcing mechanisms
-    (especially meaningful for self-healing / homeostatic systems)."""
+    (especially meaningful for self-healing / homeostatic systems). Enumeration is capped —
+    dense graphs can contain exponentially many cycles."""
     try:
-        cycles = list(nx.simple_cycles(G, length_bound=max_len))
+        gen = nx.simple_cycles(G, length_bound=max_len)
     except TypeError:                              # older networkx: no length_bound
-        cycles = []
-        for i, c in enumerate(nx.simple_cycles(G)):
-            if len(c) <= max_len:
-                cycles.append(c)
-            if i > 50000:
-                break
+        gen = (c for c in nx.simple_cycles(G) if len(c) <= max_len)
+    cycles = []
+    for c in gen:                                   # cap: don't materialize an exploding generator
+        cycles.append(c)
+        if len(cycles) >= max_cycles:
+            break
     out = []
     for cyc in cycles:
         if len(cyc) < 2:
@@ -306,16 +324,24 @@ def semantic_dissonance(G, vecs, top=12, sim_thr=0.55, min_hops=3):
         return []
     U = G.to_undirected()
     nodes = list(G.nodes)
-    pairs = list(itertools.combinations(nodes, 2))
+    N = len(nodes)
+    X = np.stack([vecs[n] for n in nodes])
     rng = np.random.default_rng(1)
-    if len(pairs) > 40000:
-        idx = rng.choice(len(pairs), 40000, replace=False)
-        pairs = [pairs[i] for i in idx]
-    out = []
-    for a, b in pairs:
-        s = _cos(vecs, a, b)
-        if s < sim_thr:
-            continue
+    # sample random index pairs (vectorized), keep the embedding-similar ones, then probe graph
+    # distance only for those (capped) — avoids materializing all O(N^2) pairs + N^2 BFS calls.
+    M = min(40000, N * (N - 1) // 2)
+    ii = rng.integers(0, N, 2 * M); jj = rng.integers(0, N, 2 * M)
+    m = ii != jj
+    ii, jj = ii[m][:M], jj[m][:M]
+    sims = np.einsum("ij,ij->i", X[ii], X[jj])
+    hi = np.where(sims >= sim_thr)[0]
+    hi = hi[np.argsort(sims[hi])[::-1]]                  # most-similar first
+    out, checked = [], 0
+    for k in hi:
+        if checked >= max(2000, top * 50):              # cap expensive BFS probes
+            break
+        checked += 1
+        a, b, s = nodes[ii[k]], nodes[jj[k]], float(sims[k])
         if nx.has_path(U, a, b):
             hops = nx.shortest_path_length(U, a, b)
             if hops < min_hops:
