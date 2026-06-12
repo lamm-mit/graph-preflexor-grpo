@@ -43,11 +43,15 @@ def converse_driven(ctx):
     deeper mechanism. Because the questioner reasons over content (not graph structure), it can
     leave a saturated region. Cost: 2 LLM calls/step (generator + questioner), like `answer`."""
     k = ctx["cfg"]["fanout"]
-    prompt = (f"Original question:\n{ctx['question']}\n\nAnswer:\n{ctx['parse']['answer']}\n\n"
+    topic = ctx["topic"]
+    prompt = (f"Topic: {topic}\n\nOriginal question:\n{ctx['question']}\n\n"
+              f"Answer:\n{ctx['parse']['answer']}\n\n"
               f"Pose {k} NEW, specific question(s) that open an UNEXPLORED direction this answer "
               f"hints at but did not address — an implication, a tension or contradiction, a "
               f"cross-domain analogy, or a deeper underlying mechanism. Do NOT restate or merely "
-              f"narrow the original question; aim for new territory. One per line, no numbering.")
+              f"narrow the original question; aim for new territory. **Every question must stay "
+              f"directly relevant to '{topic}' and advance understanding of it — no tangents into "
+              f"unrelated fields.** One per line, no numbering.")
     text, _ = ctx["clients"].ask(prompt)
     qs = [ln.strip("-•*1234567890. ").strip() for ln in text.splitlines() if ln.strip()][:k]
     return [{"q": q, "anchor": None} for q in qs]

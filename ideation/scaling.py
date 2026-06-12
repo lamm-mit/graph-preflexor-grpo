@@ -20,8 +20,9 @@ straight off the single final graph's provenance) and computes:
       so they are the wrong object). This is the recombination/insight signal and can keep
       growing even when (b)/(c) plateau. **This is the headline panel.**
 
-x-axis defaults to cumulative tokens (the real test-time compute, from growth.csv); use
-`--x iter` for reasoning iterations. Pass several runs to overlay strategies.
+By default it writes BOTH x-axis versions from one computation: `<out>_scaling.*` (vs cumulative
+tokens = real test-time compute, from growth.csv) and `<out>_scaling_iter.*` (vs reasoning
+iterations). Use `--x tokens` or `--x iter` to render just one. Pass several runs to overlay strategies.
 
     python scaling.py --run runs/exp_leap --out runs/exp_leap/figures/scaling
     python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
@@ -62,7 +63,7 @@ def _token_map(run_dir):
     return (np.array(its), np.array(tok)) if its else None
 
 
-def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens"):
+def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0):
     """Compute the size-robust surprise metrics at a grid of compute checkpoints for one run."""
     from graphstore import resolve_embed_model
     G = I.load_graph(run_dir)
@@ -153,37 +154,25 @@ def scaling_curves(run_dir, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens")
             spread.append(0.0); reach.append(0.0)
         recomb.append(int(np.searchsorted(real_iters, t, side="right")) if real_iters.size else 0)
 
-    # x-axis: cumulative tokens (real compute) or iteration
+    # carry BOTH x-axes so we can render vs tokens AND vs iterations from one computation
     tm = _token_map(run_dir)
-    if x == "tokens" and tm is not None:
-        xs = np.interp(ts, tm[0], tm[1])
-        xlabel = "test-time compute (cumulative tokens)"
-    else:
-        xs = np.array(ts, dtype=float)
-        xlabel = "reasoning iteration"
-
-    return {"x": xs.tolist(), "xlabel": xlabel, "iters": ts,
+    x_tokens = np.interp(ts, tm[0], tm[1]).tolist() if tm is not None else None
+    return {"iters": list(ts), "x_tokens": x_tokens,
             "ideas": ideas, "spread": spread, "reach": reach, "recomb": recomb,
             "n_recomb": len(realize), "z_thr": z_thr, "model": model,
             "n_nodes": G.number_of_nodes(), "n_edges": G.number_of_edges()}
 
 
-def make_figure(runs, labels, out, embed_model=None, n_ckpt=40, z_thr=-1.0, x="tokens"):
+def _draw_scaling(curves, labels, n_runs, outbase, xkey, xlabel, z_thr):
+    """Render the 2x2 scaling figure using curve key `xkey` ('x_tokens' or 'iters') for the x-axis."""
     import matplotlib.pyplot as plt
-    plt.rcParams.update({"font.size": 10, "axes.titlesize": 10.5, "axes.labelsize": 10,
-                         "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150})
-    curves = [scaling_curves(r, embed_model=embed_model, n_ckpt=n_ckpt, z_thr=z_thr, x=x)
-              for r in runs]
-    xlabel = curves[0]["xlabel"]
-
     fig, ax = plt.subplots(2, 2, figsize=(10.0, 7.6))
     for c, lab, col in zip(curves, labels, PALETTE):
-        xs = c["x"]
+        xs = c[xkey]
         ax[0, 0].plot(xs, c["ideas"], color=col, lw=2, marker="o", ms=3, label=lab)
         ax[0, 1].plot(xs, c["spread"], color=col, lw=2, marker="o", ms=3, label=lab)
         ax[1, 0].plot(xs, c["reach"], color=col, lw=2, marker="o", ms=3, label=lab)
         ax[1, 1].plot(xs, c["recomb"], color=col, lw=2, marker="o", ms=3, label=lab)
-
     ax[0, 0].set_title("(a) Distinct ideas (fluency)"); ax[0, 0].set_ylabel("# ideas")
     ax[0, 1].set_title("(b) Idea-space expansion"); ax[0, 1].set_ylabel("embedding spread (total variance)")
     ax[1, 0].set_title("(c) Frontier reach"); ax[1, 0].set_ylabel("max distance from seed")
@@ -191,15 +180,42 @@ def make_figure(runs, labels, out, embed_model=None, n_ckpt=40, z_thr=-1.0, x="t
     ax[1, 1].set_ylabel("cumulative count")
     for a in ax.flat:
         a.set_xlabel(xlabel); a.grid(True, color="0.92", lw=0.5); a.set_axisbelow(True)
-    ax[0, 0].legend(frameon=False, fontsize=9, ncol=min(3, len(runs)))
-    fig.suptitle("Surprising-insight yield scales with test-time compute", y=1.0, fontsize=12.5)
+    ax[0, 0].legend(frameon=False, fontsize=9, ncol=min(3, n_runs))
+    fig.suptitle(f"Surprising-insight yield scales with {xlabel.split(' (')[0]}", y=1.0, fontsize=12.5)
     fig.tight_layout()
-
-    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(outbase) or ".", exist_ok=True)
     for ext in ("png", "svg", "pdf"):
-        fig.savefig(f"{out}_scaling.{ext}", bbox_inches="tight")
+        fig.savefig(f"{outbase}.{ext}", bbox_inches="tight")
     plt.close(fig)
-    print(f"wrote {out}_scaling.png/.svg/.pdf")
+    print(f"wrote {outbase}.png/.svg/.pdf")
+
+
+def make_figure(runs, labels, out, embed_model=None, n_ckpt=40, z_thr=-1.0, x="both"):
+    from graphstore import resolve_embed_model
+    import matplotlib
+    matplotlib.rcParams.update({"font.size": 10, "axes.titlesize": 10.5, "axes.labelsize": 10,
+                                "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150})
+    # guard: every run must use the SAME embed model, else metrics aren't comparable (silently!)
+    resolved = {r: resolve_embed_model(r, embed_model) for r in runs}
+    if len(set(resolved.values())) > 1:
+        pairs = "  ".join(f"{os.path.basename(r)}={m}" for r, m in resolved.items())
+        raise SystemExit(
+            "runs were embedded with DIFFERENT models — the comparison would be invalid "
+            f"(different embedding spaces):\n    {pairs}\n"
+            "Pass one model to re-embed them all consistently, e.g. "
+            "--embed-model google/embeddinggemma-300m")
+    curves = [scaling_curves(r, embed_model=embed_model, n_ckpt=n_ckpt, z_thr=z_thr) for r in runs]
+
+    # render the requested x-axis/axes: tokens (real compute) and/or iterations
+    have_tokens = all(c["x_tokens"] is not None for c in curves)
+    if x in ("tokens", "both") and have_tokens:
+        _draw_scaling(curves, labels, len(runs), f"{out}_scaling",
+                      "x_tokens", "test-time compute (cumulative tokens)", z_thr)
+    elif x == "tokens" and not have_tokens:
+        print("[scaling] no growth.csv for the token axis — falling back to iterations")
+    if x in ("iter", "both") or not have_tokens:
+        _draw_scaling(curves, labels, len(runs), f"{out}_scaling_iter",
+                      "iters", "reasoning iteration", z_thr)
 
     report = {lab: c for lab, c in zip(labels, curves)}
     with open(f"{out}_scaling.json", "w") as f:
@@ -217,8 +233,9 @@ def main():
     p.add_argument("--runs", nargs="+", help="one or more run dirs (overlaid)")
     p.add_argument("--labels", nargs="+", help="legend labels (default: dir names)")
     p.add_argument("--out", default=None, help="figure basename (default: <first-run>/figures/ideation)")
-    p.add_argument("--x", choices=["tokens", "iter"], default="tokens",
-                   help="x-axis: cumulative tokens (test-time compute) or reasoning iteration")
+    p.add_argument("--x", choices=["tokens", "iter", "both"], default="both",
+                   help="x-axis to render: 'tokens' (test-time compute), 'iter' (reasoning "
+                        "iterations), or 'both' (default → writes _scaling.* AND _scaling_iter.*)")
     p.add_argument("--checkpoints", type=int, default=40, help="compute checkpoints along the run")
     p.add_argument("--z-thr", dest="z_thr", type=float, default=-1.0,
                    help="atypical-combination threshold (edge endpoint z below this = surprising)")

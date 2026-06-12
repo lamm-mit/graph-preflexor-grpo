@@ -55,11 +55,21 @@ def main():
     labels = args.labels or [os.path.basename(r.rstrip("/")) for r in args.runs]
     out = args.out or os.path.join(args.runs[0].rstrip("/"), "figures", "embedmap")
 
+    # guard: every run must use the SAME embed model, else the spaces aren't comparable
+    resolved = {r: resolve_embed_model(r, args.embed_model) for r in args.runs}
+    if len(set(resolved.values())) > 1:
+        pairs = "  ".join(f"{os.path.basename(r)}={m}" for r, m in resolved.items())
+        raise SystemExit(
+            "runs were embedded with DIFFERENT models — the comparison would be invalid "
+            f"(different embedding spaces / dimensions):\n    {pairs}\n"
+            "Pass one model to re-embed them all consistently, e.g. "
+            "--embed-model google/embeddinggemma-300m")
+
     # embed each run
     Xs = []
     for r in args.runs:
         G = I.load_graph(r)
-        model = resolve_embed_model(r, args.embed_model)
+        model = resolved[r]
         vecs = I.embed_nodes(G, model)
         if not vecs:
             raise SystemExit(f"{r}: embeddings unavailable with '{model}' — needs them "
