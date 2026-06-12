@@ -65,6 +65,11 @@ python novelty.py --run runs/exp --n-null 500                     # tighter p-va
 python scaling.py --run runs/exp_leap --out runs/exp_leap/figures/scaling
 python scaling.py --runs runs/exp runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/scaling_compare
+
+# dynamics — the *how it grows* companion to scaling (one figure per run)
+python dynamics.py --run runs/exp          --out runs/exp/figures/dynamics
+python dynamics.py --run runs/exp_novelty --out runs/exp_novelty/figures/dynamics
+python dynamics.py --run runs/exp_leap      --out runs/exp_leap/figures/dynamics
 ```
 
 ### 4 Leap method (divergent)
@@ -78,6 +83,7 @@ python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
 ```bash
 python plot_ideation.py --runs runs/exp_leap \
     --labels leap --out runs/exp_leap/figures/leap
+python dynamics.py --run runs/exp_leap --out runs/exp_leap/figures/dynamics
 ```
 Develop insights:
 ```bash
