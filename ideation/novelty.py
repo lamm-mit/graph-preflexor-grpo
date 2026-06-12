@@ -359,6 +359,15 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     PAL = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e"]
     report = {"runs": {}, "trajectories": {}}
 
+    # guard: every run must use the SAME embed model, else metrics aren't comparable
+    from graphstore import resolve_embed_model
+    resolved = {r: resolve_embed_model(r, embed_model) for r in runs}
+    if len(set(resolved.values())) > 1:
+        pairs = "  ".join(f"{os.path.basename(r)}={m}" for r, m in resolved.items())
+        raise SystemExit("runs were embedded with DIFFERENT models — comparison would be invalid "
+                         f"(different embedding spaces):\n    {pairs}\n"
+                         "Pass one model, e.g. --embed-model google/embeddinggemma-300m")
+
     # load every run (for the trajectory overlay); panels A/C/D use the FIRST (primary) run
     loaded = [load_run(r, embed_model) for r in runs]
     G0, vecs0, topic0, seed0, model0 = loaded[0]

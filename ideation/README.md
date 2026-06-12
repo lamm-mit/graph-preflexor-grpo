@@ -21,13 +21,13 @@ python plot_ideation.py --runs runs/exp1 --labels "Graph-PRefLexOR-3B"
 ### 2 Long run, frontier strategy
 
 ```bash
-# 1. Run the ideation loop  → writes runs/exp2/ (incl. per-iteration graphml/ snapshots)
+# 1. Run the ideation loop  → writes runs/exp/ (incl. per-iteration graphml/ snapshots)
 python ideate.py --topic "self-healing biopolymer composites" --strategy frontier \
     --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
-    --out runs/exp2
+    --out runs/exp
 
-# 2. Generate figures  → defaults into runs/exp2/figures/
-python plot_ideation.py --runs runs/exp2 --labels "Graph-PRefLexOR-3B" --movie
+# 2. Generate figures  → defaults into runs/exp/figures/
+python plot_ideation.py --runs runs/exp --labels "Graph-PRefLexOR-3B" --movie
 ```
 
 ### 3 Long run, novelty strategy
@@ -35,28 +35,28 @@ python plot_ideation.py --runs runs/exp2 --labels "Graph-PRefLexOR-3B" --movie
 ```bash
 python ideate.py --topic "self-healing biopolymer composites" --strategy novelty \
     --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
-    --out runs/exp_novelty_2
+    --out runs/exp_novelty
 
-python plot_ideation.py --runs runs/exp_novelty_2 --labels "Graph-PRefLexOR-3B" --movie
+python plot_ideation.py --runs runs/exp_novelty --labels "Graph-PRefLexOR-3B" --movie
 ```
 Then compare:
 
 ```bash
-python plot_ideation.py --runs runs/exp2 runs/exp_novelty \
+python plot_ideation.py --runs runs/exp runs/exp_novelty \
     --labels "frontier" "novelty" --out figures/algo_compare
 
 ```
 Novelty + scaling (the headline test-time-compute result):
 ```
 python novelty.py --run runs/exp_novelty --out runs/exp_novelty/figures/novelty
-python novelty.py --run runs/exp2 --out runs/exp2/figures/novelty
-python novelty.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+python novelty.py --run runs/exp --out runs/exp/figures/novelty
+python novelty.py --runs runs/exp runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/novelty_compare   # great for the paper
-python novelty.py --run runs/exp2 --n-null 500                     # tighter p-values
+python novelty.py --run runs/exp --n-null 500                     # tighter p-values
 
 # surprise-vs-compute scaling (Fig 1 for "more compute → more surprising insights")
 python scaling.py --run runs/exp_leap --out runs/exp_leap/figures/scaling
-python scaling.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+python scaling.py --runs runs/exp runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/scaling_compare
 ```
 
@@ -79,7 +79,7 @@ python insights.py --run runs/exp_leap --top 12
 Multiple comparisons:
 
 ```bash
-python plot_ideation.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+python plot_ideation.py --runs runs/exp runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/strategy_compare
 ```
 
@@ -120,44 +120,55 @@ python novelty.py  --run runs/exp_converse --out runs/exp_converse/figures/novel
 python scaling.py  --run runs/exp_converse --out runs/exp_converse/figures/scaling
 ```
 
-The headline test — does `converse` beat the structure-based strategies on saturation? Overlay it on
-the scaling figure and watch **(b) idea-space expansion** and **(d) surprising recombinations**:
+The headline test — does `converse` beat the structure-based strategies on saturation? Compare it
+against `novelty` (the best structure explorer). **Both runs are gemma-built, so no `--embed-model` is
+needed** (and `converse` is now topic-anchored, so the earlier off-topic drift is suppressed):
 
 ```bash
-# (i) quantitative: surprise/spread vs compute — does converse's panel (b) keep climbing?
-python scaling.py --runs runs/exp_novelty_2 runs/exp_converse \
+# (i) quantitative: surprise/spread vs compute — does converse's panel (b) ceiling exceed novelty's?
+python scaling.py  --runs runs/exp_novelty runs/exp_converse \
     --labels novelty converse --out figures/scaling_converse_vs_novelty
-python scaling.py --runs runs/exp_leap runs/exp_novelty_2 runs/exp_converse \
-    --labels leap novelty converse --out figures/scaling_converse
+python scaling.py  --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/scaling_compare
 
-# (ii) VISUAL: joint shared-PCA coverage map — see converse's concepts spill OUTSIDE novelty's region
-python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
-    --labels novelty converse --out figures/embedmap_converse
+# (ii) VISUAL: joint shared-PCA coverage — do converse's points/contour spill OUTSIDE novelty's region?
+python embedmap.py --runs runs/exp_novelty runs/exp_converse \
+    --labels novelty converse --out figures/embedmap_converse_vs_novelty
+python embedmap.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --out figures/embedmap_compare
 
 # (iii) sanity check: is converse's expansion on-topic, not drift?  (skim insights_map / concepts)
 python insights.py --run runs/exp_converse --top 12
 ```
 
-**Fair, matched-compute comparison (while converse is still smaller).** Cap *every* run to converse's
-current length so you compare at the same stage — auto-fill `N` from its `growth.csv` (re-run anytime as
-it grows; `--max-iter` is inclusive, so converse is included in full and the others are trimmed to it):
+**Matched-compute comparison (while converse is still smaller than novelty).** Cap every run to
+converse's current length so you compare at the same stage — auto-fill `N` from its `growth.csv`
+(re-run anytime as it grows; `--max-iter` is inclusive, so converse is included in full):
 
 ```bash
-N=$(awk -F, 'NR>1 && $1!="" {n=$1} END{print n}' runs/exp_converse/growth.csv)   # converse's last iter
+N=$(awk -F, 'NR>1 && $1!="" {n=$1} END{print n}' runs/exp_converse/growth.csv)
 echo "capping all runs to iter <= $N"
-python embedmap.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
-    --labels frontier novelty leap converse --max-iter "$N" --out figures/embedmap_matched
-python scaling.py  --runs runs/exp_novelty_2 runs/exp_converse \
+python scaling.py  --runs runs/exp_novelty runs/exp_converse \
     --labels novelty converse --max-iter "$N" --out figures/scaling_matched
+python embedmap.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --max-iter "$N" --out figures/embedmap_matched
+```
+Variant:
+
+```bash
+N=$(for r in exp exp_novelty exp_leap exp_converse; do awk -F, 'NR>1&&$1!=""{n=$1}END{print n}' runs/$r/growth.csv; done | sort -n | head -1)
+python scaling.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
+    --labels frontier novelty leap converse --max-iter "$N" --out figures/scaling_final
 ```
 
-If `converse`'s scaling panel (b) keeps climbing where `leap`/`novelty` flatten — **and** the
-`embedmap` shows its points/contour extending beyond the others' region **with on-topic concepts** —
-you've shown the saturation was a *strategy* artifact (structure-based strategies only re-probe known
-concepts), not a model limit. Two separate per-run semantic maps are **not** comparable (each has its
-own PCA); `embedmap.py` fits **one shared PCA** so coverage is directly comparable. Watch for off-topic
-**drift** (the questioner isn't topic-anchored) — higher spread from drift is an artifact, not a result;
-if it wanders, lower the questioner temperature or tell me to add a topic anchor.
+
+Read it as a **ceiling**: does on-topic `converse`'s spread/coverage **overshoot** novelty's plateau
+(scaling panel b right-edge; bigger `embedmap` hull), or **converge** to it? Either outcome is clean —
+overshoot ⇒ the LLM-questioner accesses a strictly larger idea-space; converge ⇒ the bound is a
+topic/model limit even an LLM-questioner can't escape. Two separate per-run semantic maps are **not**
+comparable (each has its own PCA); `embedmap.py` fits **one shared PCA** so coverage is directly
+comparable. Still skim (iii) — any residual off-topic drift inflates spread artificially, so a wider
+spread is only a *result* if the new concepts are on-topic.
 
 ### Collecting runs from several machines (archive → HF dataset → analyze locally)
 
@@ -171,11 +182,11 @@ captures exactly `ideate.py`'s outputs — `graph.graphml`, the `graphml/` snaps
 tolerates a missing `summary.json` on an **unfinished** run (it's only written when the loop stops):
 
 ```bash
-tar czf exp2_ideate.tar.gz --ignore-failed-read \
-  runs/exp2/graph.graphml runs/exp2/graphml \
-  runs/exp2/transcript.jsonl runs/exp2/growth.csv runs/exp2/summary.json
+tar czf exp_ideate.tar.gz --ignore-failed-read \
+  runs/exp/graph.graphml runs/exp/graphml \
+  runs/exp/transcript.jsonl runs/exp/growth.csv runs/exp/summary.json
 ```
-(drop `runs/exp2/graphml` to skip the big per-iteration snapshots; repeat per run/machine.)
+(drop `runs/exp/graphml` to skip the big per-iteration snapshots; repeat per run/machine.)
 
 **2. Push to a private HF dataset** (`huggingface_hub` handles large files via LFS/Xet). One-time:
 
@@ -186,21 +197,21 @@ huggingface-cli repo create graph-preflexor-runs --type dataset --private   # �
 Then on each machine (headless-friendly — token via env, not stored):
 ```bash
 export HF_TOKEN=hf_xxxxxxxx     # WRITE token: https://huggingface.co/settings/tokens
-huggingface-cli upload lamm-mit/graph-preflexor-runs exp2_ideate.tar.gz \
-    exp2_ideate.tar.gz --repo-type dataset
+huggingface-cli upload lamm-mit/graph-preflexor-runs exp_ideate.tar.gz \
+    exp_ideate.tar.gz --repo-type dataset
 # syntax: upload <repo_id> <local_path> <path_in_repo> --repo-type dataset
 ```
 
 **3. Pull everything down locally and extract** into `ideation/runs/`. The archives store relative
 `runs/<run>/…` paths, so `tar xzf` recreates them under whatever your **current dir** is — extract while
-your cwd is the `ideation/` dir so the analysis commands (`--runs runs/exp2 …`) find them:
+your cwd is the `ideation/` dir so the analysis commands (`--runs runs/exp …`) find them:
 
 ```bash
 cd ideation/        # the dir you run the analysis from
 huggingface-cli download lamm-mit/graph-preflexor-runs --repo-type dataset --local-dir ./_hf_dl
-for f in ./_hf_dl/*_ideate.tar.gz; do tar xzf "$f"; done   # → ideation/runs/exp2, runs/exp_leap, …
+for f in ./_hf_dl/*_ideate.tar.gz; do tar xzf "$f"; done   # → ideation/runs/exp, runs/exp_leap, …
 rm -rf ./_hf_dl                                             # optional: drop the downloaded archives
-ls runs/                                                    # verify: exp2  exp_leap  exp_novelty_2
+ls runs/                                                    # verify: exp  exp_leap  exp_novelty
 ```
 
 Analysis works on **unfinished** runs: `summary.json` is optional everywhere, and the tools fall back to
@@ -209,12 +220,12 @@ the newest stable `graphml/iter_*.graphml` snapshot if `graph.graphml` was caugh
 embeddinggemma default), and use `--max-iter N` to compare runs of different (unfinished) lengths fairly.
 
 Quick whole-dir variants (includes figures/insights if present — use when a run is finished and you want
-*everything*): `tar czf exp2.tar.gz runs/exp2`. Non-HF alternatives: `rsync -avP exp2_ideate.tar.gz
+*everything*): `tar czf exp.tar.gz runs/exp`. Non-HF alternatives: `rsync -avP exp_ideate.tar.gz
 user@server:/path/`, `scp`, or `rclone copy` to S3/GDrive.
 
 ### Full analysis pipeline (per-run + four-way comparison)
 
-Complete recipe to analyze the four runs — `exp2`/frontier, `exp_novelty_2`/novelty, `exp_leap`/leap,
+Complete recipe to analyze the four runs — `exp`/frontier, `exp_novelty`/novelty, `exp_leap`/leap,
 `exp_converse`/converse — and overlay them. Run from the `ideation/` dir. **Order matters:** run
 `insights.py` before `novelty.py` so Panel (E) uses the canonical mined conceptual bridges (otherwise it
 falls back to an approximation).
@@ -224,52 +235,52 @@ For a fair journal comparison of runs at different (or unfinished) lengths, add 
 
 ```bash
 # 1) Mine insights for each run  → runs/<run>/insights.{json,md} + insights_map.*
-python insights.py --run runs/exp2          --top 12
-python insights.py --run runs/exp_novelty_2 --top 12
+python insights.py --run runs/exp          --top 12
+python insights.py --run runs/exp_novelty --top 12
 python insights.py --run runs/exp_leap      --top 12
 python insights.py --run runs/exp_converse  --top 12
 
 # 2) Per-run growth / graph-analytics figures  → runs/<run>/figures/
-python plot_ideation.py --runs runs/exp2          --labels frontier
-python plot_ideation.py --runs runs/exp_novelty_2 --labels novelty
+python plot_ideation.py --runs runs/exp          --labels frontier
+python plot_ideation.py --runs runs/exp_novelty --labels novelty
 python plot_ideation.py --runs runs/exp_leap      --labels leap
 python plot_ideation.py --runs runs/exp_converse  --labels converse
 
 # 3) Per-run novelty figures  → <out>_novelty_map.*  +  _novelty_stats.*  +  _novelty.json
-python novelty.py --run runs/exp2          --out runs/exp2/figures/novelty
-python novelty.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/novelty
+python novelty.py --run runs/exp          --out runs/exp/figures/novelty
+python novelty.py --run runs/exp_novelty --out runs/exp_novelty/figures/novelty
 python novelty.py --run runs/exp_leap      --out runs/exp_leap/figures/novelty
 python novelty.py --run runs/exp_converse  --out runs/exp_converse/figures/novelty
 
 # 4) Surprise-vs-compute scaling figures  → <out>_scaling.*  (the test-time-compute result)
-python scaling.py --run runs/exp2          --out runs/exp2/figures/scaling
-python scaling.py --run runs/exp_novelty_2 --out runs/exp_novelty_2/figures/scaling
+python scaling.py --run runs/exp          --out runs/exp/figures/scaling
+python scaling.py --run runs/exp_novelty --out runs/exp_novelty/figures/scaling
 python scaling.py --run runs/exp_leap      --out runs/exp_leap/figures/scaling
 python scaling.py --run runs/exp_converse  --out runs/exp_converse/figures/scaling
 
 # 5) Four-way comparisons (overlaid)  → figures/strategy_compare*
 #    (first run = primary for the map/stats panels; trajectories/curves overlay all four)
-python plot_ideation.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+python plot_ideation.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
     --labels frontier novelty leap converse --out figures/strategy_compare
-python novelty.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+python novelty.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
     --labels frontier novelty leap converse --out figures/strategy_compare
-python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+python scaling.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
     --labels frontier novelty leap converse --out figures/strategy_compare   # surprise vs compute
-python embedmap.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+python embedmap.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
     --labels frontier novelty leap converse --out figures/strategy_compare   # joint shared-PCA coverage
 
 # 5b) The saturation test (the converse hypothesis) — converse vs the best structure explorer (novelty)
-python scaling.py  --runs runs/exp_novelty_2 runs/exp_converse \
+python scaling.py  --runs runs/exp_novelty runs/exp_converse \
     --labels novelty converse --out figures/scaling_converse_vs_novelty    # quantitative: watch panel (b)
-python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
+python embedmap.py --runs runs/exp_novelty runs/exp_converse \
     --labels novelty converse --out figures/embedmap_converse              # visual: spill outside the region
 
 # 6) Synthesize a final insight-enriched answer per run (local Llama-3.2-3B-Instruct)
 #    → runs/<run>/answer.md   (gated model: huggingface-cli login once)
-python synthesize.py --run runs/exp2          --backend hf \
-    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp2/answer.md
-python synthesize.py --run runs/exp_novelty_2 --backend hf \
-    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty_2/answer.md
+python synthesize.py --run runs/exp          --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp/answer.md
+python synthesize.py --run runs/exp_novelty --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty/answer.md
 python synthesize.py --run runs/exp_leap      --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_leap/answer.md
 python synthesize.py --run runs/exp_converse  --backend hf \
@@ -580,11 +591,11 @@ the plotter. **Structural miners run without `sentence-transformers`**; the sema
 the semantic terms of the hybrid miners) light up when it's installed.
 
 ```bash
-# Mine runs/exp2 → insights.json (structured) + insights.md (ranked report) + insights_map.* (figure)
-python insights.py --run runs/exp2 --top 12
+# Mine runs/exp → insights.json (structured) + insights.md (ranked report) + insights_map.* (figure)
+python insights.py --run runs/exp --top 12
 
 # Also expand the top leads into concrete, testable hypotheses via the generator (reuses config.yaml)
-python insights.py --run runs/exp2 --llm
+python insights.py --run runs/exp --llm
 ```
 
 Outputs in the run dir (or `--out <base>`):
@@ -622,19 +633,19 @@ layer **on top of** `insights.py` (loads `insights.json`, or mines fresh with `-
 
 ```bash
 # Real OpenAI
-python synthesize.py --run runs/exp2 --backend openai --model gpt-4o \
-    --api-key "$OPENAI_API_KEY" --out runs/exp2/answer.md
+python synthesize.py --run runs/exp --backend openai --model gpt-4o \
+    --api-key "$OPENAI_API_KEY" --out runs/exp/answer.md
 
 # Any OpenAI-compatible server (e.g. local vLLM on :8000)
-python synthesize.py --run runs/exp2 --backend openai \
+python synthesize.py --run runs/exp --backend openai \
     --base-url http://localhost:8000/v1 --model meta-llama/Llama-3.1-70B-Instruct
 
 # Local Hugging Face model, mining insights fresh, written as a research proposal
-python synthesize.py --run runs/exp2 --backend hf \
+python synthesize.py --run runs/exp --backend hf \
     --model mistralai/Mistral-7B-Instruct-v0.3 --mine --style proposal
 
 # Custom instruction; preview the prompt first
-python synthesize.py --run runs/exp2 --show-prompt \
+python synthesize.py --run runs/exp --show-prompt \
     --task "Rank the 3 most testable hypotheses and give a falsifying experiment for each."
 ```
 
@@ -642,12 +653,12 @@ python synthesize.py --run runs/exp2 --show-prompt \
 + accept its license once). Run `insights.py` on each run first (or add `--mine`):
 
 ```bash
-python synthesize.py --run runs/exp2          --backend hf \
-    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp2/answer.md
+python synthesize.py --run runs/exp          --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp/answer.md
 python synthesize.py --run runs/exp_leap      --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_leap/answer.md
-python synthesize.py --run runs/exp_novelty_2 --backend hf \
-    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty_2/answer.md
+python synthesize.py --run runs/exp_novelty --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --out runs/exp_novelty/answer.md
 ```
 
 Each writes `runs/<run>/answer.md`. Add `--mine` to skip the separate `insights.py` step (mines on
@@ -852,20 +863,20 @@ Map image (**`_novelty_map`**): panels A, B.  Stats image (**`_novelty_stats`**)
 | **(E) Novel combinations** | combination **typicality** z of linked concept pairs vs the global pairwise-similarity distribution (adapting Uzzi et al. 2013); compares random pairs, existing edges, and **conceptual bridges**, with a Mann–Whitney p. | edges are locally homophilic, but the mined **bridges sit in the atypical tail** — the engine connects concepts across the full semantic diameter. |
 
 ```bash
-# Single run → figure + json in runs/exp2/figures/
-python novelty.py --run runs/exp2 --out runs/exp2/figures/novelty
+# Single run → figure + json in runs/exp/figures/
+python novelty.py --run runs/exp --out runs/exp/figures/novelty
 
 # Compare strategies (first run drives A/C/D; all overlaid in B)
-python novelty.py --runs runs/exp2 runs/exp_novelty runs/exp_leap \
+python novelty.py --runs runs/exp runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/novelty_compare
 
 # Tighter null distributions (more resamples; slower)
-python novelty.py --run runs/exp2 --n-null 500
+python novelty.py --run runs/exp --n-null 500
 ```
 
 For the **test-time-compute axis** of the same story (how surprising-insight yield grows *with
 compute*), use the companion **`scaling.py`** (next section) on the same runs:
-`python scaling.py --run runs/exp2 --out runs/exp2/figures/scaling`.
+`python scaling.py --run runs/exp --out runs/exp/figures/scaling`.
 
 Reuses the run's recorded `embed_model` (override with `--embed-model`); pulls the conceptual
 bridges from `insights.json` when present, else computes a fast approximation (**run `insights.py`
@@ -895,12 +906,15 @@ to overlay strategies and show which converts compute → surprise most efficien
 
 ```bash
 python scaling.py --run runs/exp_leap --out runs/exp_leap/figures/scaling
-python scaling.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap \
+python scaling.py --runs runs/exp runs/exp_novelty runs/exp_leap \
     --labels frontier novelty leap --out figures/scaling_compare   # overlay strategies
 ```
 
-Writes `<out>_scaling.{png,svg,pdf}` + `<out>_scaling.json`. Needs embeddings (reuses the run's
-recorded `embed_model`; override with `--embed-model`) and `growth.csv` for the token axis.
+By default it writes **both** x-axis versions from one run: `<out>_scaling.*` (vs cumulative tokens =
+real compute) **and** `<out>_scaling_iter.*` (vs reasoning iterations) — handy since the two can tell
+slightly different stories (tokens penalizes longer generations; iterations counts steps). Use
+`--x tokens` or `--x iter` for just one. Also writes `<out>_scaling.json`. Needs embeddings (reuses the
+run's recorded `embed_model`; override with `--embed-model`) and `growth.csv` for the token axis.
 
 ## Idea-space coverage comparison (`embedmap.py`)
 
@@ -913,9 +927,9 @@ breaks saturation (e.g. `converse` vs `novelty`), you literally see its points a
 **outside** the other's region.
 
 ```bash
-python embedmap.py --runs runs/exp_novelty_2 runs/exp_converse \
+python embedmap.py --runs runs/exp_novelty runs/exp_converse \
     --labels novelty converse --out figures/embedmap_converse
-python embedmap.py --runs runs/exp2 runs/exp_novelty_2 runs/exp_leap runs/exp_converse \
+python embedmap.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
     --labels frontier novelty leap converse --out figures/embedmap_compare
 ```
 
