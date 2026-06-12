@@ -728,7 +728,9 @@ layer **on top of** `insights.py` (loads `insights.json`, or mines fresh with `-
 - `--task "<free text>"` — override the task entirely (e.g. *"Write a 1-page Nature-style abstract
   proposing the single most novel mechanism."*).
 - `--system "<free text>"` — replace the system prompt.
-- `--max-per-kind N` — how many leads per miner to feed in (default 6).
+- `--max-leads N` — how many **top leads overall** to feed in (default 8), ranked across miners by
+  `actionability`. Deliberately small: the prompt gives the model a few *clean, ranked* leads as
+  optional inspiration — not a wall of every candidate from every miner (which buries a small model).
 - `--show-prompt` — print the assembled system+user prompt and exit (no model needed) to inspect/tune it.
 
 ```bash

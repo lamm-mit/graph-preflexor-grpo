@@ -43,6 +43,7 @@ python synthesize.py --run runs/exp2 --backend openai --model gpt-4o \
 import argparse
 import json
 import os
+import re
 
 import insights as I
 
@@ -50,24 +51,18 @@ import insights as I
 # --------------------------------------------------------------------------- #
 #  Prompt construction
 # --------------------------------------------------------------------------- #
-DEFAULT_SYSTEM = (
-    "You are a rigorous, inventive research scientist and synthesist. You are given a "
-    "question and a set of non-obvious connections that were mined from a knowledge graph "
-    "an AI assembled while reasoning about that question. The connections are structural "
-    "leads — paths between distant concepts, missing-but-implied links, recurring relational "
-    "analogies, feedback loops, broker concepts, and similar-but-unlinked pairs — NOT "
-    "established facts. Your job is to produce a single, coherent, original answer that is "
-    "demonstrably enriched by these leads: integrate the promising ones, reason about "
-    "mechanisms, and be explicit about what is well-grounded versus speculative."
-)
-
-# Baseline (--no-insights) system prompt: identical role, but with NO mention of a graph or
-# mined leads — so the only difference from the insights condition is the graph reasoning itself.
+# Baseline (--no-insights) system prompt: clean role, no mention of a graph or leads.
 BASELINE_SYSTEM = (
     "You are a rigorous, inventive research scientist and synthesist. Produce a single, "
     "coherent, original answer to the question below: reason about mechanisms, propose concrete "
     "and testable ideas, and be explicit about what is well-grounded versus speculative."
 )
+
+# Insights arm uses the EXACT SAME system prompt as the baseline. The only difference between the two
+# arms is a short neutral 'Background' block of clean leads in the user message — no extra instruction,
+# no graph vocabulary, nothing scored to cite — so the comparison stays neutral and isolates purely
+# what the graph-derived context adds.
+DEFAULT_SYSTEM = BASELINE_SYSTEM
 
 STYLES = {
     "report": (
@@ -104,25 +99,60 @@ STYLES = {
 }
 
 
-def format_insights(results, G, max_per_kind=6):
-    """Render the mined leads as a compact, model-readable block, grouped by miner."""
-    blocks = []
-    for kind, ins in results:
-        if not ins:
-            continue
-        header = I.KIND_HEADER.get(kind, kind)
-        lines = [f"## {header}"]
-        for x in ins[:max_per_kind]:
-            detail = " ".join(str(x.get("detail", "")).split())
-            lines.append(f"- {x['title']}  (score {x.get('score', 0):.2f}). {detail}")
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks) if blocks else "(no structural leads were found)"
+# Plain-language lead-in per miner kind (no metric jargon reaches the model).
+_LEAD_IN = {
+    "conceptual_bridge": "a possible multi-step connection",
+    "latent_link": "a likely missing link",
+    "open_triad": "an inferable relationship",
+    "relational_analogy": "an analogy",
+    "feedback_loop": "a feedback loop",
+    "semantic_dissonance": "two related but unconnected ideas",
+    "broker_idea": "a pivotal connecting concept",
+}
 
 
-def build_prompt(topic, results, G, style, task, max_per_kind, use_insights=True):
-    """Build the user prompt. With insights: topic + mined leads + task + grounding instruction.
-    Baseline (use_insights=False): topic + task only — identical except the graph block and its
-    framing are removed, so it's a clean control for 'what did the graph reasoning add?'."""
+def _humanize(title):
+    """Turn a miner's symbol-laden title into a clean phrase: strip kind prefixes and replace the
+    relation glyphs with words. No scores, hops, cosines, or AA counts ever reach the model."""
+    t = re.sub(r"^\s*(infer:|tension:)\s*", "", str(title))
+    t = re.sub(r"^\s*loop\(\d+\):\s*", "", t)
+    for a, b in (("⇝", "→"), ("⟶?", "→"), ("⟷", "↔"), ("≈", "≈"), ("⊕⊖", "vs"), ("::", "is to")):
+        t = t.replace(a, b)
+    return " ".join(t.split())
+
+
+def _rank_leads(results, n):
+    """The n strongest leads ACROSS miners. Uses the cross-miner `actionability` score when present
+    (insights.json carries it); otherwise round-robins the per-miner ranks so the set stays small
+    and diverse instead of dumping every candidate from every miner."""
+    flat = [x for _, ins in results for x in ins]
+    if flat and all("actionability" in x for x in flat):
+        return sorted(flat, key=lambda x: x.get("actionability", 0.0), reverse=True)[:n]
+    cols = [ins for _, ins in results if ins]                     # round-robin fallback
+    out, r = [], 0
+    while len(out) < n and any(r < len(c) for c in cols):
+        for c in cols:
+            if r < len(c):
+                out.append(c[r])
+            if len(out) >= n:
+                break
+        r += 1
+    return out[:n]
+
+
+def format_insights(results, G, n_leads=8):
+    """A short, clean, ranked list of the best leads — natural language only, no metric jargon."""
+    leads = _rank_leads(results, n_leads)
+    if not leads:
+        return "(no structural leads were found)"
+    return "\n".join(f"{i}. ({_LEAD_IN.get(x.get('kind', ''), 'a connection')}) "
+                     f"{_humanize(x.get('title', ''))}" for i, x in enumerate(leads, 1))
+
+
+def build_prompt(topic, results, G, style, task, n_leads, use_insights=True):
+    """Build the user prompt. The two arms are deliberately PARALLEL — identical topic + task framing
+    — and differ ONLY by a short block of the best graph leads, so the comparison isolates what the
+    graph reasoning adds. Baseline (use_insights=False): topic + task, no leads."""
     instruction = task or STYLES.get(style, STYLES["report"])
     if not use_insights:
         return f"""# Question / topic
@@ -132,24 +162,21 @@ def build_prompt(topic, results, G, style, task, max_per_kind, use_insights=True
 {instruction}
 
 Be specific, mechanistic, and original."""
-    insight_block = format_insights(results, G, max_per_kind=max_per_kind)
-    return f"""# Original question / topic
-{topic or "(topic not recorded — answer the question implied by the leads below)"}
+    insight_block = format_insights(results, G, n_leads=n_leads)
+    # Neutral: the ONLY addition over the baseline prompt is this 'Background' block. No instruction
+    # to use/integrate/cite it, no graph vocabulary, no scores — the model just has extra context.
+    return f"""# Question / topic
+{topic or "(answer the question below)"}
 
-# Mined structural leads from the reasoning graph
-The following were extracted from the *structure* of a knowledge graph built while
-reasoning about the question. Treat them as promising leads to investigate and weave
-in — not as verified facts.
+# Background: connections surfaced while exploring this question
+(Exploratory leads, not verified facts — consider any that are relevant.)
 
 {insight_block}
 
 # Your task
 {instruction}
 
-Ground every claim you can in the leads above, but you may add your own domain knowledge
-to connect, explain, and extend them. Where you rely on a specific mined lead, it is fine
-to reference it briefly (e.g. the bridge or analogy it came from). Be specific, mechanistic,
-and original."""
+Be specific, mechanistic, and original."""
 
 
 # --------------------------------------------------------------------------- #
@@ -217,8 +244,9 @@ def main():
                     help="answer preset (default: report)")
     pr.add_argument("--task", help="free-text task instruction (overrides --style wording)")
     pr.add_argument("--system", help="override the system prompt entirely")
-    pr.add_argument("--max-per-kind", type=int, default=6,
-                    help="max leads per miner to include in the prompt")
+    pr.add_argument("--max-leads", dest="max_leads", type=int, default=8,
+                    help="how many top leads (ranked across miners by actionability) to feed the "
+                         "model. Kept deliberately small — a few clean leads beat a wall of them.")
     pr.add_argument("--no-insights", action="store_true",
                     help="BASELINE: answer the topic+task WITHOUT the mined graph leads "
                          "(single-shot control — same model/task, no graph reasoning)")
@@ -245,7 +273,13 @@ def main():
     results = []
     if args.no_insights:                               # BASELINE: no graph leads at all
         rundir = (os.path.dirname(args.insights) or ".") if args.insights else args.run
-        topic = args.topic or (I.read_topic(rundir) if rundir else "")
+        jtopic = ""                                    # match the insights arm's topic source exactly
+        if args.insights and os.path.exists(args.insights):
+            try:
+                jtopic = json.load(open(args.insights)).get("topic", "")
+            except Exception:
+                jtopic = ""
+        topic = args.topic or jtopic or (I.read_topic(rundir) if rundir else "")
         G = None
     elif args.insights:
         data = json.load(open(args.insights))
@@ -268,7 +302,7 @@ def main():
     # ---- build prompt --------------------------------------------------------
     use_insights = not args.no_insights
     system = args.system or (DEFAULT_SYSTEM if use_insights else BASELINE_SYSTEM)
-    prompt = build_prompt(topic, results, G, args.style, args.task, args.max_per_kind, use_insights)
+    prompt = build_prompt(topic, results, G, args.style, args.task, args.max_leads, use_insights)
     n_leads = sum(len(ins) for _, ins in results)
     print(f"[synthesize] topic={topic!r}  "
           f"{'leads=' + str(n_leads) if use_insights else 'BASELINE (no insights)'}  "
