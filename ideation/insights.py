@@ -77,9 +77,10 @@ def load_graph(run_dir):
     return G
 
 
-def lbl(G, n, k=64):
-    s = str(G.nodes[n].get("label", n))
-    return s if len(s) <= k else s[: k - 1] + "…"
+def lbl(G, n, k=None):
+    """Full node label — NEVER truncated. We want complete concept names in insights.json /
+    insights.md and the figure key. `k` is kept for call-site compatibility but ignored."""
+    return str(G.nodes[n].get("label", n))
 
 
 def read_topic(run_dir, G=None):
