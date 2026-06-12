@@ -606,56 +606,58 @@ Notes:
 - `--context-mode chained|branched` are experimental for this single-turn-trained model; leave
   it `fresh` unless you're deliberately testing multi-turn behavior.
 
-## Headline benchmark — does the graph reasoning make a small model's answers better? (`compare.py`)
+## Headline benchmark — validated idea-space coverage (`compare.py`)
 
-The claim of the paper is that the graph-native reasoning lets a **tiny** model (Llama-3.2-3B)
-produce *better ideas* than the same tiny model answering directly. So the comparison isolates the
-**one variable** — the graph — and holds everything else fixed:
+The strength of graph reasoning is **not** "writes a better single answer" — a tiny model writes one
+clean answer either way. It's **breadth of *validated* exploration**: a single-shot model is
+mode-seeking, so however many times you resample it, it keeps returning the same handful of obvious
+ideas (microcapsules, vascular networks, reversible bonds…), while structured graph exploration
+reaches validated, non-obvious hypotheses it never produces. `compare.py`'s default **coverage** mode
+measures exactly that — and *gives the baseline more compute, not less*:
 
-| arm | generator | task | what it sees |
-|---|---|---|---|
-| **system** | Llama-3.2-3B | the task | the mined graph insights (`synthesize.py`) |
-| **baseline** | **Llama-3.2-3B** | the **same** task | nothing — single shot (`synthesize.py --no-insights`) |
+| arm | generator | how it gets hypotheses |
+|---|---|---|
+| **graph** | Llama-3.2-3B | one hypothesis per top-actionability lead (K), each anchored to a discovered connection |
+| **baseline** | **Llama-3.2-3B** | **M ≥ 2K independent samples** of the bare question (mode-seeking, *more* answer-time calls) |
 
-Both answers come from the *same* small model, so a strong judge can't leak capability into one
-arm. The only difference is whether the answer is grounded in the accumulated reasoning graph.
+Same small generator for both arms — only the conditioning differs. A blind judge is used **only as
+a validity gate** (plausible + testable, 1–5 per hypothesis), never to compare arms, so a strong
+judge can't bias the result. Everything else is embedding geometry:
 
-`synthesize.py --no-insights` writes a baseline `answer.md` with an **identical** role prompt but
-**no** mention of a graph or leads — just topic + task. (`--show-prompt --no-insights` previews it.)
+- **Distinct validated hypotheses** per arm (dedup in embedding space),
+- **Coverage saturation** — cumulative distinct vs #generations (the baseline curve *plateaus* = mode-collapse),
+- **Exclusive fraction** — validated graph ideas with no validated baseline idea nearby, i.e. ideas
+  the baseline **never reached even with 2× the samples** (and vice versa, for honesty),
+- idea-space **spread** and judged **novelty** of the validated sets.
 
-`compare.py` then judges each pair **blind and order-randomized**, scores both 1–5 on
-*novelty · insight · mechanism · feasibility · testability*, records the preference, and aggregates
-across tasks → grouped bars (mean ± s.e.) + per-dimension win-rates + overall preference. Judge
-defaults to **gpt-5.5** (override with `--judge-model` / `--judge-base-url` / `--judge-api-key`).
-
-**One-command workflow** over the 10 related tasks in [`benchmark_tasks.txt`](benchmark_tasks.txt)
-(all on *self-healing biopolymer composites*):
+**One command** over the 10 tasks in [`benchmark_tasks.txt`](benchmark_tasks.txt) (no answer files to
+pre-generate — `compare.py` produces the hypotheses itself):
 
 ```bash
-# RUN points at an ideate.py run that already built the graph; the generator is the small model.
 RUN=runs/exp MODEL=meta-llama/Llama-3.2-3B-Instruct BASE_URL=http://localhost:8000/v1 \
   JUDGE_MODEL=gpt-5.5 bash run_benchmark.sh
-# -> runs/exp/benchmark/{sys,base}/NN.md  +  figures/benchmark.{png,svg,pdf,json,md}
+# -> runs/exp/benchmark/coverage.{png,svg,pdf,json,md}
 ```
 
-Or run the pieces by hand (per task):
+or directly:
 
 ```bash
-python synthesize.py --run runs/exp --task "$TASK" \
-    --backend openai --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
-    --out runs/exp/benchmark/sys/01.md                     # SYSTEM (graph insights)
-python synthesize.py --run runs/exp --task "$TASK" --no-insights \
-    --backend openai --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
-    --out runs/exp/benchmark/base/01.md                    # BASELINE (single shot)
-# …repeat for all tasks, then:
-python compare.py --tasks benchmark_tasks.txt \
-    --system runs/exp/benchmark/sys --baseline runs/exp/benchmark/base \
-    --judge-model gpt-5.5 --out runs/exp/benchmark/figures/benchmark
+python compare.py --run runs/exp --tasks benchmark_tasks.txt \
+    --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
+    --leads 8 --judge-model gpt-5.5 --out runs/exp/benchmark/coverage
 ```
 
-`benchmark.md`/`.json` carry the full per-task scores and reasons; `benchmark.png` is the figure
-(error bars across the 10 tasks; the title reports the overall win-rate). Keep the **task strings
-graph-neutral** — both arms receive the same task, so nothing in it may reference a graph or leads.
+The figure's headline: *baseline gets MORE samples yet covers less validated idea space; N% of the
+graph's validated hypotheses are unreachable by 2K baseline samples.* Dials: `--leads K`,
+`--baseline-samples M` (default 2K), `--gate` (min plausible+testable to count, default 3),
+`--cover-tau` (cosine below which an idea counts as "unreached"), `--max-iter` (mine leads at a
+matched-compute cutoff — pair with `scaling.py` for a dose-response on compute).
+
+**Corroborating pairwise judge (legacy).** A "which single answer is better" view still exists via
+`--mode pairwise` over two dirs of answers from `synthesize.py` (graph) and `synthesize.py
+--no-insights` (baseline) — both arms use an **identical** prompt except a neutral `# Background`
+block of the best leads (`--show-prompt` to inspect). Use it only as a secondary signal: it tests
+single-answer quality, which is not where the graph's value concentrates.
 
 ## Insight mining (`insights.py`)
 
@@ -1088,5 +1090,6 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 `embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads:
 7 structural/embedding miners + cross-miner actionability) ·
 `novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights,
-or `--no-insights` baseline) · `compare.py` (blind multi-dimensional judge: system vs baseline) ·
-`benchmark_tasks.txt` + `run_benchmark.sh` (10-task headline benchmark driver).
+or `--no-insights` baseline) · `compare.py` (validated idea-space **coverage** benchmark — graph vs
+single-shot resampling; legacy pairwise judge via `--mode pairwise`) ·
+`benchmark_tasks.txt` + `run_benchmark.sh` (one-command coverage-benchmark driver).
