@@ -131,6 +131,7 @@ python plot_ideation.py --runs runs/exp_converse --labels converse \
 python insights.py --run runs/exp_converse --top 12
 python novelty.py  --run runs/exp_converse --out runs/exp_converse/figures/novelty
 python scaling.py  --run runs/exp_converse --out runs/exp_converse/figures/scaling
+python dynamics.py --run runs/exp_converse --out runs/exp_converse/figures/dynamics
 ```
 
 The headline test — does `converse` beat the structure-based strategies on saturation? Compare it
@@ -303,6 +304,12 @@ python scaling.py --run runs/exp_novelty --out runs/exp_novelty/figures/scaling
 python scaling.py --run runs/exp_leap      --out runs/exp_leap/figures/scaling
 python scaling.py --run runs/exp_converse  --out runs/exp_converse/figures/scaling
 
+# 4b) Reasoning-dynamics figures  → <out>.* (HOW each run grew: explore→consolidate, themes, reach)
+python dynamics.py --run runs/exp          --out runs/exp/figures/dynamics
+python dynamics.py --run runs/exp_novelty --out runs/exp_novelty/figures/dynamics
+python dynamics.py --run runs/exp_leap      --out runs/exp_leap/figures/dynamics
+python dynamics.py --run runs/exp_converse  --out runs/exp_converse/figures/dynamics
+
 # 5) Four-way comparisons (overlaid)  → figures/strategy_compare*
 #    (first run = primary for the map/stats panels; trajectories/curves overlay all four)
 python plot_ideation.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
@@ -417,7 +424,8 @@ Outputs in `runs/exp1/`: `graph.graphml` (open in Gephi/Cytoscape), `transcript.
 only nodes/edges/rows with `iter <= N` (provenance is on every node/edge), so you can cut every
 run to a common length (e.g. 1500 iterations) for apples-to-apples journal plots:
 `plot_ideation.py --max-iter 1500`, `insights.py --max-iter 1500`, `novelty.py --max-iter 1500`,
-`synthesize.py --max-iter 1500`. When a cap is active, `plot_ideation` derives final metrics from
+`scaling.py --max-iter 1500`, `dynamics.py --max-iter 1500`, `synthesize.py --max-iter 1500`.
+When a cap is active, `plot_ideation` derives final metrics from
 the capped data (not the full-run `summary.json`), and `insights`/`novelty` re-mine the capped
 graph instead of reading the (uncapped) `insights.json`.
 
@@ -805,6 +813,7 @@ python insights.py     --run runs/ex_recyclable --top 12
 python plot_ideation.py --runs runs/ex_recyclable --labels recyclable
 python novelty.py      --run runs/ex_recyclable --out runs/ex_recyclable/figures/novelty
 python scaling.py      --run runs/ex_recyclable --out runs/ex_recyclable/figures/scaling
+python dynamics.py     --run runs/ex_recyclable --out runs/ex_recyclable/figures/dynamics
 python synthesize.py   --run runs/ex_recyclable --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_recyclable/answer.md \
     --task "Propose ONE new design principle for a structural polymer that is both fracture-tough and \
@@ -936,8 +945,9 @@ using the cross-domain analogies in the mined insights. Give the mechanism and h
 
 Each run lands in `runs/ex_<name>/` with the graph, figures, `insights.{json,md}`, novelty figures,
 and a final `answer.md` (the design principle). Example A above shows the **full per-run pipeline**
-including `scaling.py` — **every example (B–L) takes the same `scaling.py` step**, just swap the run dir:
-`python scaling.py --run runs/ex_<name> --out runs/ex_<name>/figures/scaling`.
+including `scaling.py` **and** `dynamics.py` — **every example (B–L) takes the same two steps**, just
+swap the run dir: `python scaling.py --run runs/ex_<name> --out runs/ex_<name>/figures/scaling` and
+`python dynamics.py --run runs/ex_<name> --out runs/ex_<name>/figures/dynamics`.
 To overlay several on one comparison figure, pass them together, e.g.
 `python novelty.py  --runs runs/ex_recyclable runs/ex_cooling runs/ex_impact --labels recyclable cooling impact --out figures/examples_compare`
 or `python scaling.py --runs runs/ex_recyclable runs/ex_cooling runs/ex_impact --labels recyclable cooling impact --out figures/examples_compare`.
@@ -1020,16 +1030,18 @@ run's recorded `embed_model`; override with `--embed-model`) and `growth.csv` fo
 
 Where `scaling.py` shows *how much* the graph grows (cumulative totals), `dynamics.py` shows **how it
 grows** — the mechanism. It **replays the single final graph in `iter` order** (every node and edge
-carries its birth iteration) and measures *rates and structural events*, in one figure of five panels
-that each combine **graph structure with the embedding geometry**:
+carries its birth iteration) and measures *rates and structural events*, in one figure of five panels.
+Every panel is **size-robust** — it uses embedding geometry and mesoscale (community) structure, **not
+raw graph distance/diameter**, which shrinks mechanically as the graph densifies (the same confound
+`scaling.py` deliberately avoids):
 
 | Panel | Shows | Reading |
 |---|---|---|
-| **(D1) Explore → consolidate** | per iteration-bin, new concepts split into **novel** (embedding-far from the running idea centroid at arrival) vs **consolidating** (in-fill near what's known) | the novel rate falls / consolidating rises — the **mechanism behind coverage saturation**: the model shifts from naming new territory to wiring up what's there (while recombination, scaling panel d, keeps rising because *pairs*, not nodes, grow) |
-| **(D2) Fragments → one fabric** | # connected components + giant-component fraction vs iteration | early reasoning is many islands that **merge** into one; a merge = "the model connected two sub-fields" (largest is annotated) |
-| **(D3) Leap size over compute** | each new edge joining concepts that were **previously far apart**: scatter (iteration, prior graph-distance collapsed), point size = endpoints' embedding distance; edges joining **separate** clusters sit in the top band | late high points = **big creative leaps unlocked by test-time compute** |
-| **(D4) Concept incubation** | degree(t) for the highest-final-degree concepts | flat-then-rising = ideas introduced early, dormant, then **ignite late** as the model returns to build on them |
-| **(D5) Exploration trajectory** | on the final idea-space PCA, the centroid of each iteration-bin's **new** concepts, traced as a path colored by time | a path that wanders **out then back** = explore-then-consolidate |
+| **(D1) Explore vs consolidate** | total new-concept *rate* per iteration-bin, split into **novel** (embedding-far from the running idea centroid at arrival) vs **consolidating** (in-fill); a line tracks the **novel fraction** | the **falling total rate is the saturation signal**; read the novel-fraction *trend* rather than assuming one — some runs consolidate the core first, then explore the periphery |
+| **(D2) Theme structure over compute** | # **modularity communities** + modularity **Q** vs iteration | sub-fields **forming and fusing** — the right mesoscale lens once the graph is one connected component (raw connected-components would just read ≈1 throughout) |
+| **(D3) Recombination distance** | every new edge linking two concepts **already in the fabric** (both have a prior link): hexbin of (iteration, endpoints' **embedding distance**) + per-bin **median** | a **rising median = later edges bridge genuinely more distant concepts** — creative reach unlocked by compute, with no graph-size confound |
+| **(D4) Late bloomers** | degree(t) for concepts that gained most of their degree **late** (selected by late-half growth fraction, not final degree) | **flat-then-rising** = ideas introduced early, dormant, then built on — the model returning to earlier concepts |
+| **(D5) Exploration radius** | mean **embedding distance-from-seed** of each bin's *new* concepts (± IQR) vs iteration | a **rise-then-fall** is the explore-then-consolidate signature, size-robustly |
 
 ```bash
 python dynamics.py --run runs/exp_leap --out runs/exp_leap/figures/dynamics
@@ -1039,9 +1051,9 @@ python dynamics.py --run runs/exp --embed-model google/embeddinggemma-300m --max
 
 Writes `<out>.png/svg/pdf` (default `<run>/figures/dynamics.*`). Needs embeddings (reuses the run's
 recorded `embed_model`; override with `--embed-model`). Dials: `--checkpoints` (D2/D3/D4 time series,
-default 30), `--bins` (D1/D5, default 25), `--top-incubate` (D4 traces, default 6), `--bfs-cutoff`
-(max prior distance probed per edge in D3, default 10). A genuine D3 *leap* requires **both** endpoints
-to already be in the fabric (degree ≥ 1) — a fresh leaf attaching is not a recombination.
+default 30 — D2 runs community detection per checkpoint), `--bins` (D1/D3-median/D5, default 25),
+`--top-incubate` (D4 traces, default 6). A D3 *recombination* requires **both** endpoints to already be
+in the fabric (degree ≥ 1) — a fresh leaf attaching is not a recombination.
 
 ## Idea-space coverage comparison (`embedmap.py`)
 
@@ -1070,7 +1082,7 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
 `clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `scaling.py` (surprise vs compute) ·
-`dynamics.py` (how the graph grows: explore→consolidate, merges, leaps, incubation, trajectory) ·
+`dynamics.py` (how the graph grows, size-robust: explore-vs-consolidate, theme structure, recombination distance, late bloomers, exploration radius) ·
 `embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads:
 7 structural/embedding miners + cross-miner actionability) ·
 `novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights,
