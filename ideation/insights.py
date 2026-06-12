@@ -7,7 +7,7 @@
 feedback loops, latent links — encodes hypotheses the model never stated in any
 single turn. This script exploits that structure to surface them.
 
-Seven miners, each emitting ranked, human-readable candidate insights:
+Eight miners, each emitting ranked, human-readable candidate insights:
 
   1. conceptual_bridges   shortest reasoning chains linking semantically *distant*
                           concepts — multi-step arguments the model implies but never wrote.
@@ -16,14 +16,22 @@ Seven miners, each emitting ranked, human-readable candidate insights:
   3. open_triads          directed transitivity gaps A->B->C with no A->C: inferable relations.
   4. relational_analogies recurring relation-typed motifs across disjoint concepts:
                           "A is to B as C is to D" structural analogies.
-  5. feedback_loops       directed cycles = candidate feedback / self-reinforcing mechanisms.
-  6. semantic_dissonance  concept pairs that are embedding-similar but graph-distant —
+  5. feedback_loops       directed cycles, polarity-classified via relation signs into
+                          *balancing* (negative feedback / homeostatic) vs *reinforcing*
+                          (positive feedback / runaway) mechanisms.
+  6. contradictions       pairs the graph implies BOTH raise and lower each other (a net-positive
+                          AND a net-negative directed route) — competing mechanisms / trade-offs.
+  7. semantic_dissonance  concept pairs that are embedding-similar but graph-distant —
                           the model treats them as related yet never linked them.
-  7. broker_ideas         high-betweenness, multi-community, low-constraint nodes:
+  8. broker_ideas         high-betweenness, multi-community, low-constraint nodes:
                           interdisciplinary connectors where novelty concentrates.
 
+Every insight is also stamped with a cross-miner `actionability` score (novelty x salience x
+within-miner rank) so the strongest leads can be ranked across miner types; `insights.md` opens
+with that "Top insights overall" list and `insights.json` carries it under `top_overall`.
+
 Embeddings are re-derived offline from node labels (they aren't stored in graphml),
-mirroring plot_ideation.py. Structural miners (3,4-fallback,5,7) run without them.
+mirroring plot_ideation.py. Structural miners (3,4-fallback,5,6,8) run without them.
 
     python insights.py --run runs/exp2 --top 12 --out runs/exp2/insights
     python insights.py --run runs/exp2 --llm        # expand top insights via the generator
@@ -35,6 +43,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 
 import networkx as nx
 import numpy as np
@@ -135,6 +144,30 @@ def embed_nodes(G, model=None):
 
 def _cos(vecs, a, b):
     return float(np.dot(vecs[a], vecs[b]))
+
+
+# --- relation polarity: stems so loops/contradictions become scientifically legible. Matched by
+#     token PREFIX, so 'inhibit/inhibits/inhibited/inhibition' all map to -1, etc. Note 'destabil'
+#     vs 'stabil' don't collide under startswith ('destabilize' is not a prefix-match for 'stabil'). ---
+_POS_STEMS = ("enhanc", "promot", "increas", "strengthen", "activat", "reinforc", "stabil", "enabl",
+              "improv", "acceler", "support", "amplif", "induc", "driv", "rais", "boost", "facilitat",
+              "catalyz", "trigger", "upregulat", "augment", "elevat")
+_NEG_STEMS = ("inhibit", "reduc", "suppress", "weaken", "degrad", "disrupt", "destabil", "prevent",
+              "decreas", "block", "impair", "limit", "lower", "slow", "antagoni", "counteract",
+              "hinder", "downregulat", "diminish", "deplet")
+
+
+def edge_sign(relation):
+    """+1 (excitatory), -1 (inhibitory), or 0 (unknown/neutral) from a relation string. Tolerates
+    multi-word / underscored / 'is_inhibited_by'-style relations by prefix-matching each token."""
+    toks = re.split(r"[^a-zA-Z]+", str(relation).lower())
+    pos = any(t.startswith(_POS_STEMS) for t in toks if t)
+    neg = any(t.startswith(_NEG_STEMS) for t in toks if t)
+    if pos and not neg:
+        return 1
+    if neg and not pos:
+        return -1
+    return 0
 
 
 # --------------------------------------------------------------------------- #
@@ -332,25 +365,105 @@ def feedback_loops(G, vecs, top=10, max_len=6, max_cycles=4000):
         if len(cycles) >= max_cycles:
             break
     out = []
+    arrow = {1: "→⁺", -1: "⊣⁻", 0: "→"}
+    tag = {"balancing": "balancing / negative feedback (self-correcting, homeostatic)",
+           "reinforcing": "reinforcing / positive feedback (amplifying, runaway)",
+           "ambiguous": "polarity unclear (some edges have no signed relation)"}
     for cyc in cycles:
         if len(cyc) < 2:
             continue
         rels = [G[cyc[k]][cyc[(k + 1) % len(cyc)]].get("relation", "related_to")
                 for k in range(len(cyc))]
-        # prefer shorter, semantically-coherent loops (a tight feedback motif)
+        signs = [edge_sign(r) for r in rels]
+        n_neg = sum(1 for s in signs if s < 0)
+        n_unknown = sum(1 for s in signs if s == 0)
+        # net polarity of a cycle = parity of inhibitory edges: odd => negative (balancing)
+        # feedback, even => positive (reinforcing). Only assertable if every edge is signed.
+        loop_type = "ambiguous" if n_unknown else ("balancing" if n_neg % 2 else "reinforcing")
         coh = (np.mean([_cos(vecs, cyc[k], cyc[(k + 1) % len(cyc)])
                         for k in range(len(cyc))]) if vecs else 0.5)
-        score = float(coh) / len(cyc)
-        chain = " -> ".join(f"[{lbl(G, n, 22)}]" for n in cyc) + " -> ↺"
+        interp = 1.0 if n_unknown == 0 else 0.4        # prefer fully-signed (interpretable) loops
+        score = float(interp * (0.5 + 0.5 * coh) / len(cyc))
+        chain = " ".join(f"[{lbl(G, cyc[k])}] {arrow[signs[k]]}" for k in range(len(cyc))) + " ↺"
         out.append({
             "kind": "feedback_loop",
             "score": score,
-            "title": f"loop({len(cyc)}):  " + " → ".join(lbl(G, n, 16) for n in cyc),
-            "detail": f"relations={rels}\n    {chain}",
+            "title": f"{loop_type} loop({len(cyc)}):  " + " → ".join(lbl(G, n) for n in cyc),
+            "detail": f"{tag[loop_type]}; relations={rels}\n    {chain}",
             "cycle": list(cyc), "relations": rels, "length": len(cyc),
+            "signs": signs, "n_negative": n_neg, "loop_type": loop_type,
         })
     out.sort(key=lambda x: x["score"], reverse=True)
     return out[:top]
+
+
+def contradictions(G, vecs, top=10, max_depth=3, max_expand=300000):
+    """Competing mechanisms / tensions: ordered pairs (A, C) reachable from A to C by BOTH a
+    net-EXCITATORY and a net-INHIBITORY directed route — the graph simultaneously implies 'A
+    raises C' and 'A lowers C'. These trade-offs are sharp, falsifiable research questions. Only
+    fully-signed routes (no unknown-polarity edge) can assert a sign, so neutral edges are dropped.
+
+    Bounded DFS to `max_depth`, tracking the running sign (product of edge signs); for each reached
+    C we keep the shortest +route and -route, and emit C when both exist. Work is globally capped."""
+    try:
+        PR = nx.pagerank(G) if G.number_of_edges() else {n: 1.0 for n in G}
+    except Exception:
+        PR = {n: 1.0 / max(1, G.number_of_nodes()) for n in G}
+    succ = {n: [] for n in G}                          # signed successors (drop unknown polarity)
+    for u, v, d in G.edges(data=True):
+        s = edge_sign(d.get("relation", "related_to"))
+        if s != 0 and u != v:
+            succ[u].append((v, s, d.get("relation", "related_to")))
+    HUB, expands, out = 60, 0, []
+    for a in G.nodes:
+        if expands > max_expand:
+            break
+        best = {}                                      # c -> {net_sign: (pathlen, [nodes], [rels])}
+        stack = [(a, 1, [a], [])]
+        while stack:
+            node, sign, path, rels = stack.pop()
+            if len(path) - 1 >= max_depth:
+                continue
+            nbrs = succ[node][:HUB]
+            for v, s, r in nbrs:
+                if v in path:
+                    continue
+                expands += 1
+                nsign, npath, nrels = sign * s, path + [v], rels + [r]
+                rec = best.setdefault(v, {})
+                if nsign not in rec or len(npath) < rec[nsign][0]:
+                    rec[nsign] = (len(npath), npath, nrels)
+                stack.append((v, nsign, npath, nrels))
+            if expands > max_expand:
+                break
+        for c, rec in best.items():
+            if c != a and 1 in rec and -1 in rec:
+                lp, pp, rp = rec[1]; ln, pn, rn = rec[-1]
+                salience = 0.5 * (PR.get(a, 0.0) + PR.get(c, 0.0))
+                strength = 1.0 / max(1, (lp - 1) + (ln - 1))    # shorter competing routes = sharper
+
+                def _chain(p, rs):
+                    ar = {1: "→⁺", -1: "⊣⁻", 0: "→"}
+                    return " ".join(f"[{lbl(G, p[i])}]" +
+                                    (f" {ar[edge_sign(rs[i])]} " if i < len(rs) else "")
+                                    for i in range(len(p)))
+                out.append({
+                    "kind": "contradiction",
+                    "score": float(salience * strength),
+                    "title": f"tension:  '{lbl(G, a)}'  ⊕⊖  '{lbl(G, c)}'",
+                    "detail": (f"the graph implies BOTH a net-positive and a net-negative influence "
+                               f"of '{lbl(G, a)}' on '{lbl(G, c)}' — a testable trade-off.\n"
+                               f"    (+)  {_chain(pp, rp)}\n    (−)  {_chain(pn, rn)}"),
+                    "pair": [a, c], "route_pos": list(pp), "route_neg": list(pn),
+                    "net_signs": [1, -1],
+                })
+    out.sort(key=lambda x: x["score"], reverse=True)
+    seen, uniq = set(), []                             # one entry per (A,C) pair, best first
+    for x in out:
+        key = tuple(x["pair"])
+        if key not in seen:
+            seen.add(key); uniq.append(x)
+    return uniq[:top]
 
 
 def semantic_dissonance(G, vecs, top=12, sim_thr=0.55, min_hops=3):
@@ -449,7 +562,8 @@ MINERS = [
     ("latent_link", "Latent links (relationships the graph is missing)", latent_links),
     ("open_triad", "Open triads (inferable A→C relations)", open_triads),
     ("relational_analogy", "Relational analogies (A:B :: C:D motifs)", relational_analogies),
-    ("feedback_loop", "Feedback loops (self-reinforcing mechanisms)", feedback_loops),
+    ("feedback_loop", "Feedback loops (signed: balancing vs reinforcing)", feedback_loops),
+    ("contradiction", "Contradictions (competing mechanisms / tensions)", contradictions),
     ("semantic_dissonance", "Semantic dissonance (similar but unlinked)", semantic_dissonance),
     ("broker_idea", "Broker ideas (interdisciplinary connectors)", broker_ideas),
 ]
@@ -472,6 +586,58 @@ def mine_all(G, vecs, top=10, log=False):
             print(f"  [{i}/{len(MINERS)}] {header:<48s} {len(ins):>3d} candidates "
                   f"({time.time() - t0:.1f}s)", flush=True)
     return results
+
+
+def _insight_nodes(ins):
+    """Best-effort extraction of the graph nodes an insight references (for cross-miner scoring)."""
+    out = []
+    for key in ("endpoints", "pair", "path", "cycle", "chain", "route_pos", "route_neg"):
+        v = ins.get(key)
+        if isinstance(v, list):
+            out.extend(x for x in v if not isinstance(x, list))
+    if ins.get("node") is not None:
+        out.append(ins["node"])
+    for key in ("instances", "routes"):                # lists-of-lists (analogy/route miners)
+        for sub in (ins.get(key) or []):
+            if isinstance(sub, list):
+                out.extend(sub)
+    return [n for n in out if n is not None]
+
+
+def attach_actionability(results, G, vecs, top_overall=12):
+    """Stamp every insight with a normalized cross-miner `actionability` in [0,1]: a blend of
+    novelty (embedding distance from the idea-space centroid), salience (PageRank of the concepts
+    it touches), and its within-miner rank. Mutates the insight dicts in place and returns a flat,
+    ranked list of the strongest insights across ALL miners — so synthesize/readers can pick the
+    best regardless of type (the per-miner scores are on different scales and aren't comparable)."""
+    nodes = list(G.nodes)
+    try:
+        pr = nx.pagerank(G) if G.number_of_edges() else {n: 1.0 for n in nodes}
+    except Exception:
+        pr = {n: 1.0 / max(1, len(nodes)) for n in nodes}
+    if vecs:
+        C = np.mean([vecs[n] for n in nodes], axis=0)
+        nov = {n: 1.0 - float(np.dot(vecs[n], C)) for n in nodes}    # distance from centroid
+    else:
+        nov = {n: 0.5 for n in nodes}
+
+    def pct(d):                                        # value -> percentile rank in [0,1]
+        order = sorted(d, key=d.get)
+        return {n: (i + 1) / len(order) for i, n in enumerate(order)} if order else {}
+    pr_p, nov_p = pct(pr), pct(nov)
+
+    flat = []
+    for _, ins in results:
+        m = len(ins)
+        for rank, x in enumerate(ins):                 # ins already sorted best-first per miner
+            ns = [n for n in _insight_nodes(x) if n in G]
+            sal = float(np.mean([pr_p.get(n, 0.0) for n in ns])) if ns else 0.0
+            novl = float(np.mean([nov_p.get(n, 0.5) for n in ns])) if ns else 0.5
+            within = 1.0 - rank / m if m else 0.0
+            x["actionability"] = round(0.45 * novl + 0.30 * sal + 0.25 * within, 4)
+            flat.append(x)
+    flat.sort(key=lambda x: x["actionability"], reverse=True)
+    return flat[:top_overall]
 
 
 def load_insights_or_mine(run_dir, top=10, want_mine=False, embed_model=None):
@@ -529,7 +695,7 @@ def llm_expand(results, G, topic, config_path, per_kind=2):
 # --------------------------------------------------------------------------- #
 #  Reporting
 # --------------------------------------------------------------------------- #
-def write_markdown(path, run_dir, topic, G, results, expanded):
+def write_markdown(path, run_dir, topic, G, results, expanded, top_overall=None):
     lines = [f"# Mined insights — {topic or os.path.basename(run_dir)}",
              "",
              f"Source graph: `{run_dir}/graph.graphml` "
@@ -539,6 +705,16 @@ def write_markdown(path, run_dir, topic, G, results, expanded):
              "*hypotheses generated from graph structure*, not asserted facts — they point at "
              "connections worth investigating or feeding back into the ideation loop.",
              ""]
+    if top_overall:
+        lines.append("## ★ Top insights overall (ranked across all miners)")
+        lines.append("_`actionability` ∈ [0,1] = novelty (embedding distance) × concept salience "
+                     "(PageRank) × within-miner rank — the one score comparable across miner types._\n")
+        for k, x in enumerate(top_overall, 1):
+            kshort = KIND_HEADER.get(x["kind"], x["kind"]).split(" (")[0]
+            lines.append(f"{k}. **[{kshort}]** {x['title']}  "
+                         f"_(actionability {x.get('actionability', 0):.2f})_  ")
+            lines.append(f"   {' '.join(str(x.get('detail', '')).split())}")
+        lines.append("")
     for kind, ins in results:
         lines.append(f"## {KIND_HEADER.get(kind, kind)}")
         if not ins:
@@ -647,18 +823,21 @@ def main():
           + (f"  (embed: {model})" if vecs else "  (structural miners only — no embeddings)"))
 
     results = mine_all(G, vecs, top=args.top, log=True)
+    top_overall = attach_actionability(results, G, vecs)   # stamps actionability + ranks across miners
 
     expanded = llm_expand(results, G, topic, args.config) if args.llm else []
 
-    # structured JSON
+    # structured JSON (miners now carry per-insight `actionability`; top_overall is the cross-miner rank)
     payload = {"run": args.run, "topic": topic,
                "graph": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges()},
                "miners": {kind: ins for kind, ins in results},
+               "top_overall": [{"kind": x["kind"], "title": x["title"],
+                                "actionability": x.get("actionability", 0)} for x in top_overall],
                "llm_expanded": expanded}
     with open(f"{out}.json", "w") as f:
         json.dump(payload, f, indent=2)
     print(f"wrote {out}.json")
-    write_markdown(f"{out}.md", args.run, topic, G, results, expanded)
+    write_markdown(f"{out}.md", args.run, topic, G, results, expanded, top_overall=top_overall)
     if not args.no_fig:
         insight_map(out, G, vecs, results)
 

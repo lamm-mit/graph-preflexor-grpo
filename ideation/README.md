@@ -188,6 +188,31 @@ tar czf exp_ideate.tar.gz --ignore-failed-read \
 ```
 (drop `runs/exp/graphml` to skip the big per-iteration snapshots; repeat per run/machine.)
 
+Alternatively:
+```bash
+ionice -c2 -n7 nice -n 19 tar czf exp_ideate_all.tar.gz \
+  --ignore-failed-read \
+  --warning=no-file-changed \
+  runs/*/graph.graphml \
+  runs/*/graphml \
+  runs/*/transcript.jsonl \
+  runs/*/growth.csv \
+  runs/*/summary.json
+```
+or
+```bash
+find runs -mindepth 2 -maxdepth 2 \( \
+  -name graph.graphml -o \
+  -name graphml -o \
+  -name transcript.jsonl -o \
+  -name growth.csv -o \
+  -name summary.json \
+\) -print0 | \
+ionice -c2 -n7 nice -n 19 tar czf exp_ideate_all.tar.gz \
+  --null -T - \
+  --ignore-failed-read \
+  --warning=no-file-changed
+```
 **2. Push to a private HF dataset** (`huggingface_hub` handles large files via LFS/Xet). One-time:
 
 ```bash
@@ -199,6 +224,13 @@ Then on each machine (headless-friendly — token via env, not stored):
 export HF_TOKEN=hf_xxxxxxxx     # WRITE token: https://huggingface.co/settings/tokens
 huggingface-cli upload lamm-mit/graph-preflexor-runs exp_ideate.tar.gz \
     exp_ideate.tar.gz --repo-type dataset
+# syntax: upload <repo_id> <local_path> <path_in_repo> --repo-type dataset
+```
+Alternatively:
+```bash
+export HF_TOKEN=hf_xxxxxxxx     # WRITE token: https://huggingface.co/settings/tokens
+huggingface-cli upload lamm-mit/graph-preflexor-runs exp_ideate_all.tar.gz \
+    exp_ideate_all.tar.gz --repo-type dataset
 # syntax: upload <repo_id> <local_path> <path_in_repo> --repo-type dataset
 ```
 
@@ -608,8 +640,8 @@ graph-neutral** — both arms receive the same task, so nothing in it may refere
 
 The accumulated graph is more than the sum of the answers: its **structure** encodes
 hypotheses the model never stated in any single turn. `insights.py` mines a finished run's
-`graph.graphml` for those, with **seven miners**, each emitting ranked, human-readable
-candidates (a `score` plus a one-line `detail`):
+`graph.graphml` for those, with **eight miners**, each emitting ranked, human-readable
+candidates (a `score`, a one-line `detail`, and a cross-miner `actionability` — see below):
 
 | Miner | `kind` | What it surfaces | Needs embeddings? |
 |---|---|---|---|
@@ -617,13 +649,25 @@ candidates (a `score` plus a one-line `detail`):
 | **Latent links** | `latent_link` | link prediction over non-edges: structural **Adamic-Adar** × semantic cosine → relationships the graph "wants" but lacks. | optional (semantic term) |
 | **Open triads** | `open_triad` | directed transitivity gaps `A→B→C` with no `A→C` → inferable relations, ranked by endpoint similarity. | optional |
 | **Relational analogies** | `relational_analogy` | recurring relation-typed motifs (`A —r1→ B —r2→ C`) shared by **node-disjoint** instances → "A is to B as C is to D". Scored by embedding **parallelism** of the two steps × concept novelty. | optional (falls back to motif frequency) |
-| **Feedback loops** | `feedback_loop` | directed simple cycles → candidate **self-reinforcing mechanisms** (apt for self-healing / homeostatic systems). Prefers short, coherent loops. | optional (coherence term) |
+| **Feedback loops** *(signed)* | `feedback_loop` | directed cycles, **polarity-classified** by relation sign into **balancing** (odd # of inhibitions → negative feedback / homeostatic) vs **reinforcing** (even → positive feedback / runaway). Carries `signs`, `n_negative`, `loop_type`. | optional (coherence tie-break) |
+| **Contradictions** | `contradiction` | pairs the graph implies **both raise and lower** each other — a net-**positive** *and* a net-**negative** directed route between `A` and `C` (`route_pos`/`route_neg`). Competing mechanisms / testable trade-offs. | no |
 | **Semantic dissonance** | `semantic_dissonance` | pairs that are embedding-**similar** but graph-**distant** (≥3 hops or different components) — related in meaning, never linked in reasoning. | yes |
 | **Broker ideas** | `broker_idea` | high-**betweenness**, multi-**community**, low-**Burt-constraint** nodes — interdisciplinary connectors where recombination/novelty concentrates. | no |
 
+**Relation polarity** drives the last upgrade to feedback loops and the new contradictions miner: a
+small excitatory/inhibitory verb lexicon maps each `relation` string to `+1 / −1 / 0`. Signed loops
+become scientifically legible (`balancing` vs `reinforcing`), and contradictions surface where the
+graph holds **competing** mechanisms — usually the sharpest research questions.
+
+**Cross-miner `actionability` (∈ [0,1]).** Each miner's `score` is on its own scale, so they can't
+be compared directly. Every insight is *also* stamped with `actionability = novelty (embedding
+distance from the idea-space centroid) × salience (PageRank of the concepts it touches) × within-miner
+rank` — the one score comparable **across** miner types. `insights.md` opens with a **"Top insights
+overall"** list ranked by it, and `insights.json` carries it under `top_overall`.
+
 Embeddings are re-derived offline from node labels (they aren't stored in `graphml`), mirroring
-the plotter. **Structural miners run without `sentence-transformers`**; the semantic ones (and
-the semantic terms of the hybrid miners) light up when it's installed.
+the plotter. **Structural miners run without `sentence-transformers`** (including signed loops,
+contradictions, brokers); the semantic ones light up when it's installed.
 
 ```bash
 # Mine runs/exp → insights.json (structured) + insights.md (ranked report) + insights_map.* (figure)
@@ -634,9 +678,9 @@ python insights.py --run runs/exp --llm
 ```
 
 Outputs in the run dir (or `--out <base>`):
-- **`insights.json`** — all candidates per miner (keyed by `kind`), plus any `--llm` expansions.
-  This is the machine-readable artifact `synthesize.py` consumes.
-- **`insights.md`** — a ranked, sectioned report you can read directly.
+- **`insights.json`** — all candidates per miner (keyed by `kind`, each with `actionability`), the
+  cross-miner `top_overall` ranking, plus any `--llm` expansions. The artifact `synthesize.py` consumes.
+- **`insights.md`** — a ranked, sectioned report you can read directly, led by *Top insights overall*.
 - **`insights_map.png/svg/pdf`** — the semantic PCA landscape with the **top conceptual bridges**
   drawn over it (skip with `--no-fig`).
 
@@ -959,6 +1003,33 @@ slightly different stories (tokens penalizes longer generations; iterations coun
 `--x tokens` or `--x iter` for just one. Also writes `<out>_scaling.json`. Needs embeddings (reuses the
 run's recorded `embed_model`; override with `--embed-model`) and `growth.csv` for the token axis.
 
+## Reasoning dynamics (`dynamics.py`)
+
+Where `scaling.py` shows *how much* the graph grows (cumulative totals), `dynamics.py` shows **how it
+grows** — the mechanism. It **replays the single final graph in `iter` order** (every node and edge
+carries its birth iteration) and measures *rates and structural events*, in one figure of five panels
+that each combine **graph structure with the embedding geometry**:
+
+| Panel | Shows | Reading |
+|---|---|---|
+| **(D1) Explore → consolidate** | per iteration-bin, new concepts split into **novel** (embedding-far from the running idea centroid at arrival) vs **consolidating** (in-fill near what's known) | the novel rate falls / consolidating rises — the **mechanism behind coverage saturation**: the model shifts from naming new territory to wiring up what's there (while recombination, scaling panel d, keeps rising because *pairs*, not nodes, grow) |
+| **(D2) Fragments → one fabric** | # connected components + giant-component fraction vs iteration | early reasoning is many islands that **merge** into one; a merge = "the model connected two sub-fields" (largest is annotated) |
+| **(D3) Leap size over compute** | each new edge joining concepts that were **previously far apart**: scatter (iteration, prior graph-distance collapsed), point size = endpoints' embedding distance; edges joining **separate** clusters sit in the top band | late high points = **big creative leaps unlocked by test-time compute** |
+| **(D4) Concept incubation** | degree(t) for the highest-final-degree concepts | flat-then-rising = ideas introduced early, dormant, then **ignite late** as the model returns to build on them |
+| **(D5) Exploration trajectory** | on the final idea-space PCA, the centroid of each iteration-bin's **new** concepts, traced as a path colored by time | a path that wanders **out then back** = explore-then-consolidate |
+
+```bash
+python dynamics.py --run runs/exp_leap --out runs/exp_leap/figures/dynamics
+# matched-compute cutoff + explicit embed model (same conventions as scaling.py)
+python dynamics.py --run runs/exp --embed-model google/embeddinggemma-300m --max-iter 1500
+```
+
+Writes `<out>.png/svg/pdf` (default `<run>/figures/dynamics.*`). Needs embeddings (reuses the run's
+recorded `embed_model`; override with `--embed-model`). Dials: `--checkpoints` (D2/D3/D4 time series,
+default 30), `--bins` (D1/D5, default 25), `--top-incubate` (D4 traces, default 6), `--bfs-cutoff`
+(max prior distance probed per edge in D3, default 10). A genuine D3 *leap* requires **both** endpoints
+to already be in the fabric (degree ≥ 1) — a fresh leaf attaching is not a recombination.
+
 ## Idea-space coverage comparison (`embedmap.py`)
 
 The **visual companion to scaling panel (b)**: shows whether one run's concepts cover a *wider* region
@@ -986,7 +1057,9 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
 `clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `scaling.py` (surprise vs compute) ·
-`embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads) ·
+`dynamics.py` (how the graph grows: explore→consolidate, merges, leaps, incubation, trajectory) ·
+`embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads:
+8 miners + signed loops + contradictions + cross-miner actionability) ·
 `novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights,
 or `--no-insights` baseline) · `compare.py` (blind multi-dimensional judge: system vs baseline) ·
 `benchmark_tasks.txt` + `run_benchmark.sh` (10-task headline benchmark driver).
