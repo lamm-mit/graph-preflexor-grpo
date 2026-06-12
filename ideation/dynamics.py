@@ -6,28 +6,29 @@ curves. This companion answers "*how* does it grow?" by replaying the single fin
 `iter` order (every node and edge carries its birth iteration) and measuring rates and structural
 events. The two are complementary: scaling = the totals story, dynamics = the mechanism story.
 
-Five panels (each a distinct dynamic; all combine graph structure with the embedding geometry):
+Every panel is **size-robust** — it uses embedding geometry and mesoscale structure, NOT raw graph
+distance/diameter (which shrink mechanically as the graph densifies, the same confound `scaling.py`
+avoids). Five panels, each combining graph structure with the embedding geometry:
 
-  D1  Explore -> consolidate.  Per iteration-bin, new concepts split into *novel* (embedding-far
-      from the running idea centroid at arrival) vs *consolidating* (in-fill near what's known).
-      The novel rate falls and the consolidating rate rises — the mechanism BEHIND coverage
-      saturation: the model shifts from naming new territory to wiring up what's there.
+  D1  Explore vs consolidate.  The total new-concept *rate* falls (the saturation signal); within it,
+      each new concept is split into *novel* (embedding-far from the running idea centroid at arrival)
+      vs *consolidating* (in-fill). A line tracks the **novel fraction** — read the trend, don't
+      assume one (some runs consolidate the core first, then explore the periphery).
 
-  D2  Fragments -> one fabric.  Number of connected components and giant-component fraction vs
-      iteration. Early reasoning is many islands; they merge into one. Merge events = "the model
-      connected two sub-fields"; the largest is annotated.
+  D2  Theme structure over compute.  Number of **modularity communities** and modularity **Q** vs
+      iteration — the mesoscale "sub-fields forming / fusing" story. This is the right lens once the
+      graph is one connected component (raw connected-components would just read ~1 the whole time).
 
-  D3  Leap size over compute.  Each new edge that joins concepts which were previously far apart
-      collapses a graph distance. Scatter (iteration, prior-distance-collapsed); point size = the
-      endpoints' embedding distance. Shows whether the big creative leaps come early or are
-      unlocked late. Edges that join two *separate* components are the largest leaps (top band).
+  D3  Recombination distance (size-robust).  Each new edge that links two concepts ALREADY woven into
+      the graph (both have a prior link) is a recombination; plot its endpoints' **embedding distance**
+      vs iteration (hexbin density + per-bin median). A rising median = later edges bridge genuinely
+      *more distant* concepts — creative reach unlocked by compute, with no graph-size confound.
 
-  D4  Concept incubation.  Degree(t) for the highest-final-degree concepts — reveals ideas
-      introduced early that lie dormant, then ignite late as the model returns to build on them.
+  D4  Late bloomers.  Degree(t) for the concepts that gained most of their degree **late** (selected
+      by late-half growth fraction, not final degree) — ideas introduced early, dormant, then built on.
 
-  D5  Exploration trajectory.  On the final PCA of idea-space, the centroid of each iteration-bin's
-      *new* concepts, traced as a path colored by time over the cloud of all concepts — does the
-      search wander out and back (explore then consolidate) or drift monotonically?
+  D5  Exploration radius.  Mean embedding distance-from-seed of each bin's *new* concepts (± IQR) vs
+      iteration. A rise-then-fall is the explore-then-consolidate signature, size-robustly.
 
     python dynamics.py --run runs/exp_leap --out runs/exp_leap/figures/dynamics
     python dynamics.py --run runs/exp --embed-model google/embeddinggemma-300m --max-iter 1500
@@ -58,11 +59,10 @@ def _edge_iter(d):
         return 0
 
 
-def _bfs_dist(adj, src, dst, cutoff):
-    """Unweighted shortest-path length src->dst over adjacency `adj` (dict[node]->set), bounded by
-    `cutoff`. Returns the distance, or None if unreachable within cutoff (treated as a new bridge)."""
+def _bfs_reachable(adj, src, dst, cutoff):
+    """True if dst is reachable from src within `cutoff` hops (used only to gate recombinations)."""
     if src == dst:
-        return 0
+        return True
     seen = {src}
     q = deque([(src, 0)])
     while q:
@@ -71,29 +71,26 @@ def _bfs_dist(adj, src, dst, cutoff):
             continue
         for m in adj[n]:
             if m == dst:
-                return d + 1
+                return True
             if m not in seen:
-                seen.add(m)
-                q.append((m, d + 1))
-    return None
+                seen.add(m); q.append((m, d + 1))
+    return False
 
 
 def _components(present, adj):
-    """(n_components, giant_fraction) over the currently-present node set."""
     if not present:
-        return 0, 0.0
-    seen, sizes = set(), []
+        return 0
+    seen, k = set(), 0
     for s in present:
         if s in seen:
             continue
-        sz, q = 0, deque([s]); seen.add(s)
+        k += 1; q = deque([s]); seen.add(s)
         while q:
-            n = q.popleft(); sz += 1
+            n = q.popleft()
             for m in adj[n]:
                 if m in present and m not in seen:
                     seen.add(m); q.append(m)
-        sizes.append(sz)
-    return len(sizes), (max(sizes) / len(present))
+    return k
 
 
 def compute(run_dir, embed_model=None, n_ckpt=30, n_bins=25, top_incubate=6, bfs_cutoff=10):
@@ -111,11 +108,16 @@ def compute(run_dir, embed_model=None, n_ckpt=30, n_bins=25, top_incubate=6, bfs
     node_iter = {n: _iv(G, n, "iter") for n in nodes}
     max_it = max(node_iter.values()) if node_iter else 0
     seed = min(nodes, key=lambda n: (_iv(G, n, "depth"), _iv(G, n, "iter")))
+    sv = X[idx[seed]]
 
-    # ---- D1 + D5: arrival novelty & per-bin new-node centroids (node replay in iter order) ----
+    edges_bins = np.linspace(0, max_it, n_bins + 1)
+    mids = 0.5 * (edges_bins[:-1] + edges_bins[1:])
+    bin_of = lambda it: min(n_bins - 1, int(np.searchsorted(edges_bins, it, side="right") - 1))
+
+    # ---- D1 (arrival novelty) + D5 (radius from seed), via node replay in iter order ----
     order = sorted(nodes, key=lambda n: (node_iter[n], _iv(G, n, "depth")))
     csum = np.zeros(X.shape[1], dtype=np.float64); cnt = 0
-    arr_nov = {}                                          # node -> novelty at arrival (1 - cos to centroid)
+    arr_nov = {}
     for n in order:
         v = X[idx[n]]
         if cnt:
@@ -126,164 +128,159 @@ def compute(run_dir, embed_model=None, n_ckpt=30, n_bins=25, top_incubate=6, bfs
         csum += v; cnt += 1
     nov_vals = np.array([arr_nov[n] for n in order[1:]]) if len(order) > 1 else np.array([0.0])
     nov_med = float(np.median(nov_vals))
-    edges_bins = np.linspace(0, max_it, n_bins + 1)
-    bin_of = lambda it: min(n_bins - 1, int(np.searchsorted(edges_bins, it, side="right") - 1))
     novel_pb = np.zeros(n_bins); cons_pb = np.zeros(n_bins)
     for n in order[1:]:
-        b = bin_of(node_iter[n])
-        (novel_pb if arr_nov[n] > nov_med else cons_pb)[b] += 1
+        b = bin_of(node_iter[n]); (novel_pb if arr_nov[n] > nov_med else cons_pb)[b] += 1
+    total_pb = novel_pb + cons_pb
+    frac_novel = np.where(total_pb > 0, novel_pb / np.maximum(total_pb, 1), np.nan)
 
-    # PCA(2) of the whole idea space for the trajectory (D5)
-    Xc = X - X.mean(0)
-    try:
-        _, _, Vt = np.linalg.svd(Xc, full_matrices=False); P = Xc @ Vt[:2].T
-    except Exception:
-        P = Xc[:, :2]
-    bin_centroid, bin_mid = [], []
+    rad = {n: float(1.0 - np.dot(X[idx[n]], sv)) for n in nodes}   # embedding distance from seed
+    rad_mean = np.full(n_bins, np.nan); rad_lo = np.full(n_bins, np.nan); rad_hi = np.full(n_bins, np.nan)
     for b in range(n_bins):
-        members = [idx[n] for n in order if bin_of(node_iter[n]) == b]
-        if members:
-            bin_centroid.append(P[members].mean(0)); bin_mid.append(0.5 * (edges_bins[b] + edges_bins[b + 1]))
-    bin_centroid = np.array(bin_centroid) if bin_centroid else np.zeros((0, 2))
+        vals = [rad[n] for n in order if bin_of(node_iter[n]) == b]
+        if vals:
+            rad_mean[b] = np.mean(vals); rad_lo[b] = np.percentile(vals, 25); rad_hi[b] = np.percentile(vals, 75)
 
-    # ---- D2 + D3 + D4: edge replay in iter order ----
-    udeg = dict(G.to_undirected().degree())
-    track = [n for n, _ in sorted(udeg.items(), key=lambda kv: kv[1], reverse=True)[:top_incubate]]
-    events = [(node_iter[n], 0, n, None) for n in nodes]          # 0 = node birth
+    # ---- edge replay: D2 (communities), D3 (recombination embedding distance), D4 (degree traj) ----
+    events = [(node_iter[n], 0, n, None) for n in nodes]
     for u, v, d in G.to_undirected().edges(data=True):
         if u != v:
-            events.append((_edge_iter(d), 1, u, v))               # 1 = edge birth
+            events.append((_edge_iter(d), 1, u, v))
     events.sort(key=lambda e: (e[0], e[1]))
     ts = sorted(set(int(round(t)) for t in np.linspace(0, max_it, n_ckpt)))
 
     adj = defaultdict(set); present = set()
-    leaps = []                                                    # (iter, prior_distance_or_inf, embed_dist)
-    comp_curve, giant_curve = [], []
-    deg_curve = {n: [] for n in track}
+    leaps = []                                            # (iter, embedding distance) per recombination
     deg_now = defaultdict(int)
-    ti, big_merge = 0, (0, 0.0, None)                             # (iter, giant_jump, label)
-    prev_giant = 0.0
+    deg_series = {n: [] for n in nodes}
+    comm_count, modQ = [], []
     ev_i = 0
+    print(f"[dynamics] {run_dir}: replaying {len(events)} events over {len(ts)} checkpoints "
+          f"(community detection per checkpoint)…", flush=True)
     for t in ts:
         while ev_i < len(events) and events[ev_i][0] <= t:
-            _, kind, a, b = events[ev_i]; ev_i += 1
+            ei, kind, a, b = events[ev_i]; ev_i += 1
             if kind == 0:
                 present.add(a)
             else:
-                # a genuine recombination/leap joins two concepts ALREADY woven into the graph
-                # (both already have a link) that were far apart — NOT a fresh leaf attaching.
+                # recombination = both endpoints already in the fabric (degree >= 1); the new edge is
+                # by construction non-adjacent, so its embedding distance is the size-robust "reach".
                 if a in present and b in present and deg_now[a] >= 1 and deg_now[b] >= 1:
-                    d = _bfs_dist(adj, a, b, bfs_cutoff)
-                    if d is None or d >= 2:                       # collapses a real distance
-                        ed = float(1.0 - np.dot(X[idx[a]], X[idx[b]]))
-                        leaps.append((events[ev_i - 1][0],
-                                      (bfs_cutoff + 1) if d is None else d, ed))
-                adj[a].add(b); adj[b].add(a)
-                deg_now[a] += 1; deg_now[b] += 1
-        nc, gf = _components(present, adj)
-        comp_curve.append(nc); giant_curve.append(gf)
-        if gf - prev_giant > big_merge[1]:
-            big_merge = (t, gf - prev_giant, None)
-        prev_giant = gf
-        for n in track:
-            deg_curve[n].append(deg_now[n])
+                    leaps.append((ei, float(1.0 - np.dot(X[idx[a]], X[idx[b]]))))
+                adj[a].add(b); adj[b].add(a); deg_now[a] += 1; deg_now[b] += 1
+        for n in nodes:
+            deg_series[n].append(deg_now[n])
+        H = nx.Graph(); H.add_nodes_from(present)          # community structure on the present subgraph
+        for n in present:
+            for m in adj[n]:
+                if m in present and n < m:
+                    H.add_edge(n, m)
+        try:
+            comms = list(nx.community.greedy_modularity_communities(H)) if H.number_of_edges() else \
+                [{n} for n in present]
+            comm_count.append(len(comms))
+            modQ.append(float(nx.community.modularity(H, comms)) if H.number_of_edges() else 0.0)
+        except Exception:
+            comm_count.append(_components(present, adj)); modQ.append(float("nan"))
 
-    return {"model": model, "max_it": max_it, "seed": seed,
-            "bins": (edges_bins, novel_pb, cons_pb, nov_med),
-            "traj": (P, bin_centroid, bin_mid),
-            "comp": (ts, comp_curve, giant_curve, big_merge),
-            "leaps": np.array(leaps) if leaps else np.zeros((0, 3)),
-            "incub": (ts, deg_curve, track, {n: str(G.nodes[n].get("label", n)) for n in track}),
-            "bfs_cutoff": bfs_cutoff,
+    # ---- D4: pick "late bloomers" by fraction of degree gained in the late half of compute ----
+    half = min(max(int(np.searchsorted(ts, max_it / 2.0)), 1), len(ts) - 1)
+    final_deg = {n: deg_series[n][-1] for n in nodes}
+    pos = [d for d in final_deg.values() if d > 0]
+    floor = max(2.0, float(np.median(pos))) if pos else 2.0      # ignore low-degree noise
+    cand = [n for n in nodes if final_deg[n] >= floor]
+    takeoff = lambda n: (final_deg[n] - deg_series[n][half]) / (final_deg[n] + 1e-9)
+    track = sorted(cand, key=takeoff, reverse=True)[:top_incubate]
+
+    return {"model": model, "max_it": max_it, "edges_bins": edges_bins, "mids": mids,
+            "d1": (novel_pb, cons_pb, frac_novel),
+            "d2": (ts, comm_count, modQ),
+            "d3": np.array(leaps) if leaps else np.zeros((0, 2)),
+            "d4": (ts, deg_series, track, {n: str(G.nodes[n].get("label", n)) for n in track}),
+            "d5": (rad_mean, rad_lo, rad_hi),
             "n_nodes": G.number_of_nodes(), "n_edges": G.number_of_edges()}
 
 
-def make_figure(run_dir, out, **kw):
+def make_figure(run_dir, out, n_bins=25, **kw):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from matplotlib.lines import Line2D
     matplotlib.rcParams.update({"font.size": 9.5, "axes.titlesize": 10, "axes.labelsize": 9.5,
                                 "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150})
-    D = compute(run_dir, **kw)
+    D = compute(run_dir, n_bins=n_bins, **kw)
+    mids, ebins = D["mids"], D["edges_bins"]
     fig, ax = plt.subplots(2, 3, figsize=(15.5, 9.0))
 
-    # D1 — explore -> consolidate
-    edges_bins, novel_pb, cons_pb, nov_med = D["bins"]
-    mids = 0.5 * (edges_bins[:-1] + edges_bins[1:])
+    # D1 — explore vs consolidate (rate + novel-fraction line)
+    novel_pb, cons_pb, frac = D["d1"]
     a = ax[0, 0]
     a.stackplot(mids, novel_pb, cons_pb, labels=["novel (frontier)", "consolidating (in-fill)"],
                 colors=["#d62728", "#1f77b4"], alpha=0.85)
-    a.set_title("(D1) Explore → consolidate"); a.set_xlabel("reasoning iteration")
+    a.set_title("(D1) Explore vs consolidate"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("new concepts per bin"); a.legend(frameon=False, fontsize=8, loc="upper right")
+    a2 = a.twinx(); a2.spines["top"].set_visible(False)
+    a2.plot(mids, frac, color="0.15", lw=1.8, marker="o", ms=2.5)
+    a2.set_ylabel("novel fraction", color="0.15"); a2.set_ylim(0, 1.02)
 
-    # D2 — fragments -> one fabric
-    ts, comp_curve, giant_curve, big_merge = D["comp"]
+    # D2 — theme structure (communities + modularity Q)
+    ts, comm_count, modQ = D["d2"]
     a = ax[0, 1]; a2 = a.twinx(); a2.spines["top"].set_visible(False)
-    a.plot(ts, comp_curve, color="#1f77b4", lw=2, marker="o", ms=3, label="# components")
-    a2.plot(ts, giant_curve, color="#d62728", lw=2, marker="s", ms=3, label="giant fraction")
-    a.set_title("(D2) Fragments → one fabric"); a.set_xlabel("reasoning iteration")
-    a.set_ylabel("# connected components", color="#1f77b4")
-    a2.set_ylabel("giant-component fraction", color="#d62728"); a2.set_ylim(0, 1.02)
-    if big_merge[2] is None and big_merge[0]:
-        a2.axvline(big_merge[0], color="0.6", ls="--", lw=1)
-        a2.annotate("largest merge", (big_merge[0], 0.5), fontsize=7.5, color="0.4",
-                    rotation=90, va="center", ha="right")
+    a.plot(ts, comm_count, color="#1f77b4", lw=2, marker="o", ms=3)
+    a2.plot(ts, modQ, color="#d62728", lw=2, marker="s", ms=3)
+    a.set_title("(D2) Theme structure over compute"); a.set_xlabel("reasoning iteration")
+    a.set_ylabel("# communities", color="#1f77b4")
+    a2.set_ylabel("modularity Q", color="#d62728"); a2.set_ylim(0, 1.02)
 
-    # D3 — leap size over compute
-    a = ax[0, 2]; L = D["leaps"]; cutoff = D["bfs_cutoff"]
+    # D3 — recombination embedding distance (size-robust), hexbin + per-bin median
+    a = ax[0, 2]; L = D["d3"]
     if len(L):
-        finite = L[:, 1] <= cutoff
-        a.scatter(L[finite, 0], L[finite, 1], s=8 + 120 * L[finite, 2], alpha=0.5,
-                  color="#2ca02c", edgecolor="none", label="distance collapsed")
-        if (~finite).any():
-            a.scatter(L[~finite, 0], np.full((~finite).sum(), cutoff + 1),
-                      s=8 + 120 * L[~finite, 2], alpha=0.6, color="#d62728", marker="^",
-                      edgecolor="none", label="joined separate clusters")
-        a.axhline(cutoff + 1, color="0.85", lw=0.8)
-        a.legend(frameon=False, fontsize=8, loc="upper right")
-    a.set_title("(D3) Leap size over compute"); a.set_xlabel("reasoning iteration")
-    a.set_ylabel("prior graph distance collapsed\n(point size = embedding distance)")
+        hb = a.hexbin(L[:, 0], L[:, 1], gridsize=28, cmap="Greens", mincnt=1, linewidths=0)
+        med_x, med_y = [], []
+        for b in range(n_bins):
+            m = (L[:, 0] >= ebins[b]) & (L[:, 0] < ebins[b + 1])
+            if m.any():
+                med_x.append(mids[b]); med_y.append(float(np.median(L[m, 1])))
+        a.plot(med_x, med_y, color="#d62728", lw=2.2, label="per-bin median")
+        a.legend(frameon=False, fontsize=8, loc="lower right")
+        cb = fig.colorbar(hb, ax=a, fraction=0.046, pad=0.02); cb.set_label("# recombination edges", fontsize=8)
+    a.set_title("(D3) Recombination distance over compute"); a.set_xlabel("reasoning iteration")
+    a.set_ylabel("embedding distance of linked concepts")
 
-    # D4 — concept incubation
-    ts4, deg_curve, track, labmap = D["incub"]
+    # D4 — late bloomers (degree over time)
+    ts4, deg_series, track, labmap = D["d4"]
     a = ax[1, 0]
     for n, col in zip(track, POS):
         lab = labmap[n]; lab = lab if len(lab) <= 28 else lab[:27] + "…"
-        a.plot(ts4, deg_curve[n], lw=1.8, color=col, marker="o", ms=2.5, label=lab)
-    a.set_title("(D4) Concept incubation (degree over time)"); a.set_xlabel("reasoning iteration")
-    a.set_ylabel("degree of top concepts")
-    a.legend(frameon=False, fontsize=7.2, loc="upper left", ncol=1)
+        a.plot(ts4, deg_series[n], lw=1.8, color=col, marker="o", ms=2.5, label=lab)
+    a.set_title("(D4) Late bloomers (degree over time)"); a.set_xlabel("reasoning iteration")
+    a.set_ylabel("degree"); a.legend(frameon=False, fontsize=7.2, loc="upper left")
 
-    # D5 — exploration trajectory
-    a = ax[1, 1]; P, bc, mid = D["traj"]
-    a.scatter(P[:, 0], P[:, 1], s=8, color="0.8", alpha=0.5, edgecolor="none", zorder=1)
-    if len(bc) > 1:
-        for k in range(len(bc) - 1):
-            a.annotate("", xy=bc[k + 1], xytext=bc[k],
-                       arrowprops=dict(arrowstyle="->", color=plt.cm.viridis(k / (len(bc) - 1)), lw=2),
-                       zorder=3)
-        sc = a.scatter(bc[:, 0], bc[:, 1], c=mid, cmap="viridis", s=34, zorder=4, edgecolor="white",
-                       linewidths=0.6)
-        cb = fig.colorbar(sc, ax=a, fraction=0.046, pad=0.02); cb.set_label("iteration", fontsize=8)
-    a.set_title("(D5) Exploration trajectory of new ideas"); a.set_xlabel("PC1"); a.set_ylabel("PC2")
+    # D5 — exploration radius (embedding distance from seed of new concepts)
+    rad_mean, rad_lo, rad_hi = D["d5"]
+    a = ax[1, 1]
+    a.fill_between(mids, rad_lo, rad_hi, color="#2ca02c", alpha=0.18, label="IQR")
+    a.plot(mids, rad_mean, color="#2ca02c", lw=2, marker="o", ms=2.5, label="mean")
+    a.set_title("(D5) Exploration radius of new ideas"); a.set_xlabel("reasoning iteration")
+    a.set_ylabel("embedding distance from seed"); a.legend(frameon=False, fontsize=8, loc="lower right")
 
-    # legend / caption cell
+    # caption cell
     a = ax[1, 2]; a.axis("off")
     a.text(0.0, 0.98, "Reasoning dynamics", fontsize=12, fontweight="bold", va="top")
+    qlast = D["d2"][2][-1]
     cap = (f"run: {os.path.basename(run_dir.rstrip('/'))}\n"
-           f"{D['n_nodes']} concepts · {D['n_edges']} links · embed: {D['model']}\n\n"
-           "D1  the novel→consolidating shift is the mechanism behind coverage saturation;\n"
-           "     recombination (scaling panel d) keeps rising because pairs, not nodes, grow.\n"
-           "D2  components collapsing to one = sub-fields being connected.\n"
-           "D3  late high points = big creative leaps unlocked by test-time compute.\n"
-           "D4  flat-then-rising curves = dormant ideas the model returns to and builds on.\n"
-           "D5  a path that wanders out then back = explore-then-consolidate.")
-    a.text(0.0, 0.86, cap, fontsize=8.4, va="top", family="monospace")
-    fig.legend(handles=[Line2D([0], [0], color="#d62728", lw=6, alpha=.85),
-                        Line2D([0], [0], color="#1f77b4", lw=6, alpha=.85)],
-               labels=["novel / frontier", "consolidating / in-fill"],
-               loc="lower right", bbox_to_anchor=(0.985, 0.04), frameon=False, fontsize=8)
+           f"{D['n_nodes']} concepts · {D['n_edges']} links · embed: {D['model']}\n"
+           f"final: {D['d2'][1][-1]} communities · Q={qlast:.2f}\n\n"
+           "All panels are SIZE-ROBUST (embedding geometry + mesoscale\n"
+           "structure), not raw graph distance — which shrinks as the\n"
+           "graph densifies (the confound scaling.py also avoids).\n\n"
+           "D1  total new-concept rate falls = saturation; the line is the\n"
+           "     novel fraction — read its trend, don't assume one.\n"
+           "D2  communities/Q = sub-fields forming & fusing (right lens once\n"
+           "     the graph is one connected component).\n"
+           "D3  rising median = later edges bridge MORE distant concepts.\n"
+           "D4  flat-then-rising = dormant ideas the model returns to.\n"
+           "D5  rise-then-fall = explore then consolidate.")
+    a.text(0.0, 0.88, cap, fontsize=8.0, va="top", family="monospace")
 
     fig.suptitle("How the reasoning graph grows with test-time compute (dynamics)", y=1.0, fontsize=13)
     fig.tight_layout()
@@ -292,9 +289,8 @@ def make_figure(run_dir, out, **kw):
         fig.savefig(f"{out}.{ext}", bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {out}.png/.svg/.pdf")
-    nc_last = D["comp"][1][-1] if D["comp"][1] else 0
-    print(f"[dynamics] {D['n_nodes']} concepts, {len(D['leaps'])} recombination edges, "
-          f"giant fraction {D['comp'][2][-1]:.2f}, {nc_last} final components")
+    print(f"[dynamics] {D['n_nodes']} concepts, {len(D['d3'])} recombination edges, "
+          f"{D['d2'][1][-1]} final communities (Q={qlast:.2f})")
 
 
 def main():
@@ -307,11 +303,11 @@ def main():
     p.add_argument("--max-iter", dest="max_iter", type=int, default=None,
                    help="truncate the graph to iter <= this (matched-compute cutoff)")
     p.add_argument("--checkpoints", type=int, default=30, help="checkpoints for D2/D3/D4 time series")
-    p.add_argument("--bins", type=int, default=25, help="iteration bins for D1/D5")
+    p.add_argument("--bins", type=int, default=25, help="iteration bins for D1/D3-median/D5")
     p.add_argument("--top-incubate", dest="top_incubate", type=int, default=6,
-                   help="how many top-degree concepts to trace in D4")
+                   help="how many late-blooming concepts to trace in D4")
     p.add_argument("--bfs-cutoff", dest="bfs_cutoff", type=int, default=10,
-                   help="max prior graph distance probed per new edge in D3")
+                   help="(reserved) max hops probed when gating recombinations")
     args = p.parse_args()
 
     if args.max_iter is not None:
