@@ -1,0 +1,10 @@
+Propose ONE new design principle for self-healing biopolymer composites. State the mechanism and a falsifiable prediction.
+Identify the most likely rate-limiting step in autonomic healing of a biopolymer composite, and propose a concrete way to overcome it.
+Propose a mechanism by which a self-healing biopolymer composite could recover mechanical strength faster at body temperature than at room temperature.
+Design a single experiment that would distinguish intrinsic (reversible-bond) healing from extrinsic (microcapsule) healing in a biopolymer composite.
+Propose a non-obvious failure mode that would prevent repeated (multi-cycle) healing in a biopolymer composite, and a mitigation.
+Suggest how a stimulus other than heat (e.g. light, pH, humidity, or mechanical load) could trigger on-demand healing in a biopolymer composite, with a mechanism.
+Propose a way to couple self-healing to self-reporting (visible or measurable damage signaling) in a biopolymer composite using a shared chemistry.
+Identify a trade-off between healing efficiency and load-bearing stiffness in biopolymer composites, and propose a design that relaxes it.
+Propose a mechanism by which interfacial chemistry between the biopolymer matrix and a reinforcing phase could be engineered to localize and accelerate healing at cracks.
+Propose a single most promising, testable hypothesis for making a biopolymer composite that heals autonomously underwater, including the controlling mechanism.

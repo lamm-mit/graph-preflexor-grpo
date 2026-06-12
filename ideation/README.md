@@ -553,21 +553,56 @@ Notes:
 - `--context-mode chained|branched` are experimental for this single-turn-trained model; leave
   it `fresh` unless you're deliberately testing multi-turn behavior.
 
-## Evaluation vs other models
+## Headline benchmark — does the graph reasoning make a small model's answers better? (`compare.py`)
 
-The experiment **fixes the loop and swaps the generator**:
+The claim of the paper is that the graph-native reasoning lets a **tiny** model (Llama-3.2-3B)
+produce *better ideas* than the same tiny model answering directly. So the comparison isolates the
+**one variable** — the graph — and holds everything else fixed:
 
-1. Run the loop with Graph-PRefLexOR and with a **baseline** (frontier API or another local
-   model via the `baseline:` endpoint) under **identical** topic / strategy / context-mode /
-   budget / seed.
-2. For fairness, give the baseline the **same sentinel template** so it emits `<graph_json>`,
-   and parse both with `parse.py`.
-3. Overlay with `plot_ideation.py`; optionally run a **blind LLM-judge** pairwise on extracted
-   hypotheses (novelty / insight / testability) → win-rate.
-4. Repeat over several seed topics; report mean ± std + significance.
+| arm | generator | task | what it sees |
+|---|---|---|---|
+| **system** | Llama-3.2-3B | the task | the mined graph insights (`synthesize.py`) |
+| **baseline** | **Llama-3.2-3B** | the **same** task | nothing — single shot (`synthesize.py --no-insights`) |
 
-`compare.py` (orchestrates the two runs + judge + report) is a **stub** — the loop, metrics,
-and plots it needs are ready.
+Both answers come from the *same* small model, so a strong judge can't leak capability into one
+arm. The only difference is whether the answer is grounded in the accumulated reasoning graph.
+
+`synthesize.py --no-insights` writes a baseline `answer.md` with an **identical** role prompt but
+**no** mention of a graph or leads — just topic + task. (`--show-prompt --no-insights` previews it.)
+
+`compare.py` then judges each pair **blind and order-randomized**, scores both 1–5 on
+*novelty · insight · mechanism · feasibility · testability*, records the preference, and aggregates
+across tasks → grouped bars (mean ± s.e.) + per-dimension win-rates + overall preference. Judge
+defaults to **gpt-5.5** (override with `--judge-model` / `--judge-base-url` / `--judge-api-key`).
+
+**One-command workflow** over the 10 related tasks in [`benchmark_tasks.txt`](benchmark_tasks.txt)
+(all on *self-healing biopolymer composites*):
+
+```bash
+# RUN points at an ideate.py run that already built the graph; the generator is the small model.
+RUN=runs/exp MODEL=meta-llama/Llama-3.2-3B-Instruct BASE_URL=http://localhost:8000/v1 \
+  JUDGE_MODEL=gpt-5.5 bash run_benchmark.sh
+# -> runs/exp/benchmark/{sys,base}/NN.md  +  figures/benchmark.{png,svg,pdf,json,md}
+```
+
+Or run the pieces by hand (per task):
+
+```bash
+python synthesize.py --run runs/exp --task "$TASK" \
+    --backend openai --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
+    --out runs/exp/benchmark/sys/01.md                     # SYSTEM (graph insights)
+python synthesize.py --run runs/exp --task "$TASK" --no-insights \
+    --backend openai --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
+    --out runs/exp/benchmark/base/01.md                    # BASELINE (single shot)
+# …repeat for all tasks, then:
+python compare.py --tasks benchmark_tasks.txt \
+    --system runs/exp/benchmark/sys --baseline runs/exp/benchmark/base \
+    --judge-model gpt-5.5 --out runs/exp/benchmark/figures/benchmark
+```
+
+`benchmark.md`/`.json` carry the full per-task scores and reasons; `benchmark.png` is the figure
+(error bars across the 10 tasks; the title reports the overall win-rate). Keep the **task strings
+graph-neutral** — both arms receive the same task, so nothing in it may reference a graph or leads.
 
 ## Insight mining (`insights.py`)
 
@@ -647,7 +682,15 @@ python synthesize.py --run runs/exp --backend hf \
 # Custom instruction; preview the prompt first
 python synthesize.py --run runs/exp --show-prompt \
     --task "Rank the 3 most testable hypotheses and give a falsifying experiment for each."
+
+# BASELINE control: same model + task, NO graph insights (single shot) — for compare.py
+python synthesize.py --run runs/exp --no-insights --backend hf \
+    --model meta-llama/Llama-3.2-3B-Instruct --task "$TASK" --out runs/exp/answer_baseline.md
 ```
+
+`--no-insights` swaps in a neutral system prompt and drops the leads entirely, so the prompt is just
+topic + task (verify with `--show-prompt --no-insights`). It is the baseline arm of the
+[headline benchmark](#headline-benchmark--does-the-graph-reasoning-make-a-small-models-answers-better-comparepy).
 
 **Per-run, with a local Llama-3.2-3B-Instruct** (HF backend; gated model — `huggingface-cli login`
 + accept its license once). Run `insights.py` on each run first (or add `--mine`):
@@ -944,5 +987,6 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
 `clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `scaling.py` (surprise vs compute) ·
 `embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads) ·
-`novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights) ·
-`compare.py` (baseline, TODO).
+`novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights,
+or `--no-insights` baseline) · `compare.py` (blind multi-dimensional judge: system vs baseline) ·
+`benchmark_tasks.txt` + `run_benchmark.sh` (10-task headline benchmark driver).
