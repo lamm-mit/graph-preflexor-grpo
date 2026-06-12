@@ -61,6 +61,14 @@ DEFAULT_SYSTEM = (
     "mechanisms, and be explicit about what is well-grounded versus speculative."
 )
 
+# Baseline (--no-insights) system prompt: identical role, but with NO mention of a graph or
+# mined leads — so the only difference from the insights condition is the graph reasoning itself.
+BASELINE_SYSTEM = (
+    "You are a rigorous, inventive research scientist and synthesist. Produce a single, "
+    "coherent, original answer to the question below: reason about mechanisms, propose concrete "
+    "and testable ideas, and be explicit about what is well-grounded versus speculative."
+)
+
 STYLES = {
     "report": (
         "Write a comprehensive, well-structured answer to the original question. "
@@ -111,10 +119,21 @@ def format_insights(results, G, max_per_kind=6):
     return "\n\n".join(blocks) if blocks else "(no structural leads were found)"
 
 
-def build_prompt(topic, results, G, style, task, max_per_kind):
-    insight_block = format_insights(results, G, max_per_kind=max_per_kind)
+def build_prompt(topic, results, G, style, task, max_per_kind, use_insights=True):
+    """Build the user prompt. With insights: topic + mined leads + task + grounding instruction.
+    Baseline (use_insights=False): topic + task only — identical except the graph block and its
+    framing are removed, so it's a clean control for 'what did the graph reasoning add?'."""
     instruction = task or STYLES.get(style, STYLES["report"])
-    prompt = f"""# Original question / topic
+    if not use_insights:
+        return f"""# Question / topic
+{topic or "(answer the question below)"}
+
+# Your task
+{instruction}
+
+Be specific, mechanistic, and original."""
+    insight_block = format_insights(results, G, max_per_kind=max_per_kind)
+    return f"""# Original question / topic
 {topic or "(topic not recorded — answer the question implied by the leads below)"}
 
 # Mined structural leads from the reasoning graph
@@ -131,7 +150,6 @@ Ground every claim you can in the leads above, but you may add your own domain k
 to connect, explain, and extend them. Where you rely on a specific mined lead, it is fine
 to reference it briefly (e.g. the bridge or analogy it came from). Be specific, mechanistic,
 and original."""
-    return prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -201,6 +219,9 @@ def main():
     pr.add_argument("--system", help="override the system prompt entirely")
     pr.add_argument("--max-per-kind", type=int, default=6,
                     help="max leads per miner to include in the prompt")
+    pr.add_argument("--no-insights", action="store_true",
+                    help="BASELINE: answer the topic+task WITHOUT the mined graph leads "
+                         "(single-shot control — same model/task, no graph reasoning)")
     pr.add_argument("--show-prompt", action="store_true", help="print the built prompt and exit")
 
     be = p.add_argument_group("backend")
@@ -220,8 +241,13 @@ def main():
     if args.max_iter is not None:                      # shared cap: insights.load_graph applies it
         I.MAX_ITER = args.max_iter
 
-    # ---- load / mine insights ------------------------------------------------
-    if args.insights:
+    # ---- load / mine insights (skipped entirely in baseline mode) ------------
+    results = []
+    if args.no_insights:                               # BASELINE: no graph leads at all
+        rundir = (os.path.dirname(args.insights) or ".") if args.insights else args.run
+        topic = args.topic or (I.read_topic(rundir) if rundir else "")
+        G = None
+    elif args.insights:
         data = json.load(open(args.insights))
         rundir = os.path.dirname(args.insights) or "."
         miners = data.get("miners", {})
@@ -240,11 +266,13 @@ def main():
         G = nx.DiGraph()
 
     # ---- build prompt --------------------------------------------------------
-    system = args.system or DEFAULT_SYSTEM
-    prompt = build_prompt(topic, results, G, args.style, args.task, args.max_per_kind)
+    use_insights = not args.no_insights
+    system = args.system or (DEFAULT_SYSTEM if use_insights else BASELINE_SYSTEM)
+    prompt = build_prompt(topic, results, G, args.style, args.task, args.max_per_kind, use_insights)
     n_leads = sum(len(ins) for _, ins in results)
-    print(f"[synthesize] topic={topic!r}  leads={n_leads}  style={args.style}  "
-          f"backend={args.backend}  model={args.model}")
+    print(f"[synthesize] topic={topic!r}  "
+          f"{'leads=' + str(n_leads) if use_insights else 'BASELINE (no insights)'}  "
+          f"style={args.style}  backend={args.backend}  model={args.model}")
     if args.show_prompt:
         print("\n" + "=" * 80 + "\n" + system + "\n" + "-" * 80 + "\n" + prompt)
         return
@@ -265,10 +293,10 @@ def main():
     # ---- write ---------------------------------------------------------------
     out = args.out or (os.path.join(args.run.rstrip("/"), "answer.md") if args.run else "answer.md")
     ask = args.task or f"(style preset: {args.style})"      # the actual instruction the model answered
-    header = (f"# Insight-enriched answer\n\n"
-              f"*Topic:* {topic}\n\n"
-              f"*Task:* {ask}\n\n"
-              f"*Backend:* {args.backend} · *Model:* {args.model} · *Leads used:* {n_leads}\n\n---\n\n")
+    # Clean, condition-neutral header: topic + task only. No title/backend/model/leads — anything
+    # that reveals which arm produced the answer would bias a downstream judge (compare.py).
+    header = (f"*Topic:* {topic}\n\n"
+              f"*Task:* {ask}\n\n---\n\n")
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w") as f:
         f.write(header + answer.strip() + "\n")
