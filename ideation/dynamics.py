@@ -246,14 +246,17 @@ def make_figure(run_dir, out, n_bins=25, **kw):
     a.set_title("(D3) Recombination distance over compute"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("embedding distance of linked concepts")
 
-    # D4 — late bloomers (degree over time)
+    # D4 — late bloomers (degree over time). FULL labels, never truncated — the legend goes BELOW
+    # the panel (one per row) so long concept names are shown complete instead of being clipped.
     ts4, deg_series, track, labmap = D["d4"]
     a = ax[1, 0]
     for n, col in zip(track, POS):
-        lab = labmap[n]; lab = lab if len(lab) <= 28 else lab[:27] + "…"
-        a.plot(ts4, deg_series[n], lw=1.8, color=col, marker="o", ms=2.5, label=lab)
+        a.plot(ts4, deg_series[n], lw=1.8, color=col, marker="o", ms=2.5, label=labmap[n])
     a.set_title("(D4) Late bloomers (degree over time)"); a.set_xlabel("reasoning iteration")
-    a.set_ylabel("degree"); a.legend(frameon=False, fontsize=7.2, loc="upper left")
+    a.set_ylabel("degree")
+    if track:
+        a.legend(frameon=False, fontsize=7.5, loc="upper center", bbox_to_anchor=(0.5, -0.16),
+                 ncol=1, handlelength=1.6, title="late-blooming concepts (full names)", title_fontsize=8)
 
     # D5 — exploration radius (embedding distance from seed of new concepts)
     rad_mean, rad_lo, rad_hi = D["d5"]
