@@ -63,15 +63,37 @@ def _judge_prompt(task, ans_a, ans_b, dims):
 
 
 def _judge_call(system, prompt, backend, model, base_url, api_key, temperature):
-    if backend == "openai":
-        from openai import OpenAI
-        key = api_key or os.environ.get("OPENAI_API_KEY") or "x"
-        client = OpenAI(base_url=base_url or None, api_key=key)
-        r = client.chat.completions.create(
-            model=model, temperature=temperature, max_tokens=800,
-            messages=[{"role": "system", "content": system}, {"role": "user", "content": prompt}])
-        return r.choices[0].message.content or ""
-    raise SystemExit(f"judge backend '{backend}' not supported (use openai)")
+    """One chat-completions call, tolerant of API generations. Newer models (gpt-5.x) require
+    `max_completion_tokens` and reject a custom `temperature`; older ones use `max_tokens`. We start
+    modern and adapt to whatever the endpoint rejects, retrying the SAME request (no wasted calls)."""
+    if backend != "openai":
+        raise SystemExit(f"judge backend '{backend}' not supported (use openai)")
+    from openai import OpenAI
+    key = api_key or os.environ.get("OPENAI_API_KEY") or "x"
+    client = OpenAI(base_url=base_url or None, api_key=key)
+    # generous token budget: for reasoning models this cap also covers reasoning tokens, so a small
+    # value can be exhausted before the JSON is emitted.
+    kwargs = {"model": model, "max_completion_tokens": 4000, "temperature": temperature,
+              "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
+    last = None
+    for _ in range(5):
+        try:
+            r = client.chat.completions.create(**kwargs)
+            return r.choices[0].message.content or ""
+        except Exception as e:
+            last, msg = e, str(e).lower()
+            if "max_completion_tokens" in kwargs and "max_completion_tokens" in msg and \
+                    any(k in msg for k in ("unsupported", "unexpected", "not supported")):
+                kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")     # older model
+            elif "max_tokens" in kwargs and "max_tokens" in msg and \
+                    any(k in msg for k in ("unsupported", "max_completion_tokens", "not supported")):
+                kwargs["max_completion_tokens"] = kwargs.pop("max_tokens")     # newer model
+            elif "temperature" in kwargs and "temperature" in msg and \
+                    any(k in msg for k in ("unsupported", "does not support", "not supported")):
+                kwargs.pop("temperature")                                       # fixed-temp model
+            else:
+                raise
+    raise last
 
 
 def _parse_json(text):
