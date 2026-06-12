@@ -62,10 +62,29 @@ def _judge_prompt(task, ans_a, ans_b, dims):
             f'{{"A": {{{keys}}}, "B": {{{keys}}}, "preferred": "A"|"B"|"tie", "reason": "<one sentence>"}}')
 
 
-def _judge_call(system, prompt, backend, model, base_url, api_key, temperature):
-    """One chat-completions call, tolerant of API generations. Newer models (gpt-5.x) require
-    `max_completion_tokens` and reject a custom `temperature`; older ones use `max_tokens`. We start
-    modern and adapt to whatever the endpoint rejects, retrying the SAME request (no wasted calls)."""
+def _schema(dims):
+    """A strict JSON schema for the judge verdict, so structured outputs GUARANTEE a conforming
+    dict: each answer scored 1-5 (enum) on every dimension, plus a preference and a reason."""
+    score = {"type": "integer", "enum": [1, 2, 3, 4, 5]}
+    side = {"type": "object", "additionalProperties": False,
+            "properties": {d: score for d in dims}, "required": list(dims)}
+    return {"type": "json_schema", "json_schema": {
+        "name": "pairwise_verdict", "strict": True,
+        "schema": {"type": "object", "additionalProperties": False,
+                   "properties": {"A": side, "B": side,
+                                  "preferred": {"type": "string", "enum": ["A", "B", "tie"]},
+                                  "reason": {"type": "string"}},
+                   "required": ["A", "B", "preferred", "reason"]}}}
+
+
+def _judge_call(system, prompt, backend, model, base_url, api_key, temperature, dims):
+    """One chat-completions call returning the verdict as text (parsed by the caller).
+
+    Robust to API generations AND to structured-output support: it requests **structured outputs**
+    (`response_format` json_schema) so the result is a GUARANTEED conforming dict; if the endpoint
+    rejects that it degrades json_schema -> json_object -> none, and adapts the token-limit param
+    (`max_completion_tokens` for gpt-5.x vs `max_tokens`) and `temperature`, retrying the SAME
+    request each time (no wasted calls)."""
     if backend != "openai":
         raise SystemExit(f"judge backend '{backend}' not supported (use openai)")
     from openai import OpenAI
@@ -74,15 +93,23 @@ def _judge_call(system, prompt, backend, model, base_url, api_key, temperature):
     # generous token budget: for reasoning models this cap also covers reasoning tokens, so a small
     # value can be exhausted before the JSON is emitted.
     kwargs = {"model": model, "max_completion_tokens": 4000, "temperature": temperature,
+              "response_format": _schema(dims),
               "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
     last = None
-    for _ in range(5):
+    for _ in range(6):
         try:
             r = client.chat.completions.create(**kwargs)
             return r.choices[0].message.content or ""
         except Exception as e:
             last, msg = e, str(e).lower()
-            if "max_completion_tokens" in kwargs and "max_completion_tokens" in msg and \
+            rf = kwargs.get("response_format", {}).get("type")
+            if rf and any(k in msg for k in ("response_format", "json_schema", "json schema",
+                                             "json_object")):
+                kwargs["response_format"] = {"type": "json_object"} if rf == "json_schema" \
+                    else kwargs.pop("response_format", None)            # json_schema->json_object->none
+                if kwargs.get("response_format") is None:
+                    kwargs.pop("response_format", None)
+            elif "max_completion_tokens" in kwargs and "max_completion_tokens" in msg and \
                     any(k in msg for k in ("unsupported", "unexpected", "not supported")):
                 kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")     # older model
             elif "max_tokens" in kwargs and "max_tokens" in msg and \
@@ -151,7 +178,7 @@ def main():
         a_txt, b_txt = (sys_ans[i][1], base_ans[i][1]) if sys_is_A else (base_ans[i][1], sys_ans[i][1])
         print(f"[compare] judging task {i+1}/{n}  (system={'A' if sys_is_A else 'B'})...", flush=True)
         out = _judge_call(JUDGE_SYSTEM, _judge_prompt(task, a_txt, b_txt, dims),
-                          args.jb, args.jm, args.jbu, args.jak, args.jt)
+                          args.jb, args.jm, args.jbu, args.jak, args.jt, dims)
         v = _parse_json(out)
         if not v or "A" not in v or "B" not in v:
             print(f"  (skipped task {i+1}: unparseable judge output)")
