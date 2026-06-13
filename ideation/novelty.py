@@ -559,6 +559,48 @@ def make_figure(runs, labels, out, n_null=200, embed_model=None, top=12):
     plt.close(figS)
     print(f"wrote {out}_novelty_stats.png/.svg/.pdf")
 
+    # ---------- clean two-panel paper figure: only (D) over (E) ------------ #
+    # The size-robust keepers — motif significance + atypical-combination test — without the
+    # confounded nearest-prior-novelty trajectory. Reuses the data already computed above.
+    figM = plt.figure(figsize=(8.6, 9.2))
+    gsM = gridspec.GridSpec(2, 1, hspace=0.30)
+    a1, a2 = figM.add_subplot(gsM[0]), figM.add_subplot(gsM[1])
+    if motifs:                                          # (a) relational-motif significance
+        ysm = list(range(len(motifs)))[::-1]; zsm = [m["z"] for m in motifs][::-1]
+        nmm = [f"{x}·{y}" for (x, y) in [m["signature"] for m in motifs]][::-1]
+        a1.barh(ysm, zsm, color=["#2ca02c" if z > 1.96 else "0.6" for z in zsm])
+        a1.set_yticks(ysm); a1.set_yticklabels([n[:26] for n in nmm], fontsize=8)
+        a1.axvline(1.96, color="#d62728", ls="--", lw=1); a1.set_xlim(0, max(zsm) * 1.28)
+        a1.set_xlabel("motif z-score (vs label-shuffled null)")
+    a1.set_title("(a) Relational-motif significance")
+    t2 = []
+    if mod.get("z") is not None: t2.append(f"modularity Q={mod['Q']:.2f}  z={mod['z']:+.1f}")
+    if het.get("z") is not None: t2.append(f"edge heterophily z={het['z']:+.1f}")
+    if t2:
+        a1.text(0.985, 0.94, "\n".join(t2), transform=a1.transAxes, ha="right", va="top",
+                fontsize=8.5, family="monospace", bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.95))
+    a1.grid(True, axis="x", color="0.92", lw=0.5); a1.set_axisbelow(True)
+    if series:                                          # (b) novel combinations (typicality)
+        loM = min(min(z) for _, z, _ in series); hiM = max(max(z) for _, z, _ in series)
+        binsM = np.linspace(loM, hiM, 30)
+        for nm, z, c in series:
+            a2.hist(z, bins=binsM, density=True, histtype="step", lw=2, color=c, label=nm)
+            a2.axvline(np.median(z), color=c, ls="--", lw=1)
+    a2.set_title("(b) Novel combinations (typicality)")
+    a2.set_xlabel("combination z  (← more novel / atypical)"); a2.set_ylabel("density")
+    a2.legend(frameon=False, fontsize=8, loc="upper right")
+    a2.grid(True, color="0.92", lw=0.5); a2.set_axisbelow(True)
+    if mw.get("p_bridges_more_novel_than_edges") is not None:
+        a2.text(0.985, 0.62, f"bridges vs edges\nMann–Whitney p={mw['p_bridges_more_novel_than_edges']:.1e}",
+                transform=a2.transAxes, va="top", ha="right", fontsize=8, family="monospace",
+                bbox=dict(boxstyle="round", fc="white", ec="0.7", alpha=0.95))
+    figM.suptitle(f"Novelty — {labels[0]}" + (f"  (topic: {topic0})" if topic0 else ""),
+                  y=0.995, fontsize=12)
+    for ext in ("png", "svg", "pdf"):
+        figM.savefig(f"{out}_novelty_main.{ext}", bbox_inches="tight")
+    plt.close(figM)
+    print(f"wrote {out}_novelty_main.png/.svg/.pdf  (clean 2-panel: motif significance + novel combinations)")
+
     # ---------- numeric report -------------------------------------------- #
     valid = [d["novelty_intro"] for d in cn0.values() if d["novelty_intro"] == d["novelty_intro"]]
     report["runs"][labels[0]] = {
