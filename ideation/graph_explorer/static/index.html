@@ -49,6 +49,106 @@
       </section>
 
       <section>
+        <h2>Visual Mapping</h2>
+        <div class="controls-grid">
+          <label>Layout
+            <select id="layoutModeInput">
+              <option value="force3d">Physics 3D</option>
+              <option value="component">Component Clusters</option>
+              <option value="community">Community Clusters</option>
+              <option value="degreeRadial">Degree Radial</option>
+              <option value="coreShell">Core Shells</option>
+              <option value="timeline">Iteration Timeline</option>
+              <option value="depthBands">Depth Bands</option>
+              <option value="grid">Component Grid</option>
+            </select>
+          </label>
+          <label>Color Nodes By
+            <select id="colorByInput">
+              <option value="component">Component</option>
+              <option value="community">Community</option>
+              <option value="degree">Degree</option>
+              <option value="pagerank">PageRank</option>
+              <option value="core">Core</option>
+              <option value="betweenness">Betweenness</option>
+              <option value="closeness">Closeness</option>
+              <option value="eigenvector">Eigenvector</option>
+              <option value="clustering">Clustering</option>
+              <option value="iter">Iteration</option>
+              <option value="depth">Depth</option>
+            </select>
+          </label>
+          <label>Size Nodes By
+            <select id="sizeByInput">
+              <option value="degree">Degree</option>
+              <option value="pagerank">PageRank</option>
+              <option value="core">Core</option>
+              <option value="betweenness">Betweenness</option>
+              <option value="closeness">Closeness</option>
+              <option value="eigenvector">Eigenvector</option>
+              <option value="clustering">Clustering</option>
+              <option value="iter">Iteration</option>
+              <option value="depth">Depth</option>
+              <option value="constant">Constant</option>
+            </select>
+          </label>
+          <label>Edge Color
+            <select id="edgeColorByInput">
+              <option value="constant">Constant</option>
+              <option value="relation">Relation</option>
+              <option value="iter">Iteration</option>
+              <option value="depth">Depth</option>
+            </select>
+          </label>
+          <label>Low Color <input id="lowColorInput" type="color" value="#64a7d9"></label>
+          <label>High Color <input id="highColorInput" type="color" value="#e1a13a"></label>
+          <label>Edge Color <input id="edgeColorInput" type="color" value="#46505c"></label>
+          <label>Background <input id="backgroundColorInput" type="color" value="#090b0d"></label>
+          <label>Node Scale <input id="nodeScaleInput" type="range" min="0.5" max="3" step="0.1" value="1"></label>
+          <label>Edge Opacity <input id="edgeOpacityInput" type="range" min="0.05" max="1" step="0.05" value="0.34"></label>
+          <label>Physics Ticks <input id="physicsTicksInput" type="number" min="0" max="600" step="10" value="90"></label>
+          <label>Spring Length <input id="springLengthInput" type="number" min="6" max="120" step="2" value="18"></label>
+          <label>Repulsion <input id="repulsionInput" type="number" min="2" max="240" step="2" value="42"></label>
+          <label>Gravity <input id="gravityInput" type="number" min="0" max="0.03" step="0.001" value="0.004"></label>
+        </div>
+        <button id="applyVisualsBtn" class="wide">Apply Layout</button>
+        <div id="visualLegend" class="legend"></div>
+      </section>
+
+      <section>
+        <h2>Filter & Timeline</h2>
+        <div class="controls-grid">
+          <label>Metric
+            <select id="filterMetricInput">
+              <option value="degree">Degree</option>
+              <option value="pagerank">PageRank</option>
+              <option value="core">Core</option>
+              <option value="betweenness">Betweenness</option>
+              <option value="closeness">Closeness</option>
+              <option value="eigenvector">Eigenvector</option>
+              <option value="clustering">Clustering</option>
+              <option value="iter">Iteration</option>
+              <option value="depth">Depth</option>
+            </select>
+          </label>
+          <label>Min <input id="filterMinInput" type="number" step="0.001" placeholder="auto"></label>
+          <label>Max <input id="filterMaxInput" type="number" step="0.001" placeholder="auto"></label>
+          <label>Component <input id="filterComponentInput" placeholder="0, 1"></label>
+          <label>Community <input id="filterCommunityInput" placeholder="0, 1"></label>
+          <label>Relation <input id="filterRelationInput" placeholder="supports"></label>
+          <label>Search Text <input id="filterTextInput" placeholder="material or mechanism"></label>
+          <label>Max Iter <input id="filterIterInput" type="range" min="0" max="0" value="0"></label>
+        </div>
+        <div class="button-grid">
+          <button id="applyFilterBtn">Apply Filter</button>
+          <button id="clearFilterBtn">Clear Filter</button>
+          <button id="playTimelineBtn">Play Growth</button>
+          <button id="stopTimelineBtn">Stop</button>
+        </div>
+        <div id="filterSummary" class="hint">No filter applied.</div>
+      </section>
+
+      <section>
         <h2>Search</h2>
         <div class="row">
           <input id="searchInput" placeholder="concept, mechanism, material">
@@ -70,8 +170,41 @@
           <button id="pathBtn">Path</button>
           <button id="hubsBtn">Top Hubs</button>
           <button id="showAllBtn">Show All</button>
+          <button id="selectedSubgraphBtn">Selected</button>
+          <button id="boxSelectBtn">Box Select</button>
+          <button id="pinSelectedBtn">Pin</button>
+          <button id="reheatBtn">Reheat</button>
         </div>
-        <div class="hint">Click selects a source. Shift-click selects a target. Double-click opens a neighborhood.</div>
+        <div class="button-grid">
+          <button id="clearSelectionBtn">Clear Selection</button>
+          <button id="clearPinsBtn">Clear Pins</button>
+          <button id="explainClusterBtn">Explain Cluster</button>
+          <button id="exportSelectionBtn">Export JSON</button>
+        </div>
+        <div class="hint">Click selects a source. Shift-click selects a target. Cmd/Ctrl/Alt-click adds to selection. Box Select drags a rectangle.</div>
+      </section>
+
+      <section>
+        <h2>Views, Compare, Export</h2>
+        <div class="row">
+          <input id="viewNameInput" placeholder="view name">
+          <button id="saveViewBtn">Save</button>
+        </div>
+        <div class="row">
+          <select id="savedViewsInput"></select>
+          <button id="loadViewBtn">Load</button>
+        </div>
+        <div class="row">
+          <input id="compareRunInput" placeholder="runs/other_run">
+          <button id="compareRunBtn">Compare</button>
+        </div>
+        <div class="button-grid">
+          <button id="exportPngBtn">PNG</button>
+          <button id="exportSvgBtn">SVG</button>
+          <button id="exportJsonBtn">JSON</button>
+          <button id="deleteViewBtn">Delete View</button>
+        </div>
+        <div id="compareDetails" class="details muted">No comparison loaded.</div>
       </section>
 
       <section>
@@ -90,6 +223,7 @@
 
     <section class="viewport-wrap">
       <div id="viewport"></div>
+      <div id="selectionBox" class="selection-box hidden"></div>
       <div id="hud" class="hud">
         <span id="renderMode">whole graph</span>
         <span id="selectionHud">source: none | target: none</span>
@@ -106,6 +240,53 @@
       <section>
         <h2>Paths</h2>
         <div id="pathDetails" class="details muted">No path loaded.</div>
+      </section>
+
+      <section>
+        <h2>Models & Servers</h2>
+        <div class="controls-grid">
+          <label>Role
+            <select id="modelRoleInput">
+              <option value="generator">Generator</option>
+              <option value="questioner">Questioner</option>
+              <option value="graph_qa">Graph QA</option>
+              <option value="judge">Judge</option>
+              <option value="baseline">Baseline</option>
+              <option value="embedder">Embedder</option>
+            </select>
+          </label>
+          <label>Preset
+            <select id="modelPresetInput">
+              <option value="">Custom</option>
+              <option value="graph1234">Graph-PRefLexOR @1234</option>
+              <option value="qwen1234">Qwen @1234</option>
+              <option value="llama8000">Llama @8000</option>
+              <option value="openaiJudge">OpenAI Judge</option>
+              <option value="embeddingGemma">EmbeddingGemma</option>
+            </select>
+          </label>
+          <label>Provider
+            <select id="roleProviderInput">
+              <option value="openai">OpenAI-compatible</option>
+              <option value="hf">Local HF</option>
+              <option value="embedding">Embedding</option>
+            </select>
+          </label>
+          <label>Model <input id="roleModelInput" placeholder="model id"></label>
+          <label>Base URL <input id="roleBaseUrlInput" placeholder="http://localhost:1234/v1"></label>
+          <label>API Key Env <input id="roleApiKeyEnvInput" placeholder="OPENAI_API_KEY"></label>
+          <label>Temp <input id="roleTempInput" type="number" min="0" max="2" step="0.1" placeholder="0.3"></label>
+          <label>Tokens <input id="roleTokensInput" type="number" min="128" max="64000" placeholder="1800"></label>
+          <label>Effort <input id="roleEffortInput" placeholder="high"></label>
+        </div>
+        <div class="button-grid">
+          <button id="applyRoleToAskBtn">Use For Ask</button>
+          <button id="checkModelBtn">Check</button>
+          <button id="previewConfigBtn">Preview Config</button>
+          <button id="writeConfigBtn">Write Config</button>
+        </div>
+        <div id="modelStatus" class="details muted">No server checked.</div>
+        <pre id="configPreview" class="log"></pre>
       </section>
 
       <section>

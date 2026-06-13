@@ -55,6 +55,11 @@ button:disabled {
   cursor: default;
 }
 
+button.active {
+  border-color: var(--accent);
+  background: rgba(79, 180, 119, 0.16);
+}
+
 input,
 textarea,
 select {
@@ -65,6 +70,15 @@ select {
   color: var(--text);
   padding: 8px;
   min-height: 32px;
+}
+
+input[type="color"] {
+  padding: 2px;
+  height: 32px;
+}
+
+input[type="range"] {
+  padding: 0;
 }
 
 textarea {
@@ -236,6 +250,47 @@ label {
   margin-top: 2px;
 }
 
+.legend {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.legend-gradient {
+  height: 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.legend-range,
+.legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.legend-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.legend-row i {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.legend-row small {
+  color: var(--muted);
+}
+
+.legend-note {
+  margin-top: 5px;
+}
+
 .result-list,
 .details,
 .answer {
@@ -274,6 +329,14 @@ label {
   min-height: 76px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.selection-box {
+  position: absolute;
+  z-index: 4;
+  border: 1px solid var(--accent);
+  background: rgba(79, 180, 119, 0.12);
+  pointer-events: none;
 }
 
 .answer {
