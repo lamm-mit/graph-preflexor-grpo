@@ -61,7 +61,10 @@ GATE_SCHEMA = {"type": "json_schema", "json_schema": {"name": "gate", "strict": 
 # --------------------------------------------------------------------------- #
 #  OpenAI-compatible chat call, tolerant of API generations + structured output
 # --------------------------------------------------------------------------- #
-def _make_call(model, base_url, api_key):
+def _make_call(model, base_url, api_key, reasoning_effort=None):
+    """Chat-Completions caller. `reasoning_effort` (e.g. 'high') is passed through for reasoning
+    models like gpt-5.5 — use it for the JUDGE so it actually thinks before scoring. It's dropped
+    automatically for endpoints/models that don't accept it (e.g. the local vLLM generator)."""
     from openai import OpenAI
     client = OpenAI(base_url=base_url or None, api_key=api_key or os.environ.get("OPENAI_API_KEY") or "x")
 
@@ -70,15 +73,19 @@ def _make_call(model, base_url, api_key):
                   "temperature": temperature}
         if response_format is not None:
             kwargs["response_format"] = response_format
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
         last = None
-        for _ in range(6):
+        for _ in range(7):
             try:
                 r = client.chat.completions.create(**kwargs)
                 return r.choices[0].message.content or ""
             except Exception as e:
                 last, msg = e, str(e).lower()
                 rf = (kwargs.get("response_format") or {}).get("type")
-                if rf and any(k in msg for k in ("response_format", "json_schema", "json_object")):
+                if "reasoning_effort" in kwargs and "reasoning_effort" in msg:
+                    kwargs.pop("reasoning_effort")
+                elif rf and any(k in msg for k in ("response_format", "json_schema", "json_object")):
                     if rf == "json_schema":
                         kwargs["response_format"] = {"type": "json_object"}
                     else:
@@ -219,7 +226,7 @@ def run_coverage(args):
     print(f"[compare] coverage benchmark · {len(tasks)} tasks · graph K={K} leads · baseline M={M} "
           f"samples · generator={args.model} · judge={args.jm} · embed={emodel}", flush=True)
     call_gen = _make_call(args.model, args.base_url, args.api_key)
-    call_judge = _make_call(args.jm, args.jbu, args.jak)
+    call_judge = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
 
     per_task, sat_g, sat_b = [], [], []
     for ti, task in enumerate(tasks):
@@ -534,7 +541,7 @@ def run_graphrag(args):
     n_central = max(2, args.concepts // 3)
     n_unusual = max(1, args.concepts - n_central)
     call_gen = _make_call(args.model, args.base_url, args.api_key)
-    call_judge = _make_call(args.jm, args.jbu, args.jak)
+    call_judge = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
 
     def brainstorm(q, mode, near, central, unusual, chains):
         out = call_gen([{"role": "system", "content": CREATIVE_SYSTEM},
@@ -721,11 +728,18 @@ def run_assess(args):
     shuf = [items[i] for i in order]
     listing = "\n".join(f"{i+1}. '{a}'  <->  '{b}'" for i, (_, (a, b)) in enumerate(shuf))
     user = (f"Domain: {topic}\n\nBelow are candidate conceptual connections (pairs of concepts). For "
-            f"EACH, rate how good a connection it is IN THIS DOMAIN: plausibility (a real, sensible "
-            f"relationship exists), novelty (non-obvious, not textbook-trivial), insight (linking them "
-            f"reveals a useful mechanism or hypothesis), usefulness (could seed a concrete research "
-            f"direction). 1-5 each. Return a rating for every id 1..{len(shuf)}.\n\n{listing}")
-    judge = _make_call(args.jm, args.jbu, args.jak)
+            f"EACH, rate it 1-5 on these dimensions IN THIS DOMAIN:\n"
+            f"- plausibility: a real, sensible relationship genuinely exists between the two concepts.\n"
+            f"- novelty: the connection is non-obvious YET MEANINGFUL. Crucial: an arbitrary, random, or "
+            f"nonsensical pairing is NOT novel — score it 1. Novelty requires a real, non-trivial link "
+            f"that is not textbook-obvious.\n"
+            f"- insight: linking them reveals a useful mechanism or hypothesis (a random pair reveals "
+            f"nothing — score it low).\n"
+            f"- usefulness: could seed a concrete, fruitful research direction.\n"
+            f"Judge substance, not surprise: surprising-but-meaningless pairs should score LOW on every "
+            f"dimension except possibly a low plausibility. Return a rating for every id "
+            f"1..{len(shuf)}.\n\n{listing}")
+    judge = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
     print(f"[compare] assessing {n_mined} mined connections vs {n_mined} random"
           + (" vs model-own" if args.model else "") + f" · judge={args.jm}", flush=True)
     v = _parse_json(judge([{"role": "system", "content": GATE_SYSTEM}, {"role": "user", "content": user}],
@@ -811,7 +825,7 @@ def run_pairwise(args):
     n = min(len(tasks), len(sysa), len(basea))
     if n == 0:
         raise SystemExit("need matching tasks + --system + --baseline answers")
-    call = _make_call(args.jm, args.jbu, args.jak)
+    call = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
     score = {"type": "integer", "enum": [1, 2, 3, 4, 5]}
     side = {"type": "object", "additionalProperties": False, "properties": {d: score for d in dims},
             "required": dims}
@@ -880,6 +894,9 @@ def main():
     p.add_argument("--judge-model", dest="jm", default="gpt-5.5")
     p.add_argument("--judge-base-url", dest="jbu", default=None)
     p.add_argument("--judge-api-key", dest="jak", default=None)
+    p.add_argument("--judge-effort", dest="judge_effort", default="high",
+                   choices=["minimal", "low", "medium", "high"],
+                   help="reasoning effort for the judge (gpt-5.x); ignored by models that don't support it")
     args = p.parse_args()
 
     if getattr(args, "max_iter", None) is not None:
