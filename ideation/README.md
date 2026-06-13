@@ -310,6 +310,13 @@ python dynamics.py --run runs/exp_novelty --out runs/exp_novelty/figures/dynamic
 python dynamics.py --run runs/exp_leap      --out runs/exp_leap/figures/dynamics
 python dynamics.py --run runs/exp_converse  --out runs/exp_converse/figures/dynamics
 
+Alternatively:
+```bash
+for r in exp exp_novelty exp_leap exp_converse; do
+  python dynamics.py --run runs/$r --max-iter 2000 \
+      --out runs/$r/figures/dynamics_maxiter
+done
+```
 # 5) Four-way comparisons (overlaid)  → figures/strategy_compare*
 #    (first run = primary for the map/stats panels; trajectories/curves overlay all four)
 python plot_ideation.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
