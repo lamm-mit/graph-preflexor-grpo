@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Headline benchmark: do DISTAL graph concepts make a small model more CREATIVE?
 #
-# Same small model, same "brainstorm N ideas" task, three retrieval conditions:
-#   closed-book   the question only (the model's own priors — the floor)
-#   near-RAG      + concepts most SIMILAR to the question (obvious — controls for "any retrieval?")
-#   graph-RAG     + concepts DISTANT from the question but graph-connected to its seeds (surprising
-#                 cross-domain provocations only the graph's edges link)
-# A blind judge scores each idea-set 1-5 (novelty/surprise/breadth/plausibility); idea diversity is
-# measured objectively. graph-RAG > closed-book = graph provocations help; graph-RAG > near-RAG = it's
-# the DISTAL, surprising concepts (not retrieval per se) that boost creativity.
+# Same small model, same "brainstorm N ideas" task, four conditions:
+#   closed-book           the question only (the model's own priors — the floor)
+#   near-RAG              + concepts most SIMILAR to the question (obvious — controls for "any retrieval?")
+#   graph-RAG (optional)  + central anchors + UNUSUAL graph-connected angles + the reasoning chains
+#                          linking them, offered as optional inspiration
+#   graph-RAG (forced)    same context, but each idea MUST build on an unusual angle
+# A blind judge scores each idea-set 1-5 (novelty/surprise/breadth/plausibility); a MANIPULATION CHECK
+# measures whether the ideas actually used the injected concepts (incorporation). Read incorporation +
+# novelty together: optional-ignored→forced-used tells you whether forcing helps or just parrots.
 #
 # Configure via env vars, then run:  bash run_benchmark.sh
 set -euo pipefail
