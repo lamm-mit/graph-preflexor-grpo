@@ -173,11 +173,15 @@ The script writes both answer sets and then calls the same pairwise judge used b
 ```bash
 python task_graph_benchmark.py \
   --tasks benchmark_tasks.txt \
-  --out runs/task_graph_bench/frontier_50 \
+  --out runs/task_graph_bench/frontier_50_rich \
   --strategy frontier \
   --budget-calls 50 \
   --max-iters 50 \
   --insights-top 12 \
+  --graph-context-mode rich \
+  --graph-context-chars 14000 \
+  --max-context-nodes 80 \
+  --max-context-edges 180 \
   --backend openai \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
@@ -201,15 +205,54 @@ python task_graph_benchmark.py \
   --no-judge
 ```
 
+To rerun a benchmark directory after changing prompt/context settings, add `--force`; otherwise the
+runner intentionally reuses existing graphs and answers.
+
 Outputs:
 
 - `task_runs/NNN_.../`: one short Graph-PRefLexOR run per benchmark task
 - `answers/baseline/*.md`: Llama single-shot answers
 - `answers/graph/*.md`: synthesized answers from each short graph
+- `prompts/baseline/*.txt` and `prompts/graph/*.txt`: exact prompts sent to Llama for audit
 - `benchmark/pairwise.{png,svg,pdf,json,md}`: blind pairwise judge results
 - `manifest.json`: exact task/run/answer mapping
 
 The runner is resumable: existing graphs, insights, and answers are reused. Add `--force` to rebuild.
+
+Graph context modes:
+
+- `rich` (default): mined leads with details, selected relation paths/chains, hub neighborhoods, and
+  a compact graph table
+- `full`: compact node/edge table only; for small per-task graphs this includes the complete node list
+- `paths`: mined leads plus relation paths/chains only
+- `insights`: mined structural leads only, closest to the original version
+
+Recommended compute/context sweep:
+
+```bash
+python task_graph_benchmark.py --tasks benchmark_tasks.txt \
+  --out runs/task_graph_bench/frontier_30_rich --strategy frontier \
+  --budget-calls 30 --max-iters 30 --graph-context-mode rich \
+  --backend openai --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 --judge-model gpt-5.5 --judge-effort high
+
+python task_graph_benchmark.py --tasks benchmark_tasks.txt \
+  --out runs/task_graph_bench/frontier_100_rich --strategy frontier \
+  --budget-calls 100 --max-iters 100 --graph-context-mode rich \
+  --backend openai --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 --judge-model gpt-5.5 --judge-effort high
+```
+
+Explore the generated graph interactively in a browser:
+
+```bash
+python graph_explorer/server.py --run runs/exp_leap --port 8765
+```
+
+Open `http://127.0.0.1:8765`. The explorer can upload GraphML, load run directories, start a new
+`ideate.py` run, search concepts, inspect node provenance, focus neighborhoods, surface paths
+between selected nodes, and ask an OpenAI-compatible or local Hugging Face model about the selected
+graph context. See `graph_explorer/README.md` for details.
 
 Multiple comparisons:
 
@@ -358,7 +401,7 @@ huggingface-cli repo create graph-preflexor-runs --type dataset --private   # â†
 Then on each machine (headless-friendly â€” token via env, not stored):
 ```bash
 export HF_TOKEN=hf_xxxxxxxx     # WRITE token: https://huggingface.co/settings/tokens
-huggingface-cli upload lamm-mit/graph-preflexor-runs exp_ideate.tar.gz \
+huggingface-cli upload lamm-mit/graph-preflexor-runs exp_ideate_all.tar.gz \
     exp_ideate.tar.gz --repo-type dataset
 # syntax: upload <repo_id> <local_path> <path_in_repo> --repo-type dataset
 ```
