@@ -248,6 +248,26 @@ huggingface-cli upload lamm-mit/graph-preflexor-runs exp_ideate_all.tar.gz \
 # syntax: upload <repo_id> <local_path> <path_in_repo> --repo-type dataset
 ```
 
+Archive all files:
+```
+mkdir -p backups/runs_snapshot
+
+ionice -c2 -n7 nice -n 19 rsync -a --info=progress2 runs/ backups/runs_snapshot/runs/
+
+ARCHIVE=backups/runs_snapshot_$(date +%Y%m%d_%H%M%S).tar.gz
+
+ionice -c2 -n7 nice -n 19 tar -cf - -C backups/runs_snapshot runs \
+| ionice -c2 -n7 nice -n 19 gzip -1 \
+> "$ARCHIVE"
+
+sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+```
+Alternatively:
+```
+hf upload-large-folder lamm-mit/graph-preflexor-runs runs \
+  --repo-type dataset
+```
+
 **3. Pull everything down locally and extract** into `ideation/runs/`. The archives store relative
 `runs/<run>/…` paths, so `tar xzf` recreates them under whatever your **current dir** is — extract while
 your cwd is the `ideation/` dir so the analysis commands (`--runs runs/exp …`) find them:
@@ -631,6 +651,49 @@ Notes:
   prose-driven follow-ups instead of structure-driven ones).
 - `--context-mode chained|branched` are experimental for this single-turn-trained model; leave
   it `fresh` unless you're deliberately testing multi-turn behavior.
+
+
+## Direct comparison benchmark
+
+```
+mkdir -p runs/exp_leap/bench_answers/graph
+mkdir -p runs/exp_leap/bench_answers/baseline
+
+i=0
+while IFS= read -r task; do
+  [ -z "$task" ] && continue
+  idx=$(printf "%03d" "$i")
+
+  python synthesize.py --run runs/exp_leap \
+    --model meta-llama/Llama-3.2-3B-Instruct \
+    --base-url http://localhost:8000/v1 \
+    --temperature 0.7 \
+    --max-leads 8 \
+    --task "$task" \
+    --out "runs/exp_leap/bench_answers/graph/${idx}.md"
+
+  python synthesize.py --run runs/exp_leap \
+    --no-insights \
+    --model meta-llama/Llama-3.2-3B-Instruct \
+    --base-url http://localhost:8000/v1 \
+    --temperature 0.7 \
+    --task "$task" \
+    --out "runs/exp_leap/bench_answers/baseline/${idx}.md"
+
+  i=$((i + 1))
+done < benchmark_tasks.txt
+```
+
+```
+python compare.py --mode pairwise \
+  --tasks benchmark_tasks.txt \
+  --system runs/exp_leap/bench_answers/graph \
+  --baseline runs/exp_leap/bench_answers/baseline \
+  --judge-model gpt-5.5 \
+  --judge-effort high \
+  --out runs/exp_leap/benchmark/synthesize_pairwise
+```
+
 
 ## Headline benchmark — do distal graph concepts make a small model more creative? (`compare.py`)
 
