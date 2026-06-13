@@ -334,9 +334,10 @@ python plot_ideation.py --runs runs/exp_leap  --max-iter 2000  --labels leap
 python plot_ideation.py --runs runs/exp_converse --max-iter 2000  --labels converse
 ```
 
-
+```
 # 5) Four-way comparisons (overlaid)  → figures/strategy_compare*
 #    (first run = primary for the map/stats panels; trajectories/curves overlay all four)
+
 python plot_ideation.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
     --labels frontier novelty leap converse --out figures/strategy_compare
 python novelty.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
