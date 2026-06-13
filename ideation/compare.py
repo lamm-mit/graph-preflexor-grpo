@@ -1448,6 +1448,16 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
     win_rate = 100.0 * pref_counts["system"] / max(1, n)
     base_rate = 100.0 * pref_counts["baseline"] / max(1, n)
     tie_rate = 100.0 * pref_counts["tie"] / max(1, n)
+    primary_delta = agg["primary"]["delta"][0]
+    if primary_delta > 0 and pref_counts["system"] > pref_counts["baseline"]:
+        outcome = "graph_higher"
+        title = "Graph-derived insights outperform baseline hypothesis answers"
+    elif primary_delta < 0 and pref_counts["baseline"] > pref_counts["system"]:
+        outcome = "baseline_higher"
+        title = "Baseline outperforms graph-derived insight answers"
+    else:
+        outcome = "mixed_or_neutral"
+        title = "Pairwise benchmark: graph-derived insights vs baseline"
 
     fig, ax = plt.subplots(1, 2, figsize=(14.5, 5.8), gridspec_kw={"width_ratios": [1.35, 0.9]})
     x = np.arange(len(all_dims)); w = 0.36
@@ -1468,6 +1478,7 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
     cap = (
         f"n scored: {n}\n"
         f"judge: {args.jm}  effort={args.judge_effort}\n\n"
+        f"outcome: {outcome.replace('_', ' ')}\n"
         f"primary: system {agg['primary']['system'][0]:.2f} vs "
         f"baseline {agg['primary']['baseline'][0]:.2f}\n"
         f"paired delta: {delta[0]:+.2f} +/- {delta[1]:.2f}\n\n"
@@ -1481,7 +1492,7 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
         f"Skipped invalid judge calls: {len(skipped)}"
     )
     a.text(0, 1, cap, va="top", fontsize=9.0, family="monospace")
-    fig.suptitle("Graph-derived insights improve small-model hypothesis answers", y=1.02, fontsize=12.5)
+    fig.suptitle(title, y=1.02, fontsize=12.5)
     fig.tight_layout()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     for ext in ("png", "svg", "pdf"):
@@ -1501,6 +1512,7 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
         },
         "aggregate": agg,
         "preferences": pref_counts,
+        "outcome": outcome,
         "per_task": per_task,
         "skipped": skipped,
     }
@@ -1516,6 +1528,8 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
                      f"{agg[d]['baseline'][0]:.2f} +/- {agg[d]['baseline'][1]:.2f} | "
                      f"{agg[d]['delta'][0]:+.2f} +/- {agg[d]['delta'][1]:.2f} |")
     lines += ["",
+              f"Outcome: **{outcome.replace('_', ' ')}**.",
+              "",
               f"Preference counts: graph insights **{pref_counts['system']}**, "
               f"baseline **{pref_counts['baseline']}**, tie **{pref_counts['tie']}**.",
               "",
