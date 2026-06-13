@@ -89,6 +89,128 @@ Develop insights:
 ```bash
 python insights.py --run runs/exp_leap --top 12
 ```
+
+Benchmark whether the graph improves downstream answers from the same small model. This is a
+two-arm, blind-judged comparison:
+
+- baseline: Llama gets the run topic plus each task from `benchmark_tasks.txt`
+- graph: Llama gets the same topic and task, plus deterministic Graph-RAG insights from selected
+  graph paths
+
+No random graph-node controls or generated-lead controls are used in this mode.
+
+```bash
+python compare.py --mode graphleads \
+  --run runs/exp_leap \
+  --tasks benchmark_tasks.txt \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --judge-model gpt-5.5 \
+  --judge-effort high \
+  --lead-method paths \
+  --rag-seeds 12 \
+  --rag-hops 2 \
+  --n-leads 8 \
+  --answer-leads 4 \
+  --path-samples 500 \
+  --path-anchor-pool 24 \
+  --path-distal-pool 160 \
+  --path-min-nodes 3 \
+  --path-max-nodes 5 \
+  --out runs/exp_leap/benchmark/graphleads_paths
+```
+
+Useful sweeps:
+
+```bash
+COMMON="--mode graphleads \
+  --run runs/exp_leap \
+  --tasks benchmark_tasks.txt \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --judge-model gpt-5.5 \
+  --judge-effort high \
+  --lead-method paths \
+  --rag-seeds 12 \
+  --rag-hops 2 \
+  --n-leads 8 \
+  --answer-leads 4 \
+  --path-anchor-pool 24 \
+  --path-distal-pool 160 \
+  --path-min-nodes 3 \
+  --path-max-nodes 5"
+
+# path search budget: higher scores more candidate anchor-to-distal paths before taking top insights
+python compare.py $COMMON --path-samples 100  --out runs/exp_leap/benchmark/graphleads_paths_s100
+python compare.py $COMMON --path-samples 500  --out runs/exp_leap/benchmark/graphleads_paths_s500
+python compare.py $COMMON --path-samples 1500 --out runs/exp_leap/benchmark/graphleads_paths_s1500
+
+# graph scaling: same benchmark, but truncate the graph to earlier iterations
+python compare.py $COMMON --path-samples 500 --max-iter 50   --out runs/exp_leap/benchmark/graphleads_iter50
+python compare.py $COMMON --path-samples 500 --max-iter 200  --out runs/exp_leap/benchmark/graphleads_iter200
+python compare.py $COMMON --path-samples 500 --max-iter 1000 --out runs/exp_leap/benchmark/graphleads_iter1000
+```
+
+Key knobs:
+
+- `--path-samples`: maximum scored anchor-to-distal path pairs per task; deterministic top scoring,
+  not random sampling
+- `--path-anchor-pool`: task-relevant graph concepts considered as path starts
+- `--path-distal-pool`: distal/OOD graph concepts considered as path ends
+- `--path-min-nodes` / `--path-max-nodes`: selected path length bounds
+- `--n-leads`: path insights retrieved per task
+- `--answer-leads`: top path insights shown to Llama
+
+Benchmark the stronger test-time-compute claim by rebuilding a short graph per benchmark task. This
+compares:
+
+- baseline: Llama answers the task directly, no graph
+- graph: run `ideate.py --topic "<task>"` for a small budget, mine insights, synthesize from that
+  per-task graph
+
+The script writes both answer sets and then calls the same pairwise judge used by `compare.py`.
+
+```bash
+python task_graph_benchmark.py \
+  --tasks benchmark_tasks.txt \
+  --out runs/task_graph_bench/frontier_50 \
+  --strategy frontier \
+  --budget-calls 50 \
+  --max-iters 50 \
+  --insights-top 12 \
+  --backend openai \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --judge-model gpt-5.5 \
+  --judge-effort high
+```
+
+For a smoke test:
+
+```bash
+python task_graph_benchmark.py \
+  --tasks benchmark_tasks.txt \
+  --out runs/task_graph_bench/smoke \
+  --limit 1 \
+  --strategy frontier \
+  --budget-calls 10 \
+  --max-iters 10 \
+  --backend openai \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --no-judge
+```
+
+Outputs:
+
+- `task_runs/NNN_.../`: one short Graph-PRefLexOR run per benchmark task
+- `answers/baseline/*.md`: Llama single-shot answers
+- `answers/graph/*.md`: synthesized answers from each short graph
+- `benchmark/pairwise.{png,svg,pdf,json,md}`: blind pairwise judge results
+- `manifest.json`: exact task/run/answer mapping
+
+The runner is resumable: existing graphs, insights, and answers are reused. Add `--force` to rebuild.
+
 Multiple comparisons:
 
 ```bash
