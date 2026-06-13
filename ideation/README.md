@@ -286,6 +286,9 @@ python insights.py --run runs/exp_novelty --top 12
 python insights.py --run runs/exp_leap      --top 12
 python insights.py --run runs/exp_converse  --top 12
 
+# With max-iter:
+python insights.py --run runs/exp_leap  --max-iter 2000  --top 12
+
 # 2) Per-run growth / graph-analytics figures  → runs/<run>/figures/
 python plot_ideation.py --runs runs/exp          --labels frontier
 python plot_ideation.py --runs runs/exp_novelty --labels novelty
@@ -313,10 +316,25 @@ python dynamics.py --run runs/exp_converse  --out runs/exp_converse/figures/dyna
 Alternatively:
 ```bash
 for r in exp exp_novelty exp_leap exp_converse; do
+  python insights.py --run runs/$r  --top 12  --out runs/$r/figures/insights_maxiter
+done
+```
+
+```bash
+for r in exp exp_novelty exp_leap exp_converse; do
   python dynamics.py --run runs/$r --max-iter 2000 \
       --out runs/$r/figures/dynamics_maxiter
 done
 ```
+
+```
+python plot_ideation.py --runs runs/exp  --max-iter 2000    --labels frontier
+python plot_ideation.py --runs runs/exp_novelty --max-iter 2000 --labels novelty
+python plot_ideation.py --runs runs/exp_leap  --max-iter 2000  --labels leap
+python plot_ideation.py --runs runs/exp_converse --max-iter 2000  --labels converse
+```
+
+
 # 5) Four-way comparisons (overlaid)  → figures/strategy_compare*
 #    (first run = primary for the map/stats panels; trajectories/curves overlay all four)
 python plot_ideation.py --runs runs/exp runs/exp_novelty runs/exp_leap runs/exp_converse \
