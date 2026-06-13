@@ -201,7 +201,7 @@ def compute(run_dir, embed_model=None, n_ckpt=30, n_bins=25, top_incubate=6, bfs
             "n_nodes": G.number_of_nodes(), "n_edges": G.number_of_edges()}
 
 
-def make_figure(run_dir, out, n_bins=25, **kw):
+def make_figure(run_dir, out, n_bins=25, show_text=True, **kw):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -209,14 +209,14 @@ def make_figure(run_dir, out, n_bins=25, **kw):
                                 "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150})
     D = compute(run_dir, n_bins=n_bins, **kw)
     mids, ebins = D["mids"], D["edges_bins"]
-    fig, ax = plt.subplots(2, 3, figsize=(15.5, 9.0))
+    fig, axg = plt.subplots(3, 2, figsize=(10.5, 13.5)); ax = axg.ravel()
 
     # D1 — explore vs consolidate (rate + novel-fraction line)
     novel_pb, cons_pb, frac = D["d1"]
-    a = ax[0, 0]
-    a.stackplot(mids, novel_pb, cons_pb, labels=["novel (frontier)", "consolidating (in-fill)"],
+    a = ax[0]
+    a.stackplot(mids, novel_pb, cons_pb, labels=["novel", "consolidating (in-fill)"],
                 colors=["#d62728", "#1f77b4"], alpha=0.85)
-    a.set_title("(D1) Explore vs consolidate"); a.set_xlabel("reasoning iteration")
+    a.set_title("(a) Explore vs consolidate"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("new concepts per bin"); a.legend(frameon=False, fontsize=8, loc="upper right")
     a2 = a.twinx(); a2.spines["top"].set_visible(False)
     a2.plot(mids, frac, color="0.15", lw=1.8, marker="o", ms=2.5)
@@ -224,15 +224,15 @@ def make_figure(run_dir, out, n_bins=25, **kw):
 
     # D2 — theme structure (communities + modularity Q)
     ts, comm_count, modQ = D["d2"]
-    a = ax[0, 1]; a2 = a.twinx(); a2.spines["top"].set_visible(False)
+    a = ax[1]; a2 = a.twinx(); a2.spines["top"].set_visible(False)
     a.plot(ts, comm_count, color="#1f77b4", lw=2, marker="o", ms=3)
     a2.plot(ts, modQ, color="#d62728", lw=2, marker="s", ms=3)
-    a.set_title("(D2) Theme structure over compute"); a.set_xlabel("reasoning iteration")
+    a.set_title("(b) Theme structure over compute"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("# communities", color="#1f77b4")
     a2.set_ylabel("modularity Q", color="#d62728"); a2.set_ylim(0, 1.02)
 
     # D3 — recombination embedding distance (size-robust), hexbin + per-bin median
-    a = ax[0, 2]; L = D["d3"]
+    a = ax[2]; L = D["d3"]
     if len(L):
         hb = a.hexbin(L[:, 0], L[:, 1], gridsize=28, cmap="Greens", mincnt=1, linewidths=0)
         med_x, med_y = [], []
@@ -243,16 +243,16 @@ def make_figure(run_dir, out, n_bins=25, **kw):
         a.plot(med_x, med_y, color="#d62728", lw=2.2, label="per-bin median")
         a.legend(frameon=False, fontsize=8, loc="lower right")
         cb = fig.colorbar(hb, ax=a, fraction=0.046, pad=0.02); cb.set_label("# recombination edges", fontsize=8)
-    a.set_title("(D3) Recombination distance over compute"); a.set_xlabel("reasoning iteration")
+    a.set_title("(c) Recombination distance over compute"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("embedding distance of linked concepts")
 
     # D4 — late bloomers (degree over time). FULL labels, never truncated — the legend goes BELOW
     # the panel (one per row) so long concept names are shown complete instead of being clipped.
     ts4, deg_series, track, labmap = D["d4"]
-    a = ax[1, 0]
+    a = ax[3]
     for n, col in zip(track, POS):
         a.plot(ts4, deg_series[n], lw=1.8, color=col, marker="o", ms=2.5, label=labmap[n])
-    a.set_title("(D4) Late bloomers (degree over time)"); a.set_xlabel("reasoning iteration")
+    a.set_title("(d) Late bloomers (degree over time)"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("degree")
     if track:
         a.legend(frameon=False, fontsize=7.5, loc="upper center", bbox_to_anchor=(0.5, -0.16),
@@ -260,30 +260,30 @@ def make_figure(run_dir, out, n_bins=25, **kw):
 
     # D5 — exploration radius (embedding distance from seed of new concepts)
     rad_mean, rad_lo, rad_hi = D["d5"]
-    a = ax[1, 1]
+    a = ax[4]
     a.fill_between(mids, rad_lo, rad_hi, color="#2ca02c", alpha=0.18, label="IQR")
     a.plot(mids, rad_mean, color="#2ca02c", lw=2, marker="o", ms=2.5, label="mean")
-    a.set_title("(D5) Exploration radius of new ideas"); a.set_xlabel("reasoning iteration")
+    a.set_title("(e) Exploration radius of new ideas"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("embedding distance from seed"); a.legend(frameon=False, fontsize=8, loc="lower right")
 
-    # caption cell
-    a = ax[1, 2]; a.axis("off")
-    a.text(0.0, 0.98, "Reasoning dynamics", fontsize=12, fontweight="bold", va="top")
+    # text panel (omit with --no-text / show_text=False)
     qlast = D["d2"][2][-1]
-    cap = (f"run: {os.path.basename(run_dir.rstrip('/'))}\n"
-           f"{D['n_nodes']} concepts · {D['n_edges']} links · embed: {D['model']}\n"
-           f"final: {D['d2'][1][-1]} communities · Q={qlast:.2f}\n\n"
-           "All panels are SIZE-ROBUST (embedding geometry + mesoscale\n"
-           "structure), not raw graph distance — which shrinks as the\n"
-           "graph densifies (the confound scaling.py also avoids).\n\n"
-           "D1  total new-concept rate falls = saturation; the line is the\n"
-           "     novel fraction — read its trend, don't assume one.\n"
-           "D2  communities/Q = sub-fields forming & fusing (right lens once\n"
-           "     the graph is one connected component).\n"
-           "D3  rising median = later edges bridge MORE distant concepts.\n"
-           "D4  flat-then-rising = dormant ideas the model returns to.\n"
-           "D5  rise-then-fall = explore then consolidate.")
-    a.text(0.0, 0.88, cap, fontsize=8.0, va="top", family="monospace")
+    a = ax[5]; a.axis("off")
+    if show_text:
+        cap = (f"{D['n_nodes']} concepts · {D['n_edges']} links · embed: {D['model']}\n"
+               f"final: {D['d2'][1][-1]} communities · Q={qlast:.2f}\n\n"
+               "All panels are SIZE-ROBUST (embedding geometry + mesoscale\n"
+               "structure), not raw graph distance — which shrinks as the\n"
+               "graph densifies (the confound scaling.py also avoids).\n\n"
+               "(a)  total new-concept rate falls = saturation; the line is the\n"
+               "     novel fraction — read its trend, don't assume one.\n"
+               "(b)  communities/Q = sub-fields forming & fusing (right lens once\n"
+               "     the graph is one connected component).\n"
+               "(c)  rising median = later edges bridge MORE distant concepts.\n"
+               "(d)  flat-then-rising = dormant ideas the model returns to.\n"
+               "(e)  rise-then-fall = explore then consolidate.")
+        a.text(0.0, 0.98, "Reasoning dynamics", fontsize=12, fontweight="bold", va="top")
+        a.text(0.0, 0.88, cap, fontsize=8.0, va="top", family="monospace")
 
     fig.suptitle("How the reasoning graph grows with test-time compute (dynamics)", y=1.0, fontsize=13)
     fig.tight_layout()
@@ -311,6 +311,8 @@ def main():
                    help="how many late-blooming concepts to trace in D4")
     p.add_argument("--bfs-cutoff", dest="bfs_cutoff", type=int, default=10,
                    help="(reserved) max hops probed when gating recombinations")
+    p.add_argument("--no-text", dest="no_text", action="store_true",
+                   help="omit the in-figure text panel (use the paper caption instead)")
     args = p.parse_args()
 
     if args.max_iter is not None:
@@ -318,7 +320,8 @@ def main():
         print(f"[dynamics] truncating to iter <= {args.max_iter}")
     out = args.out or os.path.join(args.run.rstrip("/"), "figures", "dynamics")
     make_figure(args.run, out, embed_model=args.embed_model, n_ckpt=args.checkpoints,
-                n_bins=args.bins, top_incubate=args.top_incubate, bfs_cutoff=args.bfs_cutoff)
+                n_bins=args.bins, top_incubate=args.top_incubate, bfs_cutoff=args.bfs_cutoff,
+                show_text=not args.no_text)
 
 
 if __name__ == "__main__":
