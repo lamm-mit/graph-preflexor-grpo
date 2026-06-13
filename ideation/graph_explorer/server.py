@@ -20,6 +20,8 @@ import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
+import urllib.error
+import urllib.request
 
 import networkx as nx
 
@@ -122,24 +124,103 @@ def _component_map(G):
     return comp, sizes
 
 
+def _community_map(G):
+    signature = (bool(G.is_directed()), G.number_of_nodes(), G.number_of_edges())
+    cached = G.graph.get("_explorer_community_cache")
+    if cached and cached.get("signature") == signature:
+        return cached["community"], cached["sizes"]
+
+    U = G.to_undirected()
+    if U.number_of_nodes() == 0:
+        community, sizes = {}, []
+    elif U.number_of_edges() == 0 or U.number_of_nodes() > 3000:
+        community = {str(n): i for i, n in enumerate(U.nodes)}
+        sizes = [1 for _ in U.nodes]
+    else:
+        try:
+            groups = sorted(nx.community.greedy_modularity_communities(U), key=len, reverse=True)
+            community = {}
+            sizes = []
+            for i, nodes in enumerate(groups):
+                sizes.append(len(nodes))
+                for n in nodes:
+                    community[str(n)] = i
+        except Exception:
+            community, sizes = _component_map(G)
+    G.graph["_explorer_community_cache"] = {
+        "signature": signature,
+        "community": community,
+        "sizes": sizes,
+    }
+    return community, sizes
+
+
 def _centrality(G):
+    signature = (bool(G.is_directed()), G.number_of_nodes(), G.number_of_edges())
+    cached = G.graph.get("_explorer_centrality_cache")
+    if cached and cached.get("signature") == signature:
+        return cached["metrics"]
+
     U = G.to_undirected()
     degree = dict(U.degree())
+    n = U.number_of_nodes()
+    metrics = {
+        "degree": degree,
+        "pagerank": {},
+        "core": {},
+        "closeness": {},
+        "betweenness": {},
+        "clustering": {},
+        "eigenvector": {},
+    }
     try:
-        pr = nx.pagerank(G if G.number_of_edges() else U, max_iter=100)
+        metrics["pagerank"] = nx.pagerank(G if G.number_of_edges() else U, max_iter=100)
     except Exception:
         total = max(1, sum(degree.values()))
-        pr = {n: degree.get(n, 0) / total for n in U.nodes}
+        metrics["pagerank"] = {node: degree.get(node, 0) / total for node in U.nodes}
     try:
-        core = nx.core_number(U) if U.number_of_edges() else {n: 0 for n in U.nodes}
+        metrics["core"] = nx.core_number(U) if U.number_of_edges() else {node: 0 for node in U.nodes}
     except Exception:
-        core = {n: 0 for n in U.nodes}
-    return degree, pr, core
+        metrics["core"] = {node: 0 for node in U.nodes}
+    try:
+        metrics["clustering"] = nx.clustering(U) if U.number_of_edges() else {node: 0.0 for node in U.nodes}
+    except Exception:
+        pass
+    try:
+        if n <= 900:
+            metrics["closeness"] = nx.closeness_centrality(U)
+    except Exception:
+        pass
+    try:
+        if U.number_of_edges():
+            if n <= 220:
+                metrics["betweenness"] = nx.betweenness_centrality(U, normalized=True)
+            else:
+                metrics["betweenness"] = nx.betweenness_centrality(
+                    U, k=min(96, n), normalized=True, seed=7
+                )
+    except Exception:
+        pass
+    try:
+        if U.number_of_edges() and n <= 1200:
+            metrics["eigenvector"] = nx.eigenvector_centrality(U, max_iter=300, tol=1e-04)
+    except Exception:
+        metrics["eigenvector"] = metrics["pagerank"]
+    G.graph["_explorer_centrality_cache"] = {"signature": signature, "metrics": metrics}
+    return metrics
 
 
 def graph_payload(G, *, name="", path="", topic="", node_subset=None, edge_subset=None, include_attrs=True):
     comp, comp_sizes = _component_map(G)
-    degree, pagerank, core = _centrality(G)
+    community, community_sizes = _community_map(G)
+    metrics = _centrality(G)
+    degree = metrics["degree"]
+    pagerank = metrics["pagerank"]
+    core = metrics["core"]
+    closeness = metrics["closeness"]
+    betweenness = metrics["betweenness"]
+    clustering = metrics["clustering"]
+    eigenvector = metrics["eigenvector"]
     node_filter = set(map(str, node_subset)) if node_subset is not None else None
     edge_filter = set(edge_subset or []) if edge_subset is not None else None
 
@@ -156,7 +237,12 @@ def graph_payload(G, *, name="", path="", topic="", node_subset=None, edge_subse
             "degree": int(degree.get(n, 0)),
             "pagerank": float(pagerank.get(n, 0.0)),
             "core": int(core.get(n, 0)),
+            "closeness": float(closeness.get(n, 0.0)),
+            "betweenness": float(betweenness.get(n, 0.0)),
+            "clustering": float(clustering.get(n, 0.0)),
+            "eigenvector": float(eigenvector.get(n, 0.0)),
             "component": int(comp.get(sid, -1)),
+            "community": int(community.get(sid, -1)),
             "iter": _int_attr(attrs, "iter", 0),
             "depth": _int_attr(attrs, "depth", 0),
             "attrs": attrs if include_attrs else {},
@@ -192,6 +278,8 @@ def graph_payload(G, *, name="", path="", topic="", node_subset=None, edge_subse
         "avg_degree": float(sum(degree.values()) / max(1, len(degree))),
         "max_iter": max((_int_attr(d, "iter", 0) for _, d in G.nodes(data=True)), default=0),
         "component_sizes": comp_sizes[:40],
+        "communities": len(community_sizes),
+        "community_sizes": community_sizes[:40],
     }
     return {
         "graph_id": STATE.get("graph_id"),
@@ -297,6 +385,175 @@ def _load_run_graph(run_value):
     raise ValueError(f"no readable graphml in {target}; last error: {detail}")
 
 
+def _load_config():
+    path = IDEATION_DIR / "config.yaml"
+    if not path.exists():
+        return {}, path
+    try:
+        import yaml
+    except Exception as exc:
+        raise RuntimeError("PyYAML is required to read config.yaml") from exc
+    with open(path) as f:
+        return yaml.safe_load(f) or {}, path
+
+
+def _role_from_config(role, cfg):
+    if role == "embedder":
+        return {
+            "role": role,
+            "provider": "embedding",
+            "model": str(cfg.get("embed_model") or ""),
+            "base_url": "",
+            "api_key_env": "",
+            "temperature": "",
+            "max_tokens": "",
+            "reasoning_effort": "",
+        }
+    data = dict(cfg.get(role) or {})
+    return {
+        "role": role,
+        "provider": data.get("provider") or "openai",
+        "model": str(data.get("model") or ""),
+        "base_url": str(data.get("base_url") or ""),
+        "api_key_env": str(data.get("api_key_env") or data.get("api_key") or ""),
+        "temperature": data.get("temperature", ""),
+        "max_tokens": data.get("max_tokens", ""),
+        "reasoning_effort": str(data.get("reasoning_effort") or ""),
+    }
+
+
+def _config_payload():
+    cfg, path = _load_config()
+    roles = ["generator", "questioner", "graph_qa", "judge", "baseline", "embedder"]
+    return {
+        "path": str(path),
+        "exists": path.exists(),
+        "roles": {role: _role_from_config(role, cfg) for role in roles},
+    }
+
+
+def _coerce_role(raw):
+    role = dict(raw or {})
+    for key in ("role", "provider", "model", "base_url", "api_key_env", "reasoning_effort"):
+        role[key] = str(role.get(key) or "").strip()
+    for key in ("temperature", "max_tokens"):
+        value = role.get(key)
+        if value in (None, ""):
+            role[key] = ""
+            continue
+        try:
+            role[key] = float(value) if key == "temperature" else int(float(value))
+        except Exception:
+            role[key] = value
+    return role
+
+
+def _roles_to_config_text(roles):
+    try:
+        import yaml
+    except Exception as exc:
+        raise RuntimeError("PyYAML is required to export config.yaml") from exc
+    cfg, _ = _load_config()
+    cfg = dict(cfg)
+    for name, raw in dict(roles or {}).items():
+        role = _coerce_role(raw)
+        if name == "embedder":
+            if role.get("model"):
+                cfg["embed_model"] = role["model"]
+            continue
+        block = dict(cfg.get(name) or {})
+        for key in ("provider", "model", "base_url", "api_key_env", "temperature", "max_tokens", "reasoning_effort"):
+            value = role.get(key)
+            if value not in (None, ""):
+                block[key] = value
+            elif key in block:
+                block.pop(key, None)
+        cfg[name] = block
+    return yaml.safe_dump(cfg, sort_keys=False, width=100)
+
+
+def _model_status(body):
+    role = _coerce_role(body.get("role") or body)
+    provider = role.get("provider") or "openai"
+    if provider in ("hf", "embedding"):
+        return {
+            "ok": True,
+            "provider": provider,
+            "message": "No HTTP server check is needed for this provider.",
+            "models": [role.get("model")] if role.get("model") else [],
+        }
+    base_url = (role.get("base_url") or "").rstrip("/")
+    if not base_url:
+        return {"ok": False, "message": "base_url is required for OpenAI-compatible health checks.", "models": []}
+    url = f"{base_url}/models"
+    headers = {"Accept": "application/json"}
+    api_key_env = role.get("api_key_env")
+    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=float(body.get("timeout", 2.0))) as resp:
+            payload = json.loads(resp.read().decode("utf-8") or "{}")
+        models = []
+        for item in payload.get("data", []):
+            if isinstance(item, dict) and item.get("id"):
+                models.append(str(item["id"]))
+        return {"ok": True, "url": url, "status": 200, "models": models[:80], "message": f"{len(models)} models"}
+    except urllib.error.HTTPError as exc:
+        return {"ok": False, "url": url, "status": exc.code, "models": [], "message": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "url": url, "models": [], "message": str(exc)}
+
+
+def _save_config(body):
+    text = _roles_to_config_text(body.get("roles") or {})
+    path = IDEATION_DIR / "config.yaml"
+    path.write_text(text)
+    return {"ok": True, "path": str(path), "config": text}
+
+
+def _edge_key(u, v, directed=False):
+    su, sv = str(u), str(v)
+    return (su, sv) if directed or su <= sv else (sv, su)
+
+
+def _compare_run(body):
+    G = _require_graph()
+    run, graph_path, H = _load_run_graph(body.get("run") or "")
+    g_nodes = {str(n) for n in G.nodes}
+    h_nodes = {str(n) for n in H.nodes}
+    g_edges = {_edge_key(u, v, G.is_directed()) for u, v in G.edges}
+    h_edges = {_edge_key(u, v, H.is_directed()) for u, v in H.edges}
+    h_degree = dict(H.to_undirected().degree())
+    g_degree = dict(G.to_undirected().degree())
+
+    def top(nodes, degree, graph, limit=20):
+        rows = []
+        for n in sorted(nodes, key=lambda x: degree.get(x, 0), reverse=True)[:limit]:
+            label = graph.nodes[n].get("label", n) if n in graph else n
+            rows.append({"id": str(n), "label": str(label), "degree": int(degree.get(n, 0))})
+        return rows
+
+    return {
+        "run": run.name,
+        "path": str(graph_path),
+        "current": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges(), "name": STATE.get("graph_name", "")},
+        "other": {"nodes": H.number_of_nodes(), "edges": H.number_of_edges(), "name": run.name},
+        "shared": {"nodes": len(g_nodes & h_nodes), "edges": len(g_edges & h_edges)},
+        "current_only": {
+            "nodes": len(g_nodes - h_nodes),
+            "edges": len(g_edges - h_edges),
+            "top_nodes": top(g_nodes - h_nodes, g_degree, G),
+        },
+        "other_only": {
+            "nodes": len(h_nodes - g_nodes),
+            "edges": len(h_edges - g_edges),
+            "top_nodes": top(h_nodes - g_nodes, h_degree, H),
+        },
+    }
+
+
 def _set_graph(G, *, name, path="", topic=""):
     with LOCK:
         STATE["graph"] = G
@@ -320,7 +577,10 @@ def _search_nodes(G, query, limit=50):
     if not q:
         return []
     terms = [t for t in q.split() if t]
-    degree, pr, core = _centrality(G)
+    metrics = _centrality(G)
+    degree = metrics["degree"]
+    pr = metrics["pagerank"]
+    core = metrics["core"]
     out = []
     for n, d in G.nodes(data=True):
         attrs = {str(k): str(v) for k, v in dict(d).items()}
@@ -698,6 +958,8 @@ class Handler(SimpleHTTPRequestHandler):
                     ))
             elif parsed.path == "/api/job":
                 self._json(_job_status((qs.get("id") or [""])[0]))
+            elif parsed.path == "/api/config":
+                self._json(_config_payload())
             else:
                 self._json({"error": "unknown endpoint"}, status=404)
         except Exception as exc:
@@ -739,6 +1001,14 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_answer_question(body))
             elif parsed.path == "/api/ideate":
                 self._json(_start_ideate_job(body))
+            elif parsed.path == "/api/model_status":
+                self._json(_model_status(body))
+            elif parsed.path == "/api/config_preview":
+                self._json({"config": _roles_to_config_text(body.get("roles") or {})})
+            elif parsed.path == "/api/save_config":
+                self._json(_save_config(body))
+            elif parsed.path == "/api/compare_run":
+                self._json(_compare_run(body))
             else:
                 self._json({"error": "unknown endpoint"}, status=404)
         except Exception as exc:
