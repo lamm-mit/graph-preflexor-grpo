@@ -606,31 +606,35 @@ Notes:
 - `--context-mode chained|branched` are experimental for this single-turn-trained model; leave
   it `fresh` unless you're deliberately testing multi-turn behavior.
 
-## Headline benchmark — the graph as a Graph-RAG knowledge base (`compare.py`)
+## Headline benchmark — do distal graph concepts make a small model more creative? (`compare.py`)
 
-The defensible claim: the test-time compute the graph-native reasoner spends is **amortized into a
-reusable knowledge *structure*** (concepts + the relationships between them). Retrieving from that
-structure lets the **same small model** answer domain questions better than it can closed-book — and
-the **relationships (edges)** carry information a flat list of concepts doesn't. `compare.py`'s default
-**graphrag** mode is a clean RAG ablation: one small model, three retrieval conditions, judged blind
-and **absolute** (never pairwise — pairwise can't show this and is easy to bias):
+The thesis is **creativity**, so the benchmark measures creativity — and uses the graph the *right*
+way. A plain similarity search returns the **obvious** on-topic concepts the model already knows
+(useless as a provocation). The graph's unique power is concepts that are **far in meaning but
+connected through reasoning** — non-obvious / cross-domain associations a flat search can't surface
+("far but graph-connected"). `compare.py`'s default **graphrag** mode tests exactly that: one small
+model, the same *"brainstorm N ideas"* task, three retrieval conditions:
 
 | arm | what the model sees | controls for |
 |---|---|---|
-| **closed-book** | the question only | the model's parametric knowledge (the floor) |
-| **flat-RAG** | question + top concepts retrieved from the graph (**bag of nodes, no edges**) | "just more concepts in context" |
-| **graph-RAG** | question + a retrieved **subgraph**: the same concepts **and** their relationships, as `A —relation→ B` triples | the **structure** test-time compute built |
+| **closed-book** | the question only — generated **first**, to define the model's own prior | the floor / the OOD reference |
+| **near-RAG** | + the concepts most **similar** to the question (obvious, on-topic) | "does adding *any* retrieved concepts help?" |
+| **graph-RAG** | + a curated subgraph: **central anchors** (hubs near the question) + **unusual angles** (graph-connected concepts far from *the model's own ideas* — out-of-distribution provocations) + the **relations** linking them | the graph pushing the model OOD |
 
-A blind judge scores each answer 1–5 on **specificity · mechanism · relational richness ·
-correctness** (shuffled, doesn't know which arm); two embedding metrics add objective **grounding**
-and **# distinct explored concepts used**. The two reads that matter:
+The key move: **OOD is defined against the model's own closed-book ideas**, so the "unusual" concepts
+are the ones the model genuinely *wouldn't reach alone*. Concepts are offered as *optional
+inspiration* ("use any that spark an idea") — no cite directive, so the small model can't parrot. A
+blind judge scores each idea-**set** 1–5 on **novelty · surprise · breadth · plausibility** (shuffled,
+blind to arm); two objective embedding metrics are computed: **OOD departure** (distance of an arm's
+ideas from the model's closed-book ideas) and idea **diversity**. The result that shines:
 
-- **graph-RAG ≫ closed-book** → retrieving the accumulated graph genuinely helps the small model;
-- **graph-RAG > flat-RAG** (especially on *relational* and *mechanism*) → it's the **structure**, not
-  merely having more concepts, that carries the gain — flat-RAG has the concepts but not the edges.
+- **graph-RAG pushes ideas furthest OOD** (panel B) **while staying plausible and scoring most
+  novel** (panel A) — the graph explores *valid* territory the model can't reach on its own;
+- **graph-RAG > near-RAG** → it's the **OOD provocations**, not retrieval per se, that do it
+  (near-RAG adds obvious concepts and stays near the model's prior).
 
 It reads the **graph directly** (`graph.graphml`) — `insights.json` is not used. **One command** over
-the 10 questions in [`benchmark_tasks.txt`](benchmark_tasks.txt):
+the questions in [`benchmark_tasks.txt`](benchmark_tasks.txt):
 
 ```bash
 RUN=runs/exp MODEL=meta-llama/Llama-3.2-3B-Instruct BASE_URL=http://localhost:8000/v1 \
@@ -647,10 +651,11 @@ python compare.py --run runs/exp --tasks benchmark_tasks.txt \
 ```
 
 **The scaling story (the headline figure).** Re-run with `--max-iter 250 / 750 / 1500` (or via
-`MAX_ITER=` in the driver): retrieving from a graph built with *more test-time compute* should give
-*better* RAG answers. That curve — answer quality vs graph compute — is the paper's "more compute →
-more reachable, better-grounded knowledge" result, made downstream-measurable. Retrieval dials:
-`--rag-seeds`, `--rag-neighbors`, `--flat-concepts`, `--max-triples`.
+`MAX_ITER=` in the driver): a graph built with *more test-time compute* should surface *richer
+provocations* → more creative answers. That curve — creativity vs graph compute — is the paper's
+"more compute → more creative reach" result, made downstream-measurable. Dials: `--rag-seeds`
+(question seeds), `--rag-hops` (how far out to look for distal concepts), `--concepts` (how many to
+inject), `--n-ideas` (ideas each arm brainstorms).
 
 **Other modes.** `--mode coverage` measures validated idea-space coverage of a hypothesis *set* vs
 single-shot resampling (graph leads → K hypotheses vs M ≥ 2K baseline samples; honest but sensitive

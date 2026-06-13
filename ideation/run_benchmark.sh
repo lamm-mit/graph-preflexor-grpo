@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
-# Headline benchmark: the accumulated graph as a Graph-RAG knowledge base.
+# Headline benchmark: do DISTAL graph concepts make a small model more CREATIVE?
 #
-# Test-time compute spent by the graph-native reasoner is amortized into a reusable knowledge
-# STRUCTURE (concepts + relationships). Does retrieving from it let the SAME small model answer
-# domain questions better than closed-book? compare.py answers each task three ways with one model:
-#   closed-book   question only (parametric knowledge — the floor)
-#   flat-RAG      question + top retrieved concepts (bag of nodes, no edges)
-#   graph-RAG     question + a retrieved subgraph (concepts AND their relationships, as triples)
-# A blind judge scores each answer 1-5 (specificity/mechanism/relational/correctness); embeddings
-# add objective grounding+coverage. graph-RAG >> closed-book = the graph helps; graph-RAG > flat-RAG
-# = the STRUCTURE (not just the concepts) is what helps.
+# Same small model, same "brainstorm N ideas" task, three retrieval conditions:
+#   closed-book   the question only (the model's own priors — the floor)
+#   near-RAG      + concepts most SIMILAR to the question (obvious — controls for "any retrieval?")
+#   graph-RAG     + concepts DISTANT from the question but graph-connected to its seeds (surprising
+#                 cross-domain provocations only the graph's edges link)
+# A blind judge scores each idea-set 1-5 (novelty/surprise/breadth/plausibility); idea diversity is
+# measured objectively. graph-RAG > closed-book = graph provocations help; graph-RAG > near-RAG = it's
+# the DISTAL, surprising concepts (not retrieval per se) that boost creativity.
 #
 # Configure via env vars, then run:  bash run_benchmark.sh
 set -euo pipefail
 
 RUN="${RUN:-runs/exp}"                                  # ideate.py run dir (its graph.graphml is the KB)
 TASKS="${TASKS:-benchmark_tasks.txt}"                   # one domain question per line
-OUT="${OUT:-runs/exp/benchmark/graphrag}"             # output basename
+OUT="${OUT:-$RUN/benchmark/graphrag}"                 # output basename (tracks $RUN)
 MODEL="${MODEL:-meta-llama/Llama-3.2-3B-Instruct}"      # the small generator (all three arms)
 BASE_URL="${BASE_URL:-http://localhost:8000/v1}"        # OpenAI-compatible endpoint serving $MODEL
 JUDGE_MODEL="${JUDGE_MODEL:-gpt-5.5}"                   # blind absolute scorer (needs $OPENAI_API_KEY)
