@@ -209,7 +209,14 @@ def make_figure(run_dir, out, n_bins=25, show_text=True, **kw):
                                 "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150})
     D = compute(run_dir, n_bins=n_bins, **kw)
     mids, ebins = D["mids"], D["edges_bins"]
-    fig, axg = plt.subplots(3, 2, figsize=(10.5, 11.8)); ax = axg.ravel()
+    fig = plt.figure(figsize=(10.5, 11.8))
+    gs = fig.add_gridspec(3, 2)
+    ax = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]),
+          fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])]
+    if show_text:                                      # (e) shares the bottom row with the text panel
+        ax += [fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])]
+    else:                                              # --no-text: (e) spans the full bottom width
+        ax += [fig.add_subplot(gs[2, :]), None]
 
     # D1 — explore vs consolidate (rate + novel-fraction line)
     novel_pb, cons_pb, frac = D["d1"]
@@ -266,10 +273,10 @@ def make_figure(run_dir, out, n_bins=25, show_text=True, **kw):
     a.set_title("(e) Exploration radius of new ideas"); a.set_xlabel("reasoning iteration")
     a.set_ylabel("embedding distance from seed"); a.legend(frameon=False, fontsize=8, loc="lower right")
 
-    # text panel (omit with --no-text / show_text=False)
+    # text panel (omitted with --no-text; then panel (e) already spans the bottom row)
     qlast = D["d2"][2][-1]
-    a = ax[5]; a.axis("off")
     if show_text:
+        a = ax[5]; a.axis("off")
         cap = (f"{D['n_nodes']} concepts · {D['n_edges']} links · embed: {D['model']}\n"
                f"final: {D['d2'][1][-1]} communities · Q={qlast:.2f}\n\n"
                "All panels are SIZE-ROBUST (embedding geometry + mesoscale\n"
