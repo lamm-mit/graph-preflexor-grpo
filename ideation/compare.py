@@ -1,32 +1,31 @@
 #!/usr/bin/env python
-"""Benchmark: validated idea-space COVERAGE at over-matched compute (the strength of graph reasoning).
+"""Benchmark: the accumulated graph as a Graph-RAG knowledge base for a small model (DEFAULT mode).
 
-The headline claim is mode-collapse: a single-shot LLM, however many times you resample it, keeps
-returning the same handful of obvious ideas, while structured graph exploration reaches validated,
-non-obvious hypotheses it never produces. A "which single answer is better" test can't show this —
-so this benchmark compares HYPOTHESIS SETS, with the baseline given MORE compute, not less.
+The defensible claim: test-time compute spent by the graph-native reasoner is amortized into a
+reusable knowledge STRUCTURE (concepts + their relationships). Retrieving from that structure lets
+the SAME small model answer domain questions better than it can closed-book — and the *relationships*
+(edges) carry information a flat list of concepts doesn't. So it's a clean RAG ablation, same model,
+three arms, judged blind & absolute (never pairwise):
 
-Per task, the SAME small model generates hypotheses two ways:
-  GRAPH    one hypothesis per top-actionability lead from the run's graph (K hypotheses, each
-           anchored to a specific discovered connection the model surfaced over many iterations).
-  BASELINE M >= 2K INDEPENDENT samples of the same model on the bare question (mode-seeking, and
-           deliberately given MORE answer-time calls than the graph arm).
+  closed-book   question only — the model's parametric knowledge (the floor).
+  flat-RAG      question + the top concepts retrieved from the graph by similarity (a bag of nodes,
+                NO edges) — controls for "just more concepts in context".
+  graph-RAG     question + a retrieved SUBGRAPH: the same concepts AND the relationships between
+                them, serialized as `A —relation→ B` triples — the structure test-time compute built.
 
-Then it's mostly judge-free geometry. One blind judge call per task gates every hypothesis for
-plausibility + testability (so coverage can't be won by noise); the rest is embeddings:
-  - distinct VALIDATED hypotheses per arm (dedup in embedding space),
-  - coverage saturation: cumulative distinct vs #generations (baseline plateaus = mode-collapse),
-  - EXCLUSIVE fraction: validated graph ideas with no validated baseline idea nearby — i.e. ideas
-    the baseline never reached even with 2x the samples (and vice versa, for honesty),
-  - idea-space spread, and judged novelty of the validated sets.
+Per task the judge scores each answer 1-5 on specificity / mechanism / relational richness /
+correctness (blind to which arm), and two embedding metrics are computed objectively: grounding in
+the explored domain and # distinct graph concepts correctly used. The win that "definitely shines":
+graph-RAG >> closed-book (retrieval helps), and graph-RAG > flat-RAG isolates that the *structure*
+(not just the concepts) is what helps. Pair with `--max-iter` for the scaling story: bigger graph
+(more compute) -> better RAG answers. This mode does NOT use insights.json — it reads the graph directly.
 
     python compare.py --run runs/exp --tasks benchmark_tasks.txt \
         --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
-        --judge-model gpt-5.5 --out runs/exp/benchmark/coverage
+        --judge-model gpt-5.5 --out runs/exp/benchmark/graphrag
 
-The generator is the SAME small model for both arms (only the conditioning differs); the judge is
-used ONLY as a yes/no-ish validity gate, never to compare arms — so a strong judge can't bias it.
-A legacy pairwise-answer judge is still available via --mode pairwise.
+Other modes: `--mode coverage` (validated idea-space coverage vs single-shot resampling) and
+`--mode pairwise` (legacy single-answer judge over two answer dirs).
 """
 import argparse
 import glob
@@ -340,6 +339,212 @@ def _render_coverage(args, topic, K, M, per_task, sat_g, sat_b):
 
 
 # --------------------------------------------------------------------------- #
+#  Graph-RAG benchmark (DEFAULT): closed-book vs flat-RAG vs graph-RAG, same model
+# --------------------------------------------------------------------------- #
+RAG_SYSTEM = ("You are a rigorous research scientist. Answer the question in ONE focused paragraph: "
+              "be specific and concrete, name the mechanism, and explain how the relevant factors "
+              "connect. No preamble, no restating the question.")
+
+ARMS = ["closed", "flat", "graph"]
+ARM_LABEL = {"closed": "closed-book", "flat": "flat-RAG (concepts)", "graph": "graph-RAG (structure)"}
+ARM_COL = {"closed": "#7f7f7f", "flat": "#1f77b4", "graph": "#d62728"}
+RAG_DIMS = ["specificity", "mechanism", "relational", "correctness"]
+
+RAG_SCHEMA = {"type": "json_schema", "json_schema": {"name": "abs", "strict": True, "schema": {
+    "type": "object", "additionalProperties": False, "required": ["answers"],
+    "properties": {"answers": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False,
+        "required": ["id"] + RAG_DIMS,
+        "properties": dict({"id": {"type": "integer"}},
+                           **{d: {"type": "integer", "enum": [1, 2, 3, 4, 5]} for d in RAG_DIMS})}}}}}}
+
+
+def _lbl(G, n):
+    return str(G.nodes[n].get("label", n))
+
+
+def _retrieve(qv, node_ids, X, idx, G, labels, n_seeds, max_nbr, n_flat, max_triples):
+    """From the FINAL graph: seeds = nodes most similar to the question; flat = top concept labels
+    (bag, no edges); graph = a connected subgraph (seeds + their question-relevant neighbours) with
+    the RELATIONS serialized as `A —relation→ B` — the structure the bag-of-concepts arm lacks."""
+    sims = X @ qv
+    order = np.argsort(sims)[::-1]
+    seeds = [node_ids[i] for i in order[:n_seeds]]
+    flat = [labels[i] for i in order[:n_flat]]
+    involved, seen = list(seeds), set(seeds)
+    for s in seeds:
+        nbrs = set(G.successors(s)) | set(G.predecessors(s))
+        nbrs = sorted(nbrs, key=lambda n: -float(X[idx[n]] @ qv))[:max_nbr]
+        for nb in nbrs:
+            if nb not in seen:
+                seen.add(nb); involved.append(nb)
+    inv = set(involved)
+    triples = []
+    for u, v, d in G.edges(data=True):
+        if u in inv and v in inv:
+            sc = max(float(X[idx[u]] @ qv), float(X[idx[v]] @ qv))
+            triples.append((sc, f"{_lbl(G, u)} —{d.get('relation', 'related to')}→ {_lbl(G, v)}"))
+    triples.sort(reverse=True)
+    return flat, [t for _, t in triples[:max_triples]]
+
+
+def _rag_prompt(q, mode, flat, triples):
+    if mode == "closed":
+        return f"Question: {q}\n\nAnswer specifically, explaining the mechanism."
+    if mode == "flat":
+        ctx = "Relevant concepts from prior analysis of this domain:\n" + "\n".join(f"- {c}" for c in flat)
+        tail = "using the concepts above where they apply"
+    else:
+        ctx = ("Relevant concepts and how they connect (from prior analysis of this domain):\n"
+               + "\n".join(f"- {t}" for t in triples))
+        tail = "using the relationships above where they apply"
+    return f"Question: {q}\n\n{ctx}\n\nAnswer specifically, explaining the mechanism and {tail}."
+
+
+def _ground_cover(answer, X, model, tau):
+    """Objective: grounding = mean similarity of the answer's sentences to the nearest explored
+    concept; coverage = # distinct graph concepts a sentence lands on (>= tau)."""
+    from graphstore import embed_texts
+    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if len(s.strip()) > 20]
+    if not sents:
+        return 0.0, 0
+    Sv = _unit(np.asarray(embed_texts(sents, model), np.float32))
+    sim = Sv @ X.T
+    near = sim.max(1)
+    cov = len({int(i) for i, s in zip(sim.argmax(1), near) if s >= tau})
+    return float(near.mean()), cov
+
+
+def _judge_abs(call, q, shuffled):
+    """One blind call scoring every answer 1-5 on each RAG_DIM. `shuffled` = list of (arm, text)."""
+    listing = "\n\n".join(f"[Answer {i+1}]\n{t}" for i, (_, t) in enumerate(shuffled))
+    user = (f"Question:\n{q}\n\nScore EACH answer 1-5 on: specificity (concrete vs generic), "
+            f"mechanism (depth and correctness of the proposed mechanism), relational (does it "
+            f"explain how factors connect, not just list them), correctness (scientific soundness). "
+            f"Return a verdict for every id 1..{len(shuffled)}.\n\n{listing}")
+    v = _parse_json(call([{"role": "system", "content": GATE_SYSTEM}, {"role": "user", "content": user}],
+                         0.0, 6000, RAG_SCHEMA)) or {}
+    by_id = {d.get("id"): d for d in v.get("verdicts", v.get("answers", [])) if isinstance(d, dict)}
+    out = {}
+    for i, (arm, _) in enumerate(shuffled):
+        d = by_id.get(i + 1, {})
+        out[arm] = {dim: float(d.get(dim, 2)) for dim in RAG_DIMS}
+    return out
+
+
+def run_graphrag(args):
+    from graphstore import embed_texts, resolve_embed_model
+    tasks = [ln.strip() for ln in open(args.tasks, encoding="utf-8") if ln.strip()]
+    G = I.load_graph(args.run)
+    model = resolve_embed_model(args.run, args.embed_model)
+    node_ids = list(G.nodes)
+    print(f"[compare] graph-RAG · {len(tasks)} tasks · graph {G.number_of_nodes()} concepts / "
+          f"{G.number_of_edges()} links · generator={args.model} · judge={args.jm} · embed={model}",
+          flush=True)
+    vecs = I.embed_nodes(G, model)
+    if not vecs:
+        raise SystemExit("embeddings unavailable — graph-RAG needs them (--embed-model all-MiniLM-L6-v2).")
+    X = _unit(np.stack([vecs[n] for n in node_ids]).astype(np.float32))
+    idx = {n: i for i, n in enumerate(node_ids)}
+    labels = [_lbl(G, n) for n in node_ids]
+    call_gen = _make_call(args.model, args.base_url, args.api_key)
+    call_judge = _make_call(args.jm, args.jbu, args.jak)
+
+    per_task = []
+    for ti, q in enumerate(tasks):
+        print(f"[compare] task {ti+1}/{len(tasks)}: retrieve + answer (3 arms)…", flush=True)
+        qv = _unit(np.asarray(embed_texts([q], model), np.float32))[0]
+        flat, triples = _retrieve(qv, node_ids, X, idx, G, labels, args.rag_seeds, args.rag_neighbors,
+                                  args.flat_concepts, args.max_triples)
+        ans = {arm: " ".join(call_gen([{"role": "system", "content": RAG_SYSTEM},
+                                       {"role": "user", "content": _rag_prompt(q, arm, flat, triples)}],
+                                      temperature=args.temperature, max_tokens=420).split())
+               for arm in ARMS}
+        gc = {arm: _ground_cover(ans[arm], X, model, args.cover_tau) for arm in ARMS}
+        rng = random.Random(args.seed + ti)
+        shuffled = list(ans.items()); rng.shuffle(shuffled)
+        scores = _judge_abs(call_judge, q, shuffled)
+        rec = {"task": q}
+        for arm in ARMS:
+            rec[arm] = {**scores.get(arm, {d: float("nan") for d in RAG_DIMS}),
+                        "grounding": gc[arm][0], "coverage": gc[arm][1]}
+        per_task.append(rec)
+        print("    " + " · ".join(f"{ARM_LABEL[a]}: spec={rec[a]['specificity']:.0f} "
+              f"rel={rec[a]['relational']:.0f} cov={rec[a]['coverage']}" for a in ARMS), flush=True)
+    if not per_task:
+        raise SystemExit("no tasks answered")
+    _render_graphrag(args, G, per_task)
+
+
+def _render_graphrag(args, G, per_task):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
+                         "figure.dpi": 150})
+    agg = {arm: {k: _ms([r[arm][k] for r in per_task])
+                 for k in RAG_DIMS + ["grounding", "coverage"]} for arm in ARMS}
+    fig, ax = plt.subplots(2, 2, figsize=(13.5, 9.0))
+    # A grouped judge dimensions
+    a = ax[0, 0]; x = np.arange(len(RAG_DIMS)); w = 0.26
+    for k, arm in enumerate(ARMS):
+        a.bar(x + (k - 1) * w, [agg[arm][d][0] for d in RAG_DIMS], w,
+              yerr=[agg[arm][d][1] for d in RAG_DIMS], capsize=3, color=ARM_COL[arm], label=ARM_LABEL[arm])
+    a.set_xticks(x); a.set_xticklabels(RAG_DIMS, rotation=12); a.set_ylim(0, 5.4)
+    a.set_ylabel("judge score (1-5, mean ± s.e.)"); a.legend(frameon=False, fontsize=8.5, loc="upper left")
+    a.set_title("(A) Answer quality — blind absolute scoring")
+    # B distinct graph concepts used
+    a = ax[0, 1]
+    a.bar(range(3), [agg[arm]["coverage"][0] for arm in ARMS], yerr=[agg[arm]["coverage"][1] for arm in ARMS],
+          capsize=5, color=[ARM_COL[a2] for a2 in ARMS])
+    a.set_xticks(range(3)); a.set_xticklabels([ARM_LABEL[a2] for a2 in ARMS], rotation=10, fontsize=8.5)
+    a.set_ylabel("# distinct explored concepts used")
+    a.set_title("(B) Grounding in the explored domain (count)")
+    # C grounding similarity
+    a = ax[1, 0]
+    a.bar(range(3), [agg[arm]["grounding"][0] for arm in ARMS], yerr=[agg[arm]["grounding"][1] for arm in ARMS],
+          capsize=5, color=[ARM_COL[a2] for a2 in ARMS])
+    a.set_xticks(range(3)); a.set_xticklabels([ARM_LABEL[a2] for a2 in ARMS], rotation=10, fontsize=8.5)
+    a.set_ylabel("mean similarity to explored concepts")
+    a.set_title("(C) Grounding (similarity)")
+    # D caption
+    a = ax[1, 1]; a.axis("off")
+    a.text(0, .98, "Graph as a RAG knowledge base", fontsize=12, fontweight="bold", va="top")
+    rel = {arm: agg[arm]["relational"][0] for arm in ARMS}
+    cap = (f"{len(per_task)} tasks · graph {G.number_of_nodes()} concepts / {G.number_of_edges()} links\n"
+           f"generator: {args.model}\njudge (blind, absolute): {args.jm}\n\n"
+           f"relational richness: closed {rel['closed']:.1f} · flat {rel['flat']:.1f} · "
+           f"graph {rel['graph']:.1f}\n\n"
+           "Same small model, three retrieval conditions:\n"
+           "  graph-RAG >> closed-book  → the accumulated graph helps.\n"
+           "  graph-RAG  >  flat-RAG    → the STRUCTURE (relationships),\n"
+           "      not just the concepts, is what carries the gain.\n\n"
+           "Test-time compute amortized into a reusable knowledge\ngraph the small model retrieves from.")
+    a.text(0, .88, cap, fontsize=8.8, va="top", family="monospace")
+    fig.suptitle(f"Graph-RAG: does retrieving the accumulated graph help a small model? "
+                 f"(n={len(per_task)} tasks)", y=1.0, fontsize=12.5)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    for ext in ("png", "svg", "pdf"):
+        fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {args.out}.png/.svg/.pdf")
+    report = {"mode": "graphrag", "n_tasks": len(per_task), "judge": args.jm, "generator": args.model,
+              "graph": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges()},
+              "aggregate": agg, "per_task": per_task}
+    json.dump(report, open(f"{args.out}.json", "w"), indent=2)
+    lines = [f"# Graph-RAG benchmark ({len(per_task)} tasks · judge {args.jm})\n",
+             "| metric | closed-book | flat-RAG | graph-RAG |", "|---|---|---|---|"]
+    for k in RAG_DIMS + ["coverage", "grounding"]:
+        lines.append(f"| {k} | {agg['closed'][k][0]:.2f} | {agg['flat'][k][0]:.2f} | "
+                     f"**{agg['graph'][k][0]:.2f}** |")
+    open(f"{args.out}.md", "w").write("\n".join(lines) + "\n")
+    print(f"wrote {args.out}.json / {args.out}.md")
+    print(f"[compare] graph-RAG vs closed-book — relational {rel['graph']:.2f} vs {rel['closed']:.2f}; "
+          f"specificity {agg['graph']['specificity'][0]:.2f} vs {agg['closed']['specificity'][0]:.2f}")
+
+
+# --------------------------------------------------------------------------- #
 #  Legacy pairwise-answer judge (kept for corroboration; --mode pairwise)
 # --------------------------------------------------------------------------- #
 PAIR_DIMS = {"novelty": "original and non-obvious core idea?",
@@ -399,19 +604,25 @@ def run_pairwise(args):
 # --------------------------------------------------------------------------- #
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--mode", choices=["coverage", "pairwise"], default="coverage")
+    p.add_argument("--mode", choices=["graphrag", "coverage", "pairwise"], default="graphrag")
     p.add_argument("--tasks", required=True, help="tasks file (one per line)")
-    p.add_argument("--out", default="figures/coverage", help="output basename")
-    # coverage
-    p.add_argument("--run", help="ideate.py run dir (its insights.json supplies the graph leads)")
-    p.add_argument("--insights", help="path to an insights.json directly")
-    p.add_argument("--model", help="the SMALL generator served for both arms (OpenAI-compatible)")
+    p.add_argument("--out", default="figures/graphrag", help="output basename")
+    # graphrag / coverage shared
+    p.add_argument("--run", help="ideate.py run dir (graphrag reads its graph; coverage its insights.json)")
+    p.add_argument("--insights", help="[coverage] path to an insights.json directly")
+    p.add_argument("--model", help="the SMALL generator served for all arms (OpenAI-compatible)")
     p.add_argument("--base-url", dest="base_url", help="generator endpoint (e.g. http://localhost:8000/v1)")
     p.add_argument("--api-key", dest="api_key", help="generator api key (else $OPENAI_API_KEY)")
+    # graphrag retrieval
+    p.add_argument("--rag-seeds", dest="rag_seeds", type=int, default=6, help="[graphrag] seed nodes per question")
+    p.add_argument("--rag-neighbors", dest="rag_neighbors", type=int, default=3, help="[graphrag] neighbours per seed")
+    p.add_argument("--flat-concepts", dest="flat_concepts", type=int, default=20, help="[graphrag] concepts for flat-RAG")
+    p.add_argument("--max-triples", dest="max_triples", type=int, default=30, help="[graphrag] relation triples for graph-RAG")
+    # coverage
     p.add_argument("--leads", type=int, default=8, help="K: top leads → graph hypotheses (default 8)")
     p.add_argument("--baseline-samples", dest="baseline_samples", type=int, default=0,
                    help="M: baseline independent samples (default 2*K — baseline gets MORE compute)")
-    p.add_argument("--temperature", type=float, default=0.9, help="generator temperature (both arms)")
+    p.add_argument("--temperature", type=float, default=0.6, help="generator temperature (all arms)")
     p.add_argument("--gate", type=float, default=3.0, help="min plausible & testable score to count (1-5)")
     p.add_argument("--dedup-tau", dest="dedup_tau", type=float, default=0.85, help="cosine dup threshold")
     p.add_argument("--cover-tau", dest="cover_tau", type=float, default=0.60,
@@ -430,16 +641,23 @@ def main():
     args = p.parse_args()
 
     if getattr(args, "max_iter", None) is not None:
-        I.MAX_ITER = args.max_iter                     # applied by insights.load_graph when mining
+        I.MAX_ITER = args.max_iter                     # applied by insights.load_graph
     if args.mode == "pairwise":
         if not (args.system and args.baseline):
             raise SystemExit("--mode pairwise needs --system and --baseline answer dirs")
         return run_pairwise(args)
-    if not (args.run or args.insights):
-        raise SystemExit("--mode coverage needs --run <dir> (or --insights <file.json>)")
+    if args.mode == "coverage":
+        if not (args.run or args.insights):
+            raise SystemExit("--mode coverage needs --run <dir> (or --insights <file.json>)")
+        if not args.model:
+            raise SystemExit("--mode coverage needs --model (the small generator for both arms)")
+        return run_coverage(args)
+    # graphrag (default)
+    if not args.run:
+        raise SystemExit("--mode graphrag needs --run <dir> (the accumulated graph to retrieve from)")
     if not args.model:
-        raise SystemExit("--mode coverage needs --model (the small generator for both arms)")
-    run_coverage(args)
+        raise SystemExit("--mode graphrag needs --model (the small generator for all arms)")
+    run_graphrag(args)
 
 
 if __name__ == "__main__":
