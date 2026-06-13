@@ -809,7 +809,7 @@ def run_pairwise(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--mode", choices=["graphrag", "coverage", "pairwise", "insights"], default="graphrag")
-    p.add_argument("--tasks", required=True, help="tasks file (one per line)")
+    p.add_argument("--tasks", help="tasks file, one per line (required for all modes except 'insights')")
     p.add_argument("--out", default="figures/graphrag", help="output basename")
     # graphrag / coverage shared
     p.add_argument("--run", help="ideate.py run dir (graphrag reads its graph; coverage its insights.json)")
@@ -852,6 +852,8 @@ def main():
         if not (args.run or args.insights):
             raise SystemExit("--mode insights needs --run <dir> (or --insights <file.json>)")
         return run_assess(args)
+    if not args.tasks:
+        raise SystemExit(f"--mode {args.mode} needs --tasks <file> (one question/task per line)")
     if args.mode == "pairwise":
         if not (args.system and args.baseline):
             raise SystemExit("--mode pairwise needs --system and --baseline answer dirs")
