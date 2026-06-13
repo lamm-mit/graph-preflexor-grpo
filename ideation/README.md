@@ -606,37 +606,36 @@ Notes:
 - `--context-mode chained|branched` are experimental for this single-turn-trained model; leave
   it `fresh` unless you're deliberately testing multi-turn behavior.
 
-## Headline benchmark — validated idea-space coverage (`compare.py`)
+## Headline benchmark — the graph as a Graph-RAG knowledge base (`compare.py`)
 
-The strength of graph reasoning is **not** "writes a better single answer" — a tiny model writes one
-clean answer either way. It's **breadth of *validated* exploration**: a single-shot model is
-mode-seeking, so however many times you resample it, it keeps returning the same handful of obvious
-ideas (microcapsules, vascular networks, reversible bonds…), while structured graph exploration
-reaches validated, non-obvious hypotheses it never produces. `compare.py`'s default **coverage** mode
-measures exactly that — and *gives the baseline more compute, not less*:
+The defensible claim: the test-time compute the graph-native reasoner spends is **amortized into a
+reusable knowledge *structure*** (concepts + the relationships between them). Retrieving from that
+structure lets the **same small model** answer domain questions better than it can closed-book — and
+the **relationships (edges)** carry information a flat list of concepts doesn't. `compare.py`'s default
+**graphrag** mode is a clean RAG ablation: one small model, three retrieval conditions, judged blind
+and **absolute** (never pairwise — pairwise can't show this and is easy to bias):
 
-| arm | generator | how it gets hypotheses |
+| arm | what the model sees | controls for |
 |---|---|---|
-| **graph** | Llama-3.2-3B | one hypothesis per top-actionability lead (K), each anchored to a discovered connection |
-| **baseline** | **Llama-3.2-3B** | **M ≥ 2K independent samples** of the bare question (mode-seeking, *more* answer-time calls) |
+| **closed-book** | the question only | the model's parametric knowledge (the floor) |
+| **flat-RAG** | question + top concepts retrieved from the graph (**bag of nodes, no edges**) | "just more concepts in context" |
+| **graph-RAG** | question + a retrieved **subgraph**: the same concepts **and** their relationships, as `A —relation→ B` triples | the **structure** test-time compute built |
 
-Same small generator for both arms — only the conditioning differs. A blind judge is used **only as
-a validity gate** (plausible + testable, 1–5 per hypothesis), never to compare arms, so a strong
-judge can't bias the result. Everything else is embedding geometry:
+A blind judge scores each answer 1–5 on **specificity · mechanism · relational richness ·
+correctness** (shuffled, doesn't know which arm); two embedding metrics add objective **grounding**
+and **# distinct explored concepts used**. The two reads that matter:
 
-- **Distinct validated hypotheses** per arm (dedup in embedding space),
-- **Coverage saturation** — cumulative distinct vs #generations (the baseline curve *plateaus* = mode-collapse),
-- **Exclusive fraction** — validated graph ideas with no validated baseline idea nearby, i.e. ideas
-  the baseline **never reached even with 2× the samples** (and vice versa, for honesty),
-- idea-space **spread** and judged **novelty** of the validated sets.
+- **graph-RAG ≫ closed-book** → retrieving the accumulated graph genuinely helps the small model;
+- **graph-RAG > flat-RAG** (especially on *relational* and *mechanism*) → it's the **structure**, not
+  merely having more concepts, that carries the gain — flat-RAG has the concepts but not the edges.
 
-**One command** over the 10 tasks in [`benchmark_tasks.txt`](benchmark_tasks.txt) (no answer files to
-pre-generate — `compare.py` produces the hypotheses itself):
+It reads the **graph directly** (`graph.graphml`) — `insights.json` is not used. **One command** over
+the 10 questions in [`benchmark_tasks.txt`](benchmark_tasks.txt):
 
 ```bash
 RUN=runs/exp MODEL=meta-llama/Llama-3.2-3B-Instruct BASE_URL=http://localhost:8000/v1 \
   JUDGE_MODEL=gpt-5.5 bash run_benchmark.sh
-# -> runs/exp/benchmark/coverage.{png,svg,pdf,json,md}
+# -> runs/exp/benchmark/graphrag.{png,svg,pdf,json,md}
 ```
 
 or directly:
@@ -644,20 +643,19 @@ or directly:
 ```bash
 python compare.py --run runs/exp --tasks benchmark_tasks.txt \
     --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
-    --leads 8 --judge-model gpt-5.5 --out runs/exp/benchmark/coverage
+    --judge-model gpt-5.5 --out runs/exp/benchmark/graphrag
 ```
 
-The figure's headline: *baseline gets MORE samples yet covers less validated idea space; N% of the
-graph's validated hypotheses are unreachable by 2K baseline samples.* Dials: `--leads K`,
-`--baseline-samples M` (default 2K), `--gate` (min plausible+testable to count, default 3),
-`--cover-tau` (cosine below which an idea counts as "unreached"), `--max-iter` (mine leads at a
-matched-compute cutoff — pair with `scaling.py` for a dose-response on compute).
+**The scaling story (the headline figure).** Re-run with `--max-iter 250 / 750 / 1500` (or via
+`MAX_ITER=` in the driver): retrieving from a graph built with *more test-time compute* should give
+*better* RAG answers. That curve — answer quality vs graph compute — is the paper's "more compute →
+more reachable, better-grounded knowledge" result, made downstream-measurable. Retrieval dials:
+`--rag-seeds`, `--rag-neighbors`, `--flat-concepts`, `--max-triples`.
 
-**Corroborating pairwise judge (legacy).** A "which single answer is better" view still exists via
-`--mode pairwise` over two dirs of answers from `synthesize.py` (graph) and `synthesize.py
---no-insights` (baseline) — both arms use an **identical** prompt except a neutral `# Background`
-block of the best leads (`--show-prompt` to inspect). Use it only as a secondary signal: it tests
-single-answer quality, which is not where the graph's value concentrates.
+**Other modes.** `--mode coverage` measures validated idea-space coverage of a hypothesis *set* vs
+single-shot resampling (graph leads → K hypotheses vs M ≥ 2K baseline samples; honest but sensitive
+to topic and lead-selection). `--mode pairwise` is the legacy single-answer judge over two
+`synthesize.py` answer dirs — a weak test, kept only for corroboration.
 
 ## Insight mining (`insights.py`)
 
@@ -1090,6 +1088,6 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 `embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads:
 7 structural/embedding miners + cross-miner actionability) ·
 `novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights,
-or `--no-insights` baseline) · `compare.py` (validated idea-space **coverage** benchmark — graph vs
-single-shot resampling; legacy pairwise judge via `--mode pairwise`) ·
-`benchmark_tasks.txt` + `run_benchmark.sh` (one-command coverage-benchmark driver).
+or `--no-insights` baseline) · `compare.py` (**Graph-RAG** benchmark — closed-book vs flat-RAG vs
+graph-RAG, same small model; also `--mode coverage` and legacy `--mode pairwise`) ·
+`benchmark_tasks.txt` + `run_benchmark.sh` (one-command Graph-RAG benchmark driver).
