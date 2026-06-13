@@ -209,7 +209,7 @@ def make_figure(run_dir, out, n_bins=25, show_text=True, **kw):
                                 "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150})
     D = compute(run_dir, n_bins=n_bins, **kw)
     mids, ebins = D["mids"], D["edges_bins"]
-    fig, axg = plt.subplots(3, 2, figsize=(10.5, 13.5)); ax = axg.ravel()
+    fig, axg = plt.subplots(3, 2, figsize=(10.5, 11.8)); ax = axg.ravel()
 
     # D1 — explore vs consolidate (rate + novel-fraction line)
     novel_pb, cons_pb, frac = D["d1"]
@@ -286,7 +286,7 @@ def make_figure(run_dir, out, n_bins=25, show_text=True, **kw):
         a.text(0.0, 0.88, cap, fontsize=8.0, va="top", family="monospace")
 
     fig.suptitle("How the reasoning graph grows with test-time compute (dynamics)", y=1.0, fontsize=13)
-    fig.tight_layout()
+    fig.tight_layout(h_pad=0.4)
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     for ext in ("png", "svg", "pdf"):
         fig.savefig(f"{out}.{ext}", bbox_inches="tight")
