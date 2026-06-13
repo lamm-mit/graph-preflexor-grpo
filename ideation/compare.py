@@ -17,8 +17,9 @@ Reads the graph directly; insights.json is not used.
         --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
         --judge-model gpt-5.5 --out runs/exp/benchmark/graphrag
 
-Other modes: `--mode coverage` (validated idea-space coverage vs single-shot resampling) and
-`--mode pairwise` (legacy single-answer judge over two answer dirs).
+Other modes: `--mode graphleads` (judge graph-derived mechanistic leads, then synthesize),
+`--mode coverage` (validated idea-space coverage vs single-shot resampling), and `--mode pairwise`
+(legacy single-answer judge over two answer dirs).
 """
 import argparse
 import glob
@@ -662,6 +663,482 @@ def _render_graphrag(args, G, per_task):
 
 
 # --------------------------------------------------------------------------- #
+#  Graph-leads benchmark: first score the graph's mechanistic leads, then test
+#  whether those leads help the small model synthesize better answers.
+# --------------------------------------------------------------------------- #
+LEAD_DIMS = ["relevance", "non_obviousness", "mechanism", "plausibility", "usefulness"]
+LEAD_SOURCE_LABEL = {"graph": "graph leads", "model": "Llama leads", "random": "random graph"}
+LEAD_SOURCE_COL = {"graph": "#d62728", "model": "#1f77b4", "random": "#7f7f7f"}
+LEAD_SCHEMA = {"type": "json_schema", "json_schema": {"name": "lead_quality", "strict": True, "schema": {
+    "type": "object", "additionalProperties": False, "required": ["ratings"],
+    "properties": {"ratings": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["id"] + LEAD_DIMS,
+        "properties": dict({"id": {"type": "integer"}},
+                           **{d: {"type": "integer", "enum": [1, 2, 3, 4, 5]} for d in LEAD_DIMS})}}}}}}
+
+LEAD_SYSTEM = (
+    "You are a research strategist. You produce concise mechanistic leads: useful seeds for a "
+    "creative scientific answer, not full prose answers."
+)
+
+ANSWER_SYSTEM = (
+    "You are a rigorous, inventive research scientist. Answer the task directly with a specific "
+    "hypothesis, mechanism, and a falsifying experiment or decisive measurement when applicable. "
+    "No preamble."
+)
+
+GENERIC_GRAPH_LABELS = {
+    "biopolymer", "selfhealingbiopolymercomposites", "selfhealingmechanism", "healingagent",
+    "microcapsules", "microcapsule", "damage", "properties", "property", "length",
+    "domain", "domainsize", "films", "film", "execution", "originalstate", "referencestates",
+}
+ARTIFACT_GRAPH_LABELS = {
+    "w", "hr", "ga", "sir", "psn", "nor", "mia", "nps", "she", "no", "na", "id", "ii", "iii",
+}
+GENERIC_RELATIONS = {
+    "is", "are", "be", "has", "have", "uses", "use", "contains", "contain", "enables",
+    "enable", "formed by", "related to", "related_to", "associated_with",
+}
+
+
+def _norm_token(s):
+    return re.sub(r"[^a-z0-9]+", "", str(s).lower())
+
+
+def _bad_graph_label(label):
+    s = str(label).strip()
+    n = _norm_token(s)
+    if len(n) < 3:
+        return True
+    if n in GENERIC_GRAPH_LABELS or n in ARTIFACT_GRAPH_LABELS:
+        return True
+    if re.fullmatch(r"[A-Z]{1,3}", s) and s not in {"DNA", "RNA"}:
+        return True
+    return False
+
+
+def _edge_data(G, a, b):
+    d = G.get_edge_data(a, b)
+    if d is None:
+        d = G.get_edge_data(b, a)
+    if isinstance(d, dict) and "relation" not in d and d:
+        first = next(iter(d.values()))
+        if isinstance(first, dict):
+            d = first
+    return d or {}
+
+
+def _edge_relation(G, a, b):
+    return str(_edge_data(G, a, b).get("relation", "related to")).replace("_", " ")
+
+
+def _relation_quality(rel):
+    r = str(rel).strip().lower().replace("_", " ")
+    if not r:
+        return 0.2
+    if r in GENERIC_RELATIONS:
+        return 0.25
+    if any(k in r for k in ("trigger", "release", "react", "cataly", "inhibit", "store", "transport",
+                           "localize", "acceler", "diffus", "repair", "modulat", "convert", "bind")):
+        return 1.0
+    return 0.65
+
+
+def _path_chain_text(G, path):
+    seg = []
+    for a, b in zip(path, path[1:]):
+        seg.append(f"{_lbl(G, a)} --{_edge_relation(G, a, b)}-->")
+    return " ".join(seg) + f" {_lbl(G, path[-1])}"
+
+
+def _clean_numbered_lines(text, n):
+    lines = []
+    for raw in text.splitlines():
+        s = raw.strip()
+        m = re.match(r"^\s*(?:\d+[.\)]|[-*•])\s*(.+)$", s)
+        if not m:
+            continue
+        s = re.sub(r"\*\*([^*]+)\*\*:?\s*", r"\1: ", m.group(1)).strip()
+        if len(s) >= 24 and not s.lower().startswith(("here are", "below are")):
+            lines.append(s)
+    if len(lines) < n:
+        for raw in text.splitlines():
+            s = raw.strip().lstrip("-*•0123456789.() ")
+            if len(s) >= 24 and not s.lower().startswith(("here are", "below are")) and s not in lines:
+                lines.append(s)
+            if len(lines) >= n:
+                break
+    return lines[:n]
+
+
+def _model_leads(call_gen, task, n, temperature):
+    user = (
+        f"Task:\n{task}\n\n"
+        f"List exactly {n} concise mechanistic research leads that could seed a creative answer. "
+        "Each lead must be one sentence, specific, scientifically plausible, and not a full answer. "
+        "Format exactly as a numbered list, with no heading or commentary."
+    )
+    out = call_gen([{"role": "system", "content": LEAD_SYSTEM}, {"role": "user", "content": user}],
+                   temperature=temperature, max_tokens=900)
+    leads = _clean_numbered_lines(out, n)
+    return [{"source": "model", "lead": x, "rank": i + 1} for i, x in enumerate(leads)]
+
+
+def _graph_leads(task, qv, model_V, node_ids, X, idx, G, deg, args):
+    sims = X @ qv
+    order = list(np.argsort(sims)[::-1])
+    clean_order = [node_ids[i] for i in order if not _bad_graph_label(_lbl(G, node_ids[i]))]
+    if len(clean_order) < max(2, args.rag_seeds):
+        clean_order += [node_ids[i] for i in order if node_ids[i] not in clean_order]
+    seeds = clean_order[:max(1, args.rag_seeds)]
+    hopd = {s: 0 for s in seeds}
+    frontier = set(seeds)
+    for h in range(1, args.rag_hops + 1):
+        nxt = set()
+        for s in frontier:
+            nxt |= set(G.successors(s)) | set(G.predecessors(s))
+        nxt = {n for n in nxt if n not in hopd}
+        for n in nxt:
+            hopd[n] = h
+        frontier = nxt
+    U = G.to_undirected()
+    max_deg = max([deg.get(n, 0) for n in G.nodes] or [1])
+    candidates = []
+    for n, hd in hopd.items():
+        if hd == 0 or _bad_graph_label(_lbl(G, n)) or n not in idx:
+            continue
+        best_path = None
+        for s in seeds:
+            if n == s or not U.has_node(n) or not U.has_node(s):
+                continue
+            try:
+                p = nx.shortest_path(U, n, s)
+            except Exception:
+                continue
+            if 2 <= len(p) <= args.rag_hops + 2 and (best_path is None or len(p) < len(best_path)):
+                best_path = p
+        if not best_path:
+            continue
+        relq = float(np.mean([_relation_quality(_edge_relation(G, a, b))
+                              for a, b in zip(best_path, best_path[1:])]))
+        task_sim = float(sims[idx[n]])
+        ood = 1.0 - (float((X[idx[n]] @ model_V.T).max()) if len(model_V) else task_sim)
+        deg_pen = float(np.log1p(deg.get(n, 0)) / max(1e-9, np.log1p(max_deg)))
+        proximity = 1.0 / (1.0 + hd)
+        retrieval_score = 0.35 * task_sim + 0.30 * ood + 0.25 * relq + 0.10 * proximity - 0.20 * deg_pen
+        chain = _path_chain_text(G, best_path)
+        endpoint = _lbl(G, n)
+        anchor = _lbl(G, best_path[-1])
+        lead = (
+            f"{endpoint} may provide a non-obvious mechanism for this task through this mechanistic chain: "
+            f"{chain}. Treat this as a hypothesis seed: test whether perturbing {endpoint} changes "
+            f"the task-relevant behavior linked to {anchor}."
+        )
+        candidates.append({
+            "source": "graph", "lead": lead, "endpoint": endpoint, "anchor": anchor,
+            "chain": chain, "path": [_lbl(G, x) for x in best_path],
+            "retrieval_score": float(retrieval_score), "task_similarity": task_sim, "ood_to_model": float(ood),
+            "relation_quality": relq, "degree_penalty": deg_pen, "hop": int(hd),
+        })
+    candidates.sort(key=lambda x: x["retrieval_score"], reverse=True)
+    out, seen = [], set()
+    for c in candidates[:max(args.lead_candidates, args.n_leads)]:
+        key = _norm_token(c["endpoint"])
+        if key in seen:
+            continue
+        seen.add(key)
+        c["rank"] = len(out) + 1
+        out.append(c)
+        if len(out) >= args.n_leads:
+            break
+    return out, {"seed_labels": [_lbl(G, s) for s in seeds], "n_candidates": len(candidates)}
+
+
+def _random_graph_leads(G, n, rng):
+    nodes = [x for x in G.nodes if not _bad_graph_label(_lbl(G, x))]
+    if len(nodes) < 2:
+        nodes = list(G.nodes)
+    out = []
+    for i in range(min(n, max(0, len(nodes) // 2))):
+        a, b = rng.sample(nodes, 2)
+        out.append({"source": "random", "rank": i + 1,
+                    "lead": f"A possible mechanism seed connects {_lbl(G, a)} with {_lbl(G, b)}."})
+    return out
+
+
+def _lead_primary(score):
+    core = float(np.mean([score[d] for d in LEAD_DIMS]))
+    return min(core, score["plausibility"], score["relevance"]) if min(score["plausibility"], score["relevance"]) < 3 else core
+
+
+def _judge_leads(call_judge, task, items):
+    listing = "\n\n".join(f"[Lead {i+1}]\n{x['lead']}" for i, x in enumerate(items))
+    user = (
+        f"Benchmark task:\n{task}\n\n"
+        "Each item below is a candidate research LEAD, not a final answer. Score each lead 1-5 on:\n"
+        "- relevance: it directly helps answer the task.\n"
+        "- non_obviousness: it is not a generic or textbook direction.\n"
+        "- mechanism: it gives a concrete causal/mechanistic route, not just keywords.\n"
+        "- plausibility: the mechanism is scientifically sensible.\n"
+        "- usefulness: it could seed a concrete high-quality hypothesis or experiment.\n"
+        "Penalize arbitrary concept pairings, artifact labels, and leads that merely repeat jargon. "
+        f"Return a rating for every id 1..{len(items)}.\n\n{listing}"
+    )
+    raw = call_judge([{"role": "system", "content": GATE_SYSTEM}, {"role": "user", "content": user}],
+                     0.0, 8000, LEAD_SCHEMA)
+    v = _parse_json(raw) or {}
+    by_id = {d.get("id"): d for d in v.get("ratings", v.get("answers", [])) if isinstance(d, dict)}
+    out = []
+    for i, item in enumerate(items):
+        d = by_id.get(i + 1, {})
+        score = {}
+        for dim in LEAD_DIMS:
+            try:
+                val = int(d.get(dim, 2))
+            except Exception:
+                val = 2
+            score[dim] = float(max(1, min(5, val)))
+        score["primary"] = _lead_primary(score)
+        z = dict(item)
+        z["score"] = score
+        out.append(z)
+    return out, raw
+
+
+def _answer_with_leads(call_gen, task, leads, temperature):
+    if leads:
+        ctx = "\n".join(f"{i+1}. {x['lead']}" for i, x in enumerate(leads))
+        user = (
+            f"Task:\n{task}\n\n"
+            "Graph-derived mechanistic leads:\n"
+            f"{ctx}\n\n"
+            "Answer the task directly. Use only leads that genuinely improve the answer; discard any "
+            "weak or irrelevant lead. State the mechanism and a falsifiable experiment, prediction, "
+            "or decisive measurement. Be concrete and concise."
+        )
+    else:
+        user = (
+            f"Task:\n{task}\n\n"
+            "Answer the task directly. State the mechanism and a falsifiable experiment, prediction, "
+            "or decisive measurement. Be concrete and concise."
+        )
+    return call_gen([{"role": "system", "content": ANSWER_SYSTEM}, {"role": "user", "content": user}],
+                    temperature=temperature, max_tokens=900).strip()
+
+
+def run_graphleads(args):
+    from graphstore import embed_texts, resolve_embed_model
+    tasks = [ln.strip() for ln in open(args.tasks, encoding="utf-8") if ln.strip()]
+    G = I.load_graph(args.run)
+    emodel = resolve_embed_model(args.run, args.embed_model)
+    node_ids = list(G.nodes)
+    print(f"[compare] graph-leads benchmark · {len(tasks)} tasks · graph {G.number_of_nodes()} concepts "
+          f"/ {G.number_of_edges()} links · generator={args.model} · judge={args.jm} · embed={emodel}",
+          flush=True)
+    vecs = I.embed_nodes(G, emodel)
+    if not vecs:
+        raise SystemExit("graphleads needs embeddings (--embed-model all-MiniLM-L6-v2 or run default).")
+    X = _unit(np.stack([vecs[n] for n in node_ids]).astype(np.float32))
+    idx = {n: i for i, n in enumerate(node_ids)}
+    deg = dict(G.degree())
+    call_gen = _make_call(args.model, args.base_url, args.api_key)
+    call_judge = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
+    per_task, answer_scores, prefs = [], {d: {"graph": [], "baseline": []} for d in list(PAIR_DIMS) + ["primary"]}, []
+    try:
+        from tqdm import tqdm
+        iterator = tqdm(list(enumerate(tasks)), desc="[compare/graphleads] tasks", unit="task")
+    except Exception:
+        iterator = list(enumerate(tasks))
+
+    for ti, task in iterator:
+        qv = _unit(np.asarray(embed_texts([task], emodel), np.float32))[0]
+        model_leads = _model_leads(call_gen, task, args.n_leads, args.temperature)
+        model_V = _unit(np.asarray(embed_texts([x["lead"] for x in model_leads] or [task], emodel), np.float32))
+        graph_leads, retrieval = _graph_leads(task, qv, model_V, node_ids, X, idx, G, deg, args)
+        random_leads = _random_graph_leads(G, len(graph_leads) or args.n_leads, random.Random(args.seed + ti))
+        items = graph_leads + model_leads + random_leads
+        rng = random.Random(args.seed + 1000 + ti)
+        rng.shuffle(items)
+        judged_leads, lead_raw = _judge_leads(call_judge, task, items)
+        graph_for_answer = graph_leads[:args.answer_leads]
+        baseline_answer = _answer_with_leads(call_gen, task, [], args.temperature)
+        graph_answer = _answer_with_leads(call_gen, task, graph_for_answer, args.temperature)
+        sysA = rng.random() < 0.5
+        a = graph_answer if sysA else baseline_answer
+        b = baseline_answer if sysA else graph_answer
+        verdict = _judge_pairwise(call_judge, task, a, b, list(PAIR_DIMS), _pairwise_schema(list(PAIR_DIMS)))
+        if "A" in verdict and "B" in verdict:
+            gv, bv = (verdict["A"], verdict["B"]) if sysA else (verdict["B"], verdict["A"])
+            for d in list(PAIR_DIMS) + ["primary"]:
+                answer_scores[d]["graph"].append(float(gv[d]))
+                answer_scores[d]["baseline"].append(float(bv[d]))
+            p = verdict.get("preferred", "tie")
+            pref = "graph" if p == ("A" if sysA else "B") else ("baseline" if p in ("A", "B") else "tie")
+            prefs.append(pref)
+        else:
+            gv, bv, pref = {}, {}, "invalid"
+        rec = {
+            "task": task,
+            "retrieval": retrieval,
+            "graph_leads": graph_leads,
+            "model_leads": model_leads,
+            "random_leads": random_leads,
+            "judged_leads": judged_leads,
+            "lead_judge_raw": lead_raw,
+            "answer_leads": graph_for_answer,
+            "answers": {"baseline": baseline_answer, "graph": graph_answer},
+            "answer_scores": {"baseline": bv, "graph": gv},
+            "answer_preference": pref,
+            "answer_judge_raw": verdict.get("raw", ""),
+        }
+        per_task.append(rec)
+        if hasattr(iterator, "set_postfix"):
+            gd = gv.get("primary", float("nan")) if isinstance(gv, dict) else float("nan")
+            bd = bv.get("primary", float("nan")) if isinstance(bv, dict) else float("nan")
+            iterator.set_postfix(graph=f"{gd:.2f}", baseline=f"{bd:.2f}", pref=pref)
+        else:
+            print(f"[compare/graphleads] task {ti+1}/{len(tasks)} pref={pref}", flush=True)
+    _render_graphleads(args, G, per_task, answer_scores, prefs)
+
+
+def _render_graphleads(args, G, per_task, answer_scores, prefs):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
+                         "figure.dpi": 150})
+    sources = ["graph", "model", "random"]
+    lead_scores = {s: {d: [] for d in LEAD_DIMS + ["primary"]} for s in sources}
+    for r in per_task:
+        for item in r["judged_leads"]:
+            s = item.get("source")
+            if s in lead_scores and "score" in item:
+                for d in LEAD_DIMS + ["primary"]:
+                    lead_scores[s][d].append(float(item["score"][d]))
+    lead_agg = {s: {d: _ms(lead_scores[s][d]) for d in LEAD_DIMS + ["primary"]} for s in sources}
+    answer_agg = {d: {"graph": _ms(answer_scores[d]["graph"]),
+                      "baseline": _ms(answer_scores[d]["baseline"]),
+                      "delta": _ms([g - b for g, b in zip(answer_scores[d]["graph"],
+                                                          answer_scores[d]["baseline"])])}
+                  for d in list(PAIR_DIMS) + ["primary"]}
+    pref_counts = {k: prefs.count(k) for k in ("graph", "baseline", "tie", "invalid")}
+    n_valid = max(1, len(prefs) - pref_counts["invalid"])
+
+    fig, ax = plt.subplots(2, 2, figsize=(15.0, 9.2))
+    # A lead quality
+    a = ax[0, 0]; dims = LEAD_DIMS + ["primary"]; x = np.arange(len(dims)); w = 0.8 / len(sources)
+    for k, s in enumerate(sources):
+        a.bar(x + (k - (len(sources) - 1) / 2) * w, [lead_agg[s][d][0] for d in dims], w,
+              yerr=[lead_agg[s][d][1] for d in dims], capsize=2, color=LEAD_SOURCE_COL[s],
+              label=LEAD_SOURCE_LABEL[s])
+    a.set_xticks(x); a.set_xticklabels(dims, rotation=18, ha="right")
+    a.set_ylim(0, 5.35); a.set_ylabel("judge score (1-5, mean +/- s.e.)")
+    a.set_title("(A) Lead quality before synthesis")
+    a.legend(frameon=False, fontsize=8)
+
+    # B final answer quality
+    a = ax[0, 1]; dims2 = list(PAIR_DIMS) + ["primary"]; x = np.arange(len(dims2)); w = 0.36
+    a.bar(x - w / 2, [answer_agg[d]["baseline"][0] for d in dims2], w,
+          yerr=[answer_agg[d]["baseline"][1] for d in dims2], capsize=2, color="#7f7f7f", label="Llama alone")
+    a.bar(x + w / 2, [answer_agg[d]["graph"][0] for d in dims2], w,
+          yerr=[answer_agg[d]["graph"][1] for d in dims2], capsize=2, color="#d62728", label="Llama + graph leads")
+    a.set_xticks(x); a.set_xticklabels(dims2, rotation=18, ha="right")
+    a.set_ylim(0, 5.35); a.set_ylabel("judge score (1-5, mean +/- s.e.)")
+    a.set_title("(B) Final answer quality")
+    a.legend(frameon=False, fontsize=8)
+
+    # C final primary deltas by task
+    a = ax[1, 0]
+    deltas = []
+    for r in per_task:
+        g = r["answer_scores"].get("graph", {}).get("primary")
+        b = r["answer_scores"].get("baseline", {}).get("primary")
+        if g == g and b == b:
+            deltas.append(float(g - b))
+    cols = ["#d62728" if d >= 0 else "#7f7f7f" for d in deltas]
+    a.axhline(0, color="#222222", lw=0.8)
+    a.bar(np.arange(len(deltas)) + 1, deltas, color=cols)
+    a.set_xlabel("task"); a.set_ylabel("final primary delta")
+    a.set_title("(C) Llama + graph leads minus Llama alone")
+
+    # D caption
+    a = ax[1, 1]; a.axis("off")
+    lead_primary = {s: lead_agg[s]["primary"][0] for s in sources}
+    final_delta = answer_agg["primary"]["delta"]
+    cap = (
+        f"{len(per_task)} tasks · graph {G.number_of_nodes()} concepts / {G.number_of_edges()} links\n"
+        f"generator: {args.model} · judge: {args.jm}\n\n"
+        f"lead primary: graph {lead_primary['graph']:.2f}, "
+        f"Llama {lead_primary['model']:.2f}, random {lead_primary['random']:.2f}\n"
+        f"final primary: baseline {answer_agg['primary']['baseline'][0]:.2f}, "
+        f"graph {answer_agg['primary']['graph'][0]:.2f}\n"
+        f"paired final delta: {final_delta[0]:+.2f} +/- {final_delta[1]:.2f}\n\n"
+        f"preferences: graph {pref_counts['graph']} ({100*pref_counts['graph']/n_valid:.0f}%), "
+        f"baseline {pref_counts['baseline']} ({100*pref_counts['baseline']/n_valid:.0f}%), "
+        f"tie {pref_counts['tie']} ({100*pref_counts['tie']/n_valid:.0f}%)\n\n"
+        f"retrieval: seeds={args.rag_seeds}, hops={args.rag_hops}, "
+        f"n_leads={args.n_leads}, answer_leads={args.answer_leads}\n"
+        "Graph leads are deterministic top retrieved path leads; the judge is not used to select\n"
+        "what the generator sees."
+    )
+    a.text(0, 1, cap, va="top", fontsize=8.4, family="monospace")
+    fig.suptitle("Do extensive ideation graphs surface better creative leads?", y=1.0, fontsize=12.5)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    for ext in ("png", "svg", "pdf"):
+        fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")
+    plt.close(fig)
+    print(f"wrote {args.out}.png/.svg/.pdf")
+
+    report = {
+        "mode": "graphleads",
+        "n_tasks": len(per_task),
+        "judge": args.jm,
+        "judge_effort": args.judge_effort,
+        "generator": args.model,
+        "graph": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges()},
+        "retrieval": {"rag_seeds": args.rag_seeds, "rag_hops": args.rag_hops,
+                      "n_leads": args.n_leads, "lead_candidates": args.lead_candidates,
+                      "answer_leads": args.answer_leads},
+        "lead_dimensions": LEAD_DIMS,
+        "lead_aggregate": lead_agg,
+        "answer_dimensions": PAIR_DIMS,
+        "answer_aggregate": answer_agg,
+        "preferences": pref_counts,
+        "per_task": per_task,
+    }
+    json.dump(report, open(f"{args.out}.json", "w"), indent=2)
+
+    lines = [
+        "# Graph-leads benchmark\n",
+        f"*{len(per_task)} tasks · judge {args.jm} · generator {args.model}*\n",
+        "## Lead Quality\n",
+        "| metric | graph leads | Llama leads | random graph |",
+        "|---|---:|---:|---:|",
+    ]
+    for d in LEAD_DIMS + ["primary"]:
+        lines.append(f"| {d} | {lead_agg['graph'][d][0]:.2f} | {lead_agg['model'][d][0]:.2f} | "
+                     f"{lead_agg['random'][d][0]:.2f} |")
+    lines += [
+        "\n## Final Answer Quality\n",
+        "| metric | Llama alone | Llama + graph leads | paired delta |",
+        "|---|---:|---:|---:|",
+    ]
+    for d in list(PAIR_DIMS) + ["primary"]:
+        lines.append(f"| {d} | {answer_agg[d]['baseline'][0]:.2f} | {answer_agg[d]['graph'][0]:.2f} | "
+                     f"{answer_agg[d]['delta'][0]:+.2f} |")
+    lines += ["",
+              f"Preferences: graph **{pref_counts['graph']}**, baseline **{pref_counts['baseline']}**, "
+              f"tie **{pref_counts['tie']}**, invalid **{pref_counts['invalid']}**.",
+              ""]
+    open(f"{args.out}.md", "w").write("\n".join(lines) + "\n")
+    print(f"wrote {args.out}.json / {args.out}.md")
+    print(f"[compare/graphleads] lead primary graph={lead_primary['graph']:.2f} "
+          f"model={lead_primary['model']:.2f} random={lead_primary['random']:.2f}; "
+          f"final primary delta={final_delta[0]:+.2f}")
+
+
+# --------------------------------------------------------------------------- #
 #  Assess the mined material itself (--mode insights): a strong judge rates the
 #  graph-mined connections vs CONTROLS — no small-model generation in the loop.
 # --------------------------------------------------------------------------- #
@@ -1088,7 +1565,8 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
 # --------------------------------------------------------------------------- #
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--mode", choices=["graphrag", "coverage", "pairwise", "insights"], default="graphrag")
+    p.add_argument("--mode", choices=["graphrag", "graphleads", "coverage", "pairwise", "insights"],
+                   default="graphrag")
     p.add_argument("--tasks", help="tasks file, one per line (required for all modes except 'insights')")
     p.add_argument("--out", default="figures/graphrag", help="output basename")
     # graphrag / coverage shared
@@ -1102,6 +1580,12 @@ def main():
     p.add_argument("--rag-hops", dest="rag_hops", type=int, default=2, help="[graphrag] BFS hops for distal concepts")
     p.add_argument("--concepts", type=int, default=12, help="[graphrag] retrieved graph concepts")
     p.add_argument("--n-ideas", dest="n_ideas", type=int, default=6, help="[graphrag] ideas each arm brainstorms")
+    p.add_argument("--n-leads", dest="n_leads", type=int, default=8,
+                   help="[graphleads] leads per source to judge")
+    p.add_argument("--lead-candidates", dest="lead_candidates", type=int, default=60,
+                   help="[graphleads] max retrieved graph path candidates to consider")
+    p.add_argument("--answer-leads", dest="answer_leads", type=int, default=4,
+                   help="[graphleads] top graph leads shown to the generator")
     p.add_argument("--n-per-miner", dest="n_per_miner", type=int, default=18,
                    help="[insights] number of TOP-actionability mined connections to rate (vs equal # of each control)")
     # coverage
@@ -1147,6 +1631,12 @@ def main():
         if not args.model:
             raise SystemExit("--mode coverage needs --model (the small generator for both arms)")
         return run_coverage(args)
+    if args.mode == "graphleads":
+        if not args.run:
+            raise SystemExit("--mode graphleads needs --run <dir> (the accumulated graph to retrieve from)")
+        if not args.model:
+            raise SystemExit("--mode graphleads needs --model (the small generator)")
+        return run_graphleads(args)
     # graphrag (default)
     if not args.run:
         raise SystemExit("--mode graphrag needs --run <dir> (the accumulated graph to retrieve from)")
