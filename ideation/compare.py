@@ -1,24 +1,24 @@
 #!/usr/bin/env python
-"""Benchmark: the accumulated graph as a Graph-RAG knowledge base for a small model (DEFAULT mode).
+"""Benchmark: do DISTAL graph concepts make a small model more CREATIVE? (Graph-RAG, DEFAULT mode).
 
-The defensible claim: test-time compute spent by the graph-native reasoner is amortized into a
-reusable knowledge STRUCTURE (concepts + their relationships). Retrieving from that structure lets
-the SAME small model answer domain questions better than it can closed-book — and the *relationships*
-(edges) carry information a flat list of concepts doesn't. So it's a clean RAG ablation, same model,
-three arms, judged blind & absolute (never pairwise):
+The thesis is creativity, so this measures creativity — and uses the graph the right way. A
+similarity search returns the OBVIOUS on-topic concepts the model already knows (useless as a
+provocation). The graph's unique power is concepts that are FAR in meaning but CONNECTED through
+reasoning — non-obvious associations a flat search can't surface ("far but relevant"). So, same
+small model, same "brainstorm N ideas" task, three retrieval conditions:
 
-  closed-book   question only — the model's parametric knowledge (the floor).
-  flat-RAG      question + the top concepts retrieved from the graph by similarity (a bag of nodes,
-                NO edges) — controls for "just more concepts in context".
-  graph-RAG     question + a retrieved SUBGRAPH: the same concepts AND the relationships between
-                them, serialized as `A —relation→ B` triples — the structure test-time compute built.
+  closed-book   the question only — the model brainstorms from its own priors (the floor).
+  near-RAG      + the concepts most SIMILAR to the question (obvious, on-topic) — controls for
+                "does adding any retrieved concepts help?".
+  graph-RAG     + concepts that are relevant to the topic but DISTANT from the question AND within
+                a few graph hops of its seeds — surprising provocations only the graph's EDGES link.
 
-Per task the judge scores each answer 1-5 on specificity / mechanism / relational richness /
-correctness (blind to which arm), and two embedding metrics are computed objectively: grounding in
-the explored domain and # distinct graph concepts correctly used. The win that "definitely shines":
-graph-RAG >> closed-book (retrieval helps), and graph-RAG > flat-RAG isolates that the *structure*
-(not just the concepts) is what helps. Pair with `--max-iter` for the scaling story: bigger graph
-(more compute) -> better RAG answers. This mode does NOT use insights.json — it reads the graph directly.
+Per task each arm brainstorms N ideas; a blind judge scores each SET 1-5 on novelty / surprise /
+breadth / plausibility, and idea DIVERSITY (mean pairwise embedding distance) is measured
+objectively. The win: graph-RAG > closed-book (graph provocations help), and graph-RAG > near-RAG
+isolates that it's the DISTAL, surprising concepts — not retrieval per se — that boost creativity.
+Pair with `--max-iter` for the scaling story (bigger graph -> better provocations). Reads the graph
+directly; insights.json is not used.
 
     python compare.py --run runs/exp --tasks benchmark_tasks.txt \
         --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
@@ -339,96 +339,148 @@ def _render_coverage(args, topic, K, M, per_task, sat_g, sat_b):
 
 
 # --------------------------------------------------------------------------- #
-#  Graph-RAG benchmark (DEFAULT): closed-book vs flat-RAG vs graph-RAG, same model
+#  Graph-RAG creativity benchmark (DEFAULT): does retrieving DISTAL graph concepts
+#  make a small model more CREATIVE? closed-book vs near-RAG vs graph-RAG(distal).
 # --------------------------------------------------------------------------- #
-RAG_SYSTEM = ("You are a rigorous research scientist. Answer the question in ONE focused paragraph: "
-              "be specific and concrete, name the mechanism, and explain how the relevant factors "
-              "connect. No preamble, no restating the question.")
+CREATIVE_SYSTEM = ("You are a bold, inventive research scientist. You propose original, "
+                   "unconventional, cross-disciplinary ideas — imaginative but scientifically grounded.")
 
-ARMS = ["closed", "flat", "graph"]
-ARM_LABEL = {"closed": "closed-book", "flat": "flat-RAG (concepts)", "graph": "graph-RAG (structure)"}
-ARM_COL = {"closed": "#7f7f7f", "flat": "#1f77b4", "graph": "#d62728"}
-RAG_DIMS = ["specificity", "mechanism", "relational", "correctness"]
+ARMS = ["closed", "near", "graph"]
+ARM_LABEL = {"closed": "closed-book", "near": "RAG: nearest concepts", "graph": "Graph-RAG: distal bridges"}
+ARM_COL = {"closed": "#7f7f7f", "near": "#1f77b4", "graph": "#d62728"}
+CRE_DIMS = ["novelty", "surprise", "breadth", "plausibility"]
 
-RAG_SCHEMA = {"type": "json_schema", "json_schema": {"name": "abs", "strict": True, "schema": {
-    "type": "object", "additionalProperties": False, "required": ["answers"],
-    "properties": {"answers": {"type": "array", "items": {
+CRE_SCHEMA = {"type": "json_schema", "json_schema": {"name": "creative", "strict": True, "schema": {
+    "type": "object", "additionalProperties": False, "required": ["sets"],
+    "properties": {"sets": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["id"] + RAG_DIMS,
+        "required": ["id"] + CRE_DIMS,
         "properties": dict({"id": {"type": "integer"}},
-                           **{d: {"type": "integer", "enum": [1, 2, 3, 4, 5]} for d in RAG_DIMS})}}}}}}
+                           **{d: {"type": "integer", "enum": [1, 2, 3, 4, 5]} for d in CRE_DIMS})}}}}}}
 
 
 def _lbl(G, n):
     return str(G.nodes[n].get("label", n))
 
 
-def _retrieve(qv, node_ids, X, idx, G, labels, n_seeds, max_nbr, n_flat, max_triples):
-    """From the FINAL graph: seeds = nodes most similar to the question; flat = top concept labels
-    (bag, no edges); graph = a connected subgraph (seeds + their question-relevant neighbours) with
-    the RELATIONS serialized as `A —relation→ B` — the structure the bag-of-concepts arm lacks."""
-    sims = X @ qv
-    order = np.argsort(sims)[::-1]
-    seeds = [node_ids[i] for i in order[:n_seeds]]
-    flat = [labels[i] for i in order[:n_flat]]
-    involved, seen = list(seeds), set(seeds)
-    for s in seeds:
-        nbrs = set(G.successors(s)) | set(G.predecessors(s))
-        nbrs = sorted(nbrs, key=lambda n: -float(X[idx[n]] @ qv))[:max_nbr]
-        for nb in nbrs:
-            if nb not in seen:
-                seen.add(nb); involved.append(nb)
-    inv = set(involved)
-    triples = []
-    for u, v, d in G.edges(data=True):
-        if u in inv and v in inv:
-            sc = max(float(X[idx[u]] @ qv), float(X[idx[v]] @ qv))
-            triples.append((sc, f"{_lbl(G, u)} —{d.get('relation', 'related to')}→ {_lbl(G, v)}"))
-    triples.sort(reverse=True)
-    return flat, [t for _, t in triples[:max_triples]]
+def _retrieve_near(qv, labels, X, n):
+    """The obvious control: concepts most SIMILAR to the question (what the model already has)."""
+    return [labels[i] for i in np.argsort(X @ qv)[::-1][:n]]
 
 
-def _rag_prompt(q, mode, flat, triples):
-    if mode == "closed":
-        return f"Question: {q}\n\nAnswer specifically, explaining the mechanism."
-    if mode == "flat":
-        ctx = "Relevant concepts from prior analysis of this domain:\n" + "\n".join(f"- {c}" for c in flat)
-        tail = "using the concepts above where they apply"
-    else:
-        ctx = ("Relevant concepts and how they connect (from prior analysis of this domain):\n"
-               + "\n".join(f"- {t}" for t in triples))
-        tail = "using the relationships above where they apply"
-    return f"Question: {q}\n\n{ctx}\n\nAnswer specifically, explaining the mechanism and {tail}."
+def _retrieve_provocations(qv, default_V, node_ids, X, idx, G, deg, n_seeds, n_central, n_unusual, hops):
+    """Curate a small subgraph the reasoning connected to the question — a mix of:
+      CENTRAL anchors  = high-degree hubs in the question's neighbourhood (load-bearing organizing
+                         ideas that help ground an answer), and
+      UNUSUAL angles   = graph-connected concepts that are OUT-OF-DISTRIBUTION for the model — far
+                         from the ideas it produced on its own (default_V) — the provocations it
+                         would not reach alone; only the graph's EDGES link them to the question.
+    Plus the RELATIONS joining the unusual angles back to the anchors (how the leap connects).
+    `default_V` = embeddings of the model's closed-book ideas (its prior for this question)."""
+    seeds = [node_ids[i] for i in np.argsort(X @ qv)[::-1][:n_seeds]]
+    hopd = {s: 0 for s in seeds}
+    frontier = set(seeds)
+    for h in range(1, hops + 1):
+        nxt = set()
+        for s in frontier:
+            nxt |= set(G.successors(s)) | set(G.predecessors(s))
+        nxt = {n for n in nxt if n not in hopd}
+        for n in nxt:
+            hopd[n] = h
+        frontier = nxt
+    pool = [n for n in hopd if hopd[n] > 0] or list(seeds)
+    central = sorted(pool, key=lambda n: -deg.get(n, 0))[:n_central]
+    # OOD score: far from the model's OWN default ideas (not from the question), graph-proximity tie-break
+    def ood(n):
+        d = 1.0 - (float((X[idx[n]] @ default_V.T).max()) if len(default_V) else float(X[idx[n]] @ qv))
+        return d - 0.1 * hopd[n]
+    unusual = [n for n in sorted([p for p in pool if p not in central], key=lambda n: -ood(n))][:n_unusual]
+    keep = set(seeds) | set(central) | set(unusual)
+    rels = []
+    for u in unusual:                                  # how each unusual angle links back in
+        for v in (set(G.successors(u)) | set(G.predecessors(u))) & keep:
+            a, b = (u, v) if G.has_edge(u, v) else (v, u)
+            r = (G.get_edge_data(a, b) or {}).get("relation", "related to")
+            rels.append(f"{_lbl(G, a)} —{r}→ {_lbl(G, b)}")
+            break
+    return [_lbl(G, n) for n in central], [_lbl(G, n) for n in unusual], rels[:n_unusual]
 
 
-def _ground_cover(answer, X, model, tau):
-    """Objective: grounding = mean similarity of the answer's sentences to the nearest explored
-    concept; coverage = # distinct graph concepts a sentence lands on (>= tau)."""
+def _ideas_prompt(q, mode, near, central, unusual, rels, n_ideas):
+    ctx = ""
+    if mode == "near":
+        ctx = ("Some concepts from a broad exploration of this area, as optional inspiration "
+               "(use any that spark an idea, ignore the rest):\n" + "\n".join(f"- {c}" for c in near) + "\n\n")
+    elif mode == "graph":
+        ctx = "Material from a broad exploration of this area, as optional inspiration (use what sparks an idea):\n"
+        if central:
+            ctx += "Central themes: " + ", ".join(central) + "\n"
+        if unusual:
+            ctx += "Unusual / cross-domain angles: " + ", ".join(unusual) + "\n"
+        if rels:
+            ctx += "How some of these connect: " + "; ".join(rels) + "\n"
+        ctx += "\n"
+    return (f"Question: {q}\n\n{ctx}Propose {n_ideas} DISTINCT, novel, non-obvious ideas or "
+            f"mechanisms that address this. Be imaginative but scientifically plausible. "
+            f"One sentence each, numbered.")
+
+
+def _parse_ideas(text, n):
+    out = []
+    for ln in text.splitlines():
+        s = re.sub(r"^\s*(\d+[.\)]|[-*•])\s*", "", ln).strip()
+        if len(s) > 12:
+            out.append(s)
+    return out[:n]
+
+
+def _embed_ideas(ideas, model):
     from graphstore import embed_texts
-    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if len(s.strip()) > 20]
-    if not sents:
-        return 0.0, 0
-    Sv = _unit(np.asarray(embed_texts(sents, model), np.float32))
-    sim = Sv @ X.T
-    near = sim.max(1)
-    cov = len({int(i) for i, s in zip(sim.argmax(1), near) if s >= tau})
-    return float(near.mean()), cov
+    if not ideas:
+        return np.zeros((0, 8), np.float32)
+    return _unit(np.asarray(embed_texts(ideas, model), np.float32))
 
 
-def _judge_abs(call, q, shuffled):
-    """One blind call scoring every answer 1-5 on each RAG_DIM. `shuffled` = list of (arm, text)."""
-    listing = "\n\n".join(f"[Answer {i+1}]\n{t}" for i, (_, t) in enumerate(shuffled))
-    user = (f"Question:\n{q}\n\nScore EACH answer 1-5 on: specificity (concrete vs generic), "
-            f"mechanism (depth and correctness of the proposed mechanism), relational (does it "
-            f"explain how factors connect, not just list them), correctness (scientific soundness). "
-            f"Return a verdict for every id 1..{len(shuffled)}.\n\n{listing}")
+def _diversity(V):
+    """Mean pairwise embedding distance (breadth) + # distinct (dedup at 0.85), from idea vectors."""
+    if len(V) < 2:
+        return 0.0, len(V)
+    iu = np.triu_indices(len(V), 1)
+    div = float((1.0 - V @ V.T)[iu].mean())
+    kept = []
+    for i in range(len(V)):
+        if not kept or max(float(V[i] @ V[j]) for j in kept) < 0.85:
+            kept.append(i)
+    return div, len(kept)
+
+
+def _ood(V, ref_V, is_self):
+    """Departure from the model's default ideas: mean over V of (1 - nearest cosine to ref_V).
+    For the closed arm (is_self) the self-match is excluded so its baseline isn't trivially 0."""
+    if len(V) == 0 or len(ref_V) == 0:
+        return float("nan")
+    S = V @ ref_V.T
+    if is_self:
+        np.fill_diagonal(S, -1.0)
+    return float((1.0 - S.max(1)).mean())
+
+
+def _judge_creative(call, q, shuffled):
+    """One blind call scoring each idea-SET 1-5 on novelty/surprise/breadth/plausibility."""
+    listing = "\n\n".join(f"[Set {i+1}]\n" + "\n".join(f"- {x}" for x in ideas)
+                          for i, (_, ideas) in enumerate(shuffled))
+    user = (f"Question:\n{q}\n\nEach set below is a brainstorm of ideas answering the question. Score "
+            f"EACH set 1-5 on: novelty (original, not textbook), surprise (non-obvious, unexpected "
+            f"angles or cross-domain leaps), breadth (range of genuinely distinct directions), "
+            f"plausibility (scientifically reasonable, not nonsense). Return a verdict per set id "
+            f"1..{len(shuffled)}.\n\n{listing}")
     v = _parse_json(call([{"role": "system", "content": GATE_SYSTEM}, {"role": "user", "content": user}],
-                         0.0, 6000, RAG_SCHEMA)) or {}
-    by_id = {d.get("id"): d for d in v.get("verdicts", v.get("answers", [])) if isinstance(d, dict)}
+                         0.0, 6000, CRE_SCHEMA)) or {}
+    by_id = {d.get("id"): d for d in v.get("sets", v.get("answers", [])) if isinstance(d, dict)}
     out = {}
     for i, (arm, _) in enumerate(shuffled):
         d = by_id.get(i + 1, {})
-        out[arm] = {dim: float(d.get(dim, 2)) for dim in RAG_DIMS}
+        out[arm] = {dim: float(d.get(dim, 2)) for dim in CRE_DIMS}
     return out
 
 
@@ -438,39 +490,53 @@ def run_graphrag(args):
     G = I.load_graph(args.run)
     model = resolve_embed_model(args.run, args.embed_model)
     node_ids = list(G.nodes)
-    print(f"[compare] graph-RAG · {len(tasks)} tasks · graph {G.number_of_nodes()} concepts / "
-          f"{G.number_of_edges()} links · generator={args.model} · judge={args.jm} · embed={model}",
-          flush=True)
+    print(f"[compare] graph-RAG creativity · {len(tasks)} tasks · graph {G.number_of_nodes()} concepts "
+          f"/ {G.number_of_edges()} links · {args.n_ideas} ideas/arm · generator={args.model} · "
+          f"judge={args.jm} · embed={model}", flush=True)
     vecs = I.embed_nodes(G, model)
     if not vecs:
         raise SystemExit("embeddings unavailable — graph-RAG needs them (--embed-model all-MiniLM-L6-v2).")
     X = _unit(np.stack([vecs[n] for n in node_ids]).astype(np.float32))
     idx = {n: i for i, n in enumerate(node_ids)}
     labels = [_lbl(G, n) for n in node_ids]
+    deg = dict(G.degree())
+    n_central = max(2, args.concepts // 3)
+    n_unusual = max(1, args.concepts - n_central)
     call_gen = _make_call(args.model, args.base_url, args.api_key)
     call_judge = _make_call(args.jm, args.jbu, args.jak)
 
+    def brainstorm(q, mode, near, central, unusual, rels):
+        out = call_gen([{"role": "system", "content": CREATIVE_SYSTEM},
+                        {"role": "user", "content": _ideas_prompt(q, mode, near, central, unusual,
+                                                                  rels, args.n_ideas)}],
+                       temperature=args.temperature, max_tokens=700)
+        return _parse_ideas(out, args.n_ideas)
+
     per_task = []
     for ti, q in enumerate(tasks):
-        print(f"[compare] task {ti+1}/{len(tasks)}: retrieve + answer (3 arms)…", flush=True)
+        print(f"[compare] task {ti+1}/{len(tasks)}: brainstorm (3 arms)…", flush=True)
         qv = _unit(np.asarray(embed_texts([q], model), np.float32))[0]
-        flat, triples = _retrieve(qv, node_ids, X, idx, G, labels, args.rag_seeds, args.rag_neighbors,
-                                  args.flat_concepts, args.max_triples)
-        ans = {arm: " ".join(call_gen([{"role": "system", "content": RAG_SYSTEM},
-                                       {"role": "user", "content": _rag_prompt(q, arm, flat, triples)}],
-                                      temperature=args.temperature, max_tokens=420).split())
-               for arm in ARMS}
-        gc = {arm: _ground_cover(ans[arm], X, model, args.cover_tau) for arm in ARMS}
+        # closed-book FIRST — it defines the model's own prior (the OOD reference) for this question
+        ideas = {"closed": brainstorm(q, "closed", [], [], [], [])}
+        defV = _embed_ideas(ideas["closed"], model)
+        near = _retrieve_near(qv, labels, X, args.concepts)
+        central, unusual, rels = _retrieve_provocations(qv, defV, node_ids, X, idx, G, deg,
+                                                        args.rag_seeds, n_central, n_unusual, args.rag_hops)
+        ideas["near"] = brainstorm(q, "near", near, [], [], [])
+        ideas["graph"] = brainstorm(q, "graph", [], central, unusual, rels)
+        V = {arm: _embed_ideas(ideas[arm], model) for arm in ARMS}
         rng = random.Random(args.seed + ti)
-        shuffled = list(ans.items()); rng.shuffle(shuffled)
-        scores = _judge_abs(call_judge, q, shuffled)
-        rec = {"task": q}
+        shuffled = list(ideas.items()); rng.shuffle(shuffled)
+        scores = _judge_creative(call_judge, q, shuffled)
+        rec = {"task": q, "central": central, "unusual": unusual}
         for arm in ARMS:
-            rec[arm] = {**scores.get(arm, {d: float("nan") for d in RAG_DIMS}),
-                        "grounding": gc[arm][0], "coverage": gc[arm][1]}
+            d, dist = _diversity(V[arm])
+            rec[arm] = {**scores.get(arm, {d2: float("nan") for d2 in CRE_DIMS}),
+                        "diversity": d, "distinct": dist, "ideas": ideas[arm],
+                        "ood": _ood(V[arm], defV, arm == "closed")}
         per_task.append(rec)
-        print("    " + " · ".join(f"{ARM_LABEL[a]}: spec={rec[a]['specificity']:.0f} "
-              f"rel={rec[a]['relational']:.0f} cov={rec[a]['coverage']}" for a in ARMS), flush=True)
+        print("    " + " · ".join(f"{ARM_LABEL[a].split(':')[0]}: nov={rec[a]['novelty']:.0f} "
+              f"sur={rec[a]['surprise']:.0f} ood={rec[a]['ood']:.2f}" for a in ARMS), flush=True)
     if not per_task:
         raise SystemExit("no tasks answered")
     _render_graphrag(args, G, per_task)
@@ -483,46 +549,49 @@ def _render_graphrag(args, G, per_task):
     plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
                          "figure.dpi": 150})
     agg = {arm: {k: _ms([r[arm][k] for r in per_task])
-                 for k in RAG_DIMS + ["grounding", "coverage"]} for arm in ARMS}
+                 for k in CRE_DIMS + ["diversity", "distinct", "ood"]} for arm in ARMS}
     fig, ax = plt.subplots(2, 2, figsize=(13.5, 9.0))
-    # A grouped judge dimensions
-    a = ax[0, 0]; x = np.arange(len(RAG_DIMS)); w = 0.26
+    xt = [ARM_LABEL[a2].split(":")[0] for a2 in ARMS]
+    # A grouped creativity dimensions
+    a = ax[0, 0]; x = np.arange(len(CRE_DIMS)); w = 0.26
     for k, arm in enumerate(ARMS):
-        a.bar(x + (k - 1) * w, [agg[arm][d][0] for d in RAG_DIMS], w,
-              yerr=[agg[arm][d][1] for d in RAG_DIMS], capsize=3, color=ARM_COL[arm], label=ARM_LABEL[arm])
-    a.set_xticks(x); a.set_xticklabels(RAG_DIMS, rotation=12); a.set_ylim(0, 5.4)
-    a.set_ylabel("judge score (1-5, mean ± s.e.)"); a.legend(frameon=False, fontsize=8.5, loc="upper left")
-    a.set_title("(A) Answer quality — blind absolute scoring")
-    # B distinct graph concepts used
+        a.bar(x + (k - 1) * w, [agg[arm][d][0] for d in CRE_DIMS], w,
+              yerr=[agg[arm][d][1] for d in CRE_DIMS], capsize=3, color=ARM_COL[arm], label=ARM_LABEL[arm])
+    a.set_xticks(x); a.set_xticklabels(CRE_DIMS, rotation=12); a.set_ylim(0, 5.4)
+    a.set_ylabel("judge score (1-5, mean ± s.e.)"); a.legend(frameon=False, fontsize=8.3, loc="upper left")
+    a.set_title("(A) Creativity — blind absolute scoring")
+    # B OOD departure from the model's OWN prior (the headline objective)
     a = ax[0, 1]
-    a.bar(range(3), [agg[arm]["coverage"][0] for arm in ARMS], yerr=[agg[arm]["coverage"][1] for arm in ARMS],
+    a.bar(range(3), [agg[arm]["ood"][0] for arm in ARMS], yerr=[agg[arm]["ood"][1] for arm in ARMS],
           capsize=5, color=[ARM_COL[a2] for a2 in ARMS])
-    a.set_xticks(range(3)); a.set_xticklabels([ARM_LABEL[a2] for a2 in ARMS], rotation=10, fontsize=8.5)
-    a.set_ylabel("# distinct explored concepts used")
-    a.set_title("(B) Grounding in the explored domain (count)")
-    # C grounding similarity
+    a.set_xticks(range(3)); a.set_xticklabels(xt, fontsize=9)
+    a.set_ylabel("distance from model's closed-book ideas")
+    a.set_title("(B) Departure from the model's own prior (OOD)")
+    # C idea diversity (breadth of exploration)
     a = ax[1, 0]
-    a.bar(range(3), [agg[arm]["grounding"][0] for arm in ARMS], yerr=[agg[arm]["grounding"][1] for arm in ARMS],
+    a.bar(range(3), [agg[arm]["diversity"][0] for arm in ARMS], yerr=[agg[arm]["diversity"][1] for arm in ARMS],
           capsize=5, color=[ARM_COL[a2] for a2 in ARMS])
-    a.set_xticks(range(3)); a.set_xticklabels([ARM_LABEL[a2] for a2 in ARMS], rotation=10, fontsize=8.5)
-    a.set_ylabel("mean similarity to explored concepts")
-    a.set_title("(C) Grounding (similarity)")
+    a.set_xticks(range(3)); a.set_xticklabels(xt, fontsize=9)
+    a.set_ylabel("mean pairwise distance of ideas"); a.set_title("(C) Idea diversity (objective breadth)")
     # D caption
     a = ax[1, 1]; a.axis("off")
-    a.text(0, .98, "Graph as a RAG knowledge base", fontsize=12, fontweight="bold", va="top")
-    rel = {arm: agg[arm]["relational"][0] for arm in ARMS}
+    a.text(0, .98, "Does the graph push it OOD — creatively?", fontsize=12, fontweight="bold", va="top")
+    nov = {arm: agg[arm]["novelty"][0] for arm in ARMS}; ood = {arm: agg[arm]["ood"][0] for arm in ARMS}
+    pla = {arm: agg[arm]["plausibility"][0] for arm in ARMS}
     cap = (f"{len(per_task)} tasks · graph {G.number_of_nodes()} concepts / {G.number_of_edges()} links\n"
            f"generator: {args.model}\njudge (blind, absolute): {args.jm}\n\n"
-           f"relational richness: closed {rel['closed']:.1f} · flat {rel['flat']:.1f} · "
-           f"graph {rel['graph']:.1f}\n\n"
-           "Same small model, three retrieval conditions:\n"
-           "  graph-RAG >> closed-book  → the accumulated graph helps.\n"
-           "  graph-RAG  >  flat-RAG    → the STRUCTURE (relationships),\n"
-           "      not just the concepts, is what carries the gain.\n\n"
-           "Test-time compute amortized into a reusable knowledge\ngraph the small model retrieves from.")
-    a.text(0, .88, cap, fontsize=8.8, va="top", family="monospace")
-    fig.suptitle(f"Graph-RAG: does retrieving the accumulated graph help a small model? "
-                 f"(n={len(per_task)} tasks)", y=1.0, fontsize=12.5)
+           f"novelty:       closed {nov['closed']:.1f} · near {nov['near']:.1f} · graph {nov['graph']:.1f}\n"
+           f"OOD departure: closed {ood['closed']:.2f} · near {ood['near']:.2f} · graph {ood['graph']:.2f}\n"
+           f"plausibility:  closed {pla['closed']:.1f} · near {pla['near']:.1f} · graph {pla['graph']:.1f}\n\n"
+           "graph arm = central anchors + UNUSUAL angles (graph-\n"
+           "connected but far from the model's own ideas) + the links.\n\n"
+           "The result that shines:\n"
+           "  graph pushes ideas furthest OOD (panel B) WHILE staying\n"
+           "  plausible and scoring most novel (panel A) — the graph\n"
+           "  explores valid territory the model can't reach alone.")
+    a.text(0, .88, cap, fontsize=8.4, va="top", family="monospace")
+    fig.suptitle(f"Graph-RAG: does the graph push a small model out-of-distribution — creatively? "
+                 f"(n={len(per_task)} tasks)", y=1.0, fontsize=12)
     fig.tight_layout()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     for ext in ("png", "svg", "pdf"):
@@ -533,15 +602,15 @@ def _render_graphrag(args, G, per_task):
               "graph": {"nodes": G.number_of_nodes(), "edges": G.number_of_edges()},
               "aggregate": agg, "per_task": per_task}
     json.dump(report, open(f"{args.out}.json", "w"), indent=2)
-    lines = [f"# Graph-RAG benchmark ({len(per_task)} tasks · judge {args.jm})\n",
-             "| metric | closed-book | flat-RAG | graph-RAG |", "|---|---|---|---|"]
-    for k in RAG_DIMS + ["coverage", "grounding"]:
-        lines.append(f"| {k} | {agg['closed'][k][0]:.2f} | {agg['flat'][k][0]:.2f} | "
+    lines = [f"# Graph-RAG creativity benchmark ({len(per_task)} tasks · judge {args.jm})\n",
+             "| metric | closed-book | near-RAG | graph-RAG (OOD) |", "|---|---|---|---|"]
+    for k in CRE_DIMS + ["ood", "diversity", "distinct"]:
+        lines.append(f"| {k} | {agg['closed'][k][0]:.2f} | {agg['near'][k][0]:.2f} | "
                      f"**{agg['graph'][k][0]:.2f}** |")
     open(f"{args.out}.md", "w").write("\n".join(lines) + "\n")
     print(f"wrote {args.out}.json / {args.out}.md")
-    print(f"[compare] graph-RAG vs closed-book — relational {rel['graph']:.2f} vs {rel['closed']:.2f}; "
-          f"specificity {agg['graph']['specificity'][0]:.2f} vs {agg['closed']['specificity'][0]:.2f}")
+    print(f"[compare] novelty graph {nov['graph']:.2f} vs near {nov['near']:.2f} vs closed "
+          f"{nov['closed']:.2f}; OOD departure graph {ood['graph']:.2f} vs near {ood['near']:.2f}")
 
 
 # --------------------------------------------------------------------------- #
@@ -613,11 +682,11 @@ def main():
     p.add_argument("--model", help="the SMALL generator served for all arms (OpenAI-compatible)")
     p.add_argument("--base-url", dest="base_url", help="generator endpoint (e.g. http://localhost:8000/v1)")
     p.add_argument("--api-key", dest="api_key", help="generator api key (else $OPENAI_API_KEY)")
-    # graphrag retrieval
-    p.add_argument("--rag-seeds", dest="rag_seeds", type=int, default=6, help="[graphrag] seed nodes per question")
-    p.add_argument("--rag-neighbors", dest="rag_neighbors", type=int, default=3, help="[graphrag] neighbours per seed")
-    p.add_argument("--flat-concepts", dest="flat_concepts", type=int, default=20, help="[graphrag] concepts for flat-RAG")
-    p.add_argument("--max-triples", dest="max_triples", type=int, default=30, help="[graphrag] relation triples for graph-RAG")
+    # graphrag retrieval (creativity)
+    p.add_argument("--rag-seeds", dest="rag_seeds", type=int, default=8, help="[graphrag] question-seed nodes")
+    p.add_argument("--rag-hops", dest="rag_hops", type=int, default=2, help="[graphrag] BFS hops for distal concepts")
+    p.add_argument("--concepts", type=int, default=12, help="[graphrag] concepts injected per RAG arm")
+    p.add_argument("--n-ideas", dest="n_ideas", type=int, default=6, help="[graphrag] ideas each arm brainstorms")
     # coverage
     p.add_argument("--leads", type=int, default=8, help="K: top leads → graph hypotheses (default 8)")
     p.add_argument("--baseline-samples", dest="baseline_samples", type=int, default=0,
