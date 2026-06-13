@@ -660,7 +660,7 @@ def _render_graphrag(args, G, per_task):
 #  Assess the mined material itself (--mode insights): a strong judge rates the
 #  graph-mined connections vs CONTROLS — no small-model generation in the loop.
 # --------------------------------------------------------------------------- #
-CONN_DIMS = ["plausibility", "novelty", "insight", "usefulness"]
+CONN_DIMS = ["plausibility", "insight", "usefulness"]   # novelty dropped: judge-on-pairs can't measure it
 CONN_SCHEMA = {"type": "json_schema", "json_schema": {"name": "conn", "strict": True, "schema": {
     "type": "object", "additionalProperties": False, "required": ["ratings"],
     "properties": {"ratings": {"type": "array", "items": {
@@ -670,22 +670,32 @@ CONN_SCHEMA = {"type": "json_schema", "json_schema": {"name": "conn", "strict": 
 PAIR_KINDS = {"conceptual_bridge", "latent_link", "open_triad", "relational_analogy", "semantic_dissonance"}
 
 
-def _pair_labels(x, G):
-    """Reduce any pair/relational insight to its two endpoint concept LABELS (so all sources are
-    rated in one neutral, blind format: 'A' <-> 'B')."""
-    def lab(n):
-        return str(G.nodes[n].get("label", n))
-    for k in ("pair", "endpoints"):
-        v = x.get(k)
-        if isinstance(v, list) and len(v) >= 2 and v[0] in G and v[1] in G:
-            return lab(v[0]), lab(v[1])
-    ch = x.get("chain")
-    if isinstance(ch, list) and len(ch) >= 2 and ch[0] in G and ch[-1] in G:
-        return lab(ch[0]), lab(ch[-1])
-    inst = x.get("instances")
-    if isinstance(inst, list) and inst and isinstance(inst[0], list) and len(inst[0]) >= 3 \
-            and inst[0][0] in G and inst[0][2] in G:
-        return lab(inst[0][0]), lab(inst[0][2])
+def _connection_text(x, G):
+    """Render a mined insight as a connection statement WITH its bridging mechanism — the graph's
+    actual structural payload (path / relation / common-neighbour), not just the two endpoints."""
+    k = x.get("kind")
+    if k == "conceptual_bridge" and isinstance(x.get("path"), list) and len(x["path"]) >= 2 \
+            and all(n in G for n in x["path"]):
+        p, rels = x["path"], x.get("relations", [])
+        chain = _lbl(G, p[0])
+        for i, n in enumerate(p[1:]):
+            chain += f" —{rels[i] if i < len(rels) else 'relates to'}→ {_lbl(G, n)}"
+        return f"{_lbl(G, p[0])} and {_lbl(G, p[-1])}, connected via: {chain}"
+    if k == "open_triad" and isinstance(x.get("chain"), list) and len(x["chain"]) >= 3 \
+            and all(n in G for n in x["chain"]):
+        a, b, c = x["chain"][:3]; r = (x.get("relations") or ["relates to", "relates to"]) + ["", ""]
+        return (f"{_lbl(G, a)} and {_lbl(G, c)}, inferable via {_lbl(G, b)}: "
+                f"{_lbl(G, a)} —{r[0]}→ {_lbl(G, b)} —{r[1]}→ {_lbl(G, c)}")
+    if k == "relational_analogy" and isinstance(x.get("instances"), list) and len(x["instances"]) >= 2:
+        i0, i1 = x["instances"][0], x["instances"][1]
+        if len(i0) >= 3 and len(i1) >= 3 and all(n in G for n in (i0[0], i0[2], i1[0], i1[2])):
+            return f"{_lbl(G, i0[0])} is to {_lbl(G, i0[2])} as {_lbl(G, i1[0])} is to {_lbl(G, i1[2])}"
+    if k == "latent_link" and isinstance(x.get("pair"), list) and all(n in G for n in x["pair"][:2]):
+        a, b = x["pair"][:2]
+        return f"{_lbl(G, a)} and {_lbl(G, b)} (share {x.get('common_neighbors', 'several')} concepts but are not directly linked)"
+    if k == "semantic_dissonance" and isinstance(x.get("pair"), list) and all(n in G for n in x["pair"][:2]):
+        a, b = x["pair"][:2]
+        return f"{_lbl(G, a)} and {_lbl(G, b)} (closely related in meaning yet never connected in the reasoning)"
     return None
 
 
@@ -697,63 +707,63 @@ def run_assess(args):
         G = I.load_graph(args.run) if args.run else I.load_graph(os.path.dirname(args.insights) or ".")
     else:
         topic, G, results = I.load_insights_or_mine(args.run, embed_model=args.embed_model)
-    items = []                                         # (source, (labelA, labelB))
-    for kind, ins in results:
-        if kind in PAIR_KINDS:
-            for x in ins[:args.n_per_miner]:
-                pl = _pair_labels(x, G)
-                if pl:
-                    items.append(("mined", pl))
-    n_mined = len(items)
-    if n_mined == 0:
-        raise SystemExit("no pair-type mined insights found — run insights.py first.")
-    rng = random.Random(args.seed)
+    # GRAPH arm: the top-actionability mined connections, rendered WITH their bridging mechanism
+    pair_results = [(k, ins) for k, ins in results if k in PAIR_KINDS]
+    K = args.n_per_miner
+    items = []                                         # (source, connection_text)
+    for x in S._rank_leads(pair_results, K):
+        t = _connection_text(x, G)
+        if t:
+            items.append(("graph", t))
+    K = len(items)
+    if K == 0:
+        raise SystemExit("no pair-type mined connections found — run insights.py first.")
+    rng = random.Random(args.seed)                     # CONTROL 1: random concept pairs (no mechanism)
     labs = [str(G.nodes[n].get("label", n)) for n in G.nodes]
-    for _ in range(n_mined):                           # CONTROL: random concept pairs from the graph
+    for _ in range(K):
         a, b = rng.sample(labs, 2)
-        items.append(("random", (a, b)))
-    if args.model:                                     # optional CONTROL: the small model's own pairs
+        items.append(("random", f"{a} and {b}"))
+    if args.model:                                     # CONTROL 2: the model's OWN connections (+ a reason)
         call = _make_call(args.model, args.base_url, args.api_key)
         out = call([{"role": "system", "content": "You are a domain expert."},
-                    {"role": "user", "content": f"Topic: {topic}\n\nList {n_mined} pairs of concepts "
-                     f"relevant to this topic that are connected in a NON-OBVIOUS way. Format each line "
-                     f"exactly as 'A | B'. No numbering, no commentary."}], temperature=0.8, max_tokens=1200)
+                    {"role": "user", "content": f"Topic: {topic}\n\nList {K} NON-OBVIOUS connections "
+                     f"between concepts relevant to this topic. Format EACH line exactly as "
+                     f"'A | B | one-sentence reason they connect'. No numbering."}],
+                   temperature=0.8, max_tokens=1600)
+        c = 0
         for line in out.splitlines():
-            if "|" in line and sum(1 for s, _ in items if s == "model") < n_mined:
-                a, b = line.split("|", 1)
-                if a.strip() and b.strip():
-                    items.append(("model", (a.strip().lstrip("-*0123456789. "), b.strip())))
+            parts = line.split("|")
+            if len(parts) >= 3 and c < K:
+                a, b, why = parts[0].strip().lstrip("-*0123456789. "), parts[1].strip(), parts[2].strip()
+                if a and b:
+                    items.append(("model", f"{a} and {b} — {why}")); c += 1
 
     order = list(range(len(items))); random.Random(args.seed + 1).shuffle(order)
     shuf = [items[i] for i in order]
-    listing = "\n".join(f"{i+1}. '{a}'  <->  '{b}'" for i, (_, (a, b)) in enumerate(shuf))
-    user = (f"Domain: {topic}\n\nBelow are candidate conceptual connections (pairs of concepts). For "
-            f"EACH, rate it 1-5 on these dimensions IN THIS DOMAIN:\n"
-            f"- plausibility: a real, sensible relationship genuinely exists between the two concepts.\n"
-            f"- novelty: the connection is non-obvious YET MEANINGFUL. Crucial: an arbitrary, random, or "
-            f"nonsensical pairing is NOT novel — score it 1. Novelty requires a real, non-trivial link "
-            f"that is not textbook-obvious.\n"
-            f"- insight: linking them reveals a useful mechanism or hypothesis (a random pair reveals "
-            f"nothing — score it low).\n"
-            f"- usefulness: could seed a concrete, fruitful research direction.\n"
-            f"Judge substance, not surprise: surprising-but-meaningless pairs should score LOW on every "
-            f"dimension except possibly a low plausibility. Return a rating for every id "
-            f"1..{len(shuf)}.\n\n{listing}")
+    listing = "\n".join(f"{i+1}. {t}" for i, (_, t) in enumerate(shuf))
+    user = (f"Domain: {topic}\n\nBelow are candidate CONNECTIONS between concepts in this domain; some "
+            f"include a proposed mechanism or rationale. For EACH, rate it 1-5 on:\n"
+            f"- plausibility: a real, scientifically sensible relationship genuinely exists.\n"
+            f"- insight: the connection (and any mechanism shown) reveals a useful, non-obvious "
+            f"mechanism or hypothesis.\n"
+            f"- usefulness: it could seed a concrete, fruitful research direction.\n"
+            f"Judge SUBSTANCE: an arbitrary pairing with no real link should score low across the board. "
+            f"Return a rating for every id 1..{len(shuf)}.\n\n{listing}")
     judge = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
-    print(f"[compare] assessing {n_mined} mined connections vs {n_mined} random"
+    print(f"[compare] assessing {K} top graph connections vs {K} random"
           + (" vs model-own" if args.model else "") + f" · judge={args.jm}", flush=True)
     v = _parse_json(judge([{"role": "system", "content": GATE_SYSTEM}, {"role": "user", "content": user}],
                           0.0, 8000, CONN_SCHEMA)) or {}
     by_id = {d.get("id"): d for d in v.get("ratings", v.get("answers", [])) if isinstance(d, dict)}
-    srcs = [s for s in ["mined", "model", "random"] if any(x == s for x, _ in items)]
+    srcs = [s for s in ["graph", "model", "random"] if any(x == s for x, _ in items)]
     scores = {s: {d: [] for d in CONN_DIMS} for s in srcs}
     examples = []
-    for i, (src, (a, b)) in enumerate(shuf):
+    for i, (src, t) in enumerate(shuf):
         d = by_id.get(i + 1, {})
         for dim in CONN_DIMS:
             scores[src][dim].append(float(d.get(dim, 2)))
-        if src == "mined":
-            examples.append((np.mean([float(d.get(dim, 0)) for dim in CONN_DIMS]), a, b))
+        if src == "graph":
+            examples.append((np.mean([float(d.get(dim, 0)) for dim in CONN_DIMS]), t))
     _render_assess(args, topic, G, scores, srcs, sorted(examples, reverse=True))
 
 
@@ -763,23 +773,23 @@ def _render_assess(args, topic, G, scores, srcs, examples):
     import matplotlib.pyplot as plt
     plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
                          "figure.dpi": 150})
-    col = {"mined": "#d62728", "model": "#1f77b4", "random": "#7f7f7f"}
-    lab = {"mined": "graph-mined", "model": "model's own", "random": "random pairs"}
+    col = {"graph": "#d62728", "model": "#1f77b4", "random": "#7f7f7f"}
+    lab = {"graph": "graph-mined", "model": "model's own", "random": "random pairs"}
     agg = {s: {d: _ms(scores[s][d]) for d in CONN_DIMS} for s in srcs}
-    fig, ax = plt.subplots(1, 2, figsize=(14, 5.6), gridspec_kw={"width_ratios": [1.4, 1]})
+    fig, ax = plt.subplots(1, 2, figsize=(14, 5.8), gridspec_kw={"width_ratios": [1.05, 1]})
     a = ax[0]; x = np.arange(len(CONN_DIMS)); w = 0.8 / len(srcs)
     for k, s in enumerate(srcs):
         a.bar(x + (k - (len(srcs) - 1) / 2) * w, [agg[s][d][0] for d in CONN_DIMS], w,
               yerr=[agg[s][d][1] for d in CONN_DIMS], capsize=3, color=col[s], label=lab[s])
-    a.set_xticks(x); a.set_xticklabels(CONN_DIMS, rotation=10); a.set_ylim(0, 5.4)
+    a.set_xticks(x); a.set_xticklabels(CONN_DIMS); a.set_ylim(0, 5.4)
     a.set_ylabel("judge rating (1-5, mean ± s.e.)"); a.legend(frameon=False, fontsize=9)
     a.set_title("Quality of graph-mined connections vs controls")
     a = ax[1]; a.axis("off")
     head = " · ".join(f"{lab[s]} {np.mean([agg[s][d][0] for d in CONN_DIMS]):.2f}" for s in srcs)
-    ex = "\n".join(f"• {aa}  <->  {bb}" for _, aa, bb in examples[:9])
-    a.text(0, 1, f"Insight material quality\n{(topic or '')[:48]}\njudge: {args.jm}\n\n"
-                 f"mean over dims: {head}\n\nTop graph-mined connections (judge-rated):\n\n{ex}",
-           va="top", fontsize=8.4, family="monospace")
+    ex = "\n".join(f"• {(t if len(t) <= 78 else t[:77] + '…')}" for _, t in examples[:9])
+    a.text(0, 1, f"Mined-connection quality\n{(topic or '')[:48]}\njudge: {args.jm}\n\n"
+                 f"mean over dims: {head}\n\nTop graph-mined connections (shown with mechanism):\n\n{ex}",
+           va="top", fontsize=7.6, family="monospace")
     fig.suptitle(f"Are the graph-mined connections actually good? (judge: {args.jm})", y=1.02, fontsize=12)
     fig.tight_layout()
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
@@ -788,7 +798,7 @@ def _render_assess(args, topic, G, scores, srcs, examples):
     plt.close(fig)
     print(f"wrote {args.out}.png/.svg/.pdf")
     rep = {"mode": "insights", "topic": topic, "judge": args.jm, "aggregate": agg,
-           "top_mined": [{"score": s, "a": a2, "b": b2} for s, a2, b2 in examples[:30]]}
+           "top_graph_connections": [{"score": s, "connection": t} for s, t in examples[:30]]}
     json.dump(rep, open(f"{args.out}.json", "w"), indent=2)
     lines = ["| dimension | " + " | ".join(lab[s] for s in srcs) + " |",
              "|" + "---|" * (len(srcs) + 1)]
@@ -872,8 +882,8 @@ def main():
     p.add_argument("--rag-hops", dest="rag_hops", type=int, default=2, help="[graphrag] BFS hops for distal concepts")
     p.add_argument("--concepts", type=int, default=12, help="[graphrag] concepts injected per RAG arm")
     p.add_argument("--n-ideas", dest="n_ideas", type=int, default=6, help="[graphrag] ideas each arm brainstorms")
-    p.add_argument("--n-per-miner", dest="n_per_miner", type=int, default=6,
-                   help="[insights] mined connections sampled per miner (vs equal # random controls)")
+    p.add_argument("--n-per-miner", dest="n_per_miner", type=int, default=18,
+                   help="[insights] number of TOP-actionability mined connections to rate (vs equal # of each control)")
     # coverage
     p.add_argument("--leads", type=int, default=8, help="K: top leads → graph hypotheses (default 8)")
     p.add_argument("--baseline-samples", dest="baseline_samples", type=int, default=0,
