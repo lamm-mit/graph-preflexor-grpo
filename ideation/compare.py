@@ -809,13 +809,17 @@ def _render_assess(args, topic, G, scores, srcs, examples):
 
 
 # --------------------------------------------------------------------------- #
-#  Legacy pairwise-answer judge (kept for corroboration; --mode pairwise)
+#  Pairwise answer judge: graph-assisted answers vs no-insights baseline
 # --------------------------------------------------------------------------- #
-PAIR_DIMS = {"novelty": "original and non-obvious core idea?",
-             "insight": "reveals a non-obvious connection/mechanism, not a restatement?",
-             "mechanism": "concrete, specific, physically plausible mechanism?",
-             "feasibility": "realistically implementable?",
-             "testability": "a clear falsifiable prediction or experiment?"}
+PAIR_DIMS = {
+    "novelty": "original and non-obvious; not a standard or generic answer",
+    "insight": "reveals a useful non-obvious connection, mechanism, or hypothesis",
+    "mechanism": "gives a concrete causal/mechanistic explanation, not just a claim",
+    "testability": "contains a falsifiable prediction, measurement, or decisive experiment",
+    "plausibility": "scientifically/technically plausible; not creative nonsense",
+    "specificity": "uses concrete details, variables, materials, controls, or readouts",
+}
+PAIR_PRIMARY_DIMS = ["novelty", "insight", "mechanism", "testability", "specificity"]
 
 
 def _strip_header(t):
@@ -825,7 +829,92 @@ def _strip_header(t):
 
 def _read_answers(d):
     fs = sorted(glob.glob(os.path.join(d, "*.md")) + glob.glob(os.path.join(d, "*.txt")))
-    return [_strip_header(open(f, encoding="utf-8").read()) for f in fs]
+    return [{"path": f, "text": _strip_header(open(f, encoding="utf-8").read())} for f in fs]
+
+
+def _pair_primary(side):
+    """Primary hypothesis-generation score on the judge's 1-5 scale.
+
+    The core score rewards novelty, insight, mechanism, testability, and specificity. Implausible
+    answers are capped by their plausibility score so speculative nonsense cannot win by being
+    merely surprising.
+    """
+    core = float(np.mean([side[d] for d in PAIR_PRIMARY_DIMS]))
+    return min(core, side["plausibility"]) if side["plausibility"] < 3 else core
+
+
+def _validate_pairwise(v, dims):
+    if not isinstance(v, dict):
+        return None
+    if v.get("preferred") not in ("A", "B", "tie"):
+        return None
+    out = {"preferred": v["preferred"], "rationale": str(v.get("rationale", "")).strip()}
+    for side_name in ("A", "B"):
+        side = v.get(side_name)
+        if not isinstance(side, dict):
+            return None
+        clean = {}
+        for d in dims:
+            try:
+                x = int(side[d])
+            except Exception:
+                return None
+            if x < 1 or x > 5:
+                return None
+            clean[d] = float(x)
+        clean["primary"] = _pair_primary(clean)
+        out[side_name] = clean
+    return out
+
+
+def _pairwise_schema(dims):
+    score = {"type": "integer", "enum": [1, 2, 3, 4, 5]}
+    side = {"type": "object", "additionalProperties": False,
+            "properties": {d: score for d in dims}, "required": dims}
+    return {"type": "json_schema", "json_schema": {"name": "pairwise_verdict", "strict": True,
+            "schema": {"type": "object", "additionalProperties": False,
+                       "required": ["A", "B", "preferred", "rationale"],
+                       "properties": {
+                           "A": side,
+                           "B": side,
+                           "preferred": {"type": "string", "enum": ["A", "B", "tie"]},
+                           "rationale": {"type": "string"},
+                       }}}}
+
+
+def _judge_pairwise(call, task, answer_a, answer_b, dims, schema):
+    dd = "\n".join(f"- {d}: {PAIR_DIMS[d]}" for d in dims)
+    system = (
+        "You are an impartial expert reviewer for a hypothesis-generation benchmark. "
+        "You do not know which answer came from which system. Score substance only; do not reward "
+        "verbosity, confident tone, formatting polish, or citations unless they support a better "
+        "hypothesis. Penalize generic answers and penalize implausible speculation."
+    )
+    user = (
+        "Two answers respond to the SAME task. Score each answer independently from 1 to 5 on "
+        "every dimension, then choose the preferred answer overall.\n\n"
+        "Rubric:\n"
+        f"{dd}\n\n"
+        "Preference rule: prefer the answer with the stronger useful hypothesis after considering "
+        "novelty, insight, mechanism, testability, specificity, and plausibility. If both are "
+        "substantively equivalent, choose tie.\n\n"
+        f"TASK:\n{task}\n\n--- A ---\n{answer_a}\n\n--- B ---\n{answer_b}\n\n"
+        "Return only the requested JSON."
+    )
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    raw = ""
+    for attempt in range(2):
+        raw = call(messages, 0.0, 1800, schema)
+        parsed = _validate_pairwise(_parse_json(raw), dims)
+        if parsed is not None:
+            parsed["raw"] = raw
+            return parsed
+        messages = messages + [
+            {"role": "assistant", "content": raw[:2000]},
+            {"role": "user", "content": "The previous response was not valid for the required schema. "
+                                      "Return only valid JSON with A, B, preferred, and rationale."},
+        ]
+    return {"error": "invalid_judge_json", "raw": raw}
 
 
 def run_pairwise(args):
@@ -835,34 +924,144 @@ def run_pairwise(args):
     n = min(len(tasks), len(sysa), len(basea))
     if n == 0:
         raise SystemExit("need matching tasks + --system + --baseline answers")
+    if len(tasks) != len(sysa) or len(tasks) != len(basea):
+        print(f"[compare/pairwise] warning: using first {n} aligned items "
+              f"(tasks={len(tasks)}, system={len(sysa)}, baseline={len(basea)})", flush=True)
     call = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
-    score = {"type": "integer", "enum": [1, 2, 3, 4, 5]}
-    side = {"type": "object", "additionalProperties": False, "properties": {d: score for d in dims},
-            "required": dims}
-    schema = {"type": "json_schema", "json_schema": {"name": "verdict", "strict": True, "schema": {
-        "type": "object", "additionalProperties": False, "required": ["A", "B", "preferred"],
-        "properties": {"A": side, "B": side, "preferred": {"type": "string", "enum": ["A", "B", "tie"]}}}}}
-    sc = {d: {"g": [], "b": []} for d in dims}; prefs = []
+    schema = _pairwise_schema(dims)
+    sc = {d: {"g": [], "b": []} for d in dims + ["primary"]}; prefs = []
+    per_task, skipped = [], []
     for i in range(n):
         rng = random.Random(args.seed + i); sysA = rng.random() < 0.5
-        a, b = (sysa[i], basea[i]) if sysA else (basea[i], sysa[i])
-        dd = "\n".join(f"- {d}: {PAIR_DIMS[d]}" for d in dims)
-        user = (f"Two answers respond to the SAME task. Score each 1-5 on each dimension, then prefer "
-                f"one.\nDimensions:\n{dd}\n\nTASK:\n{tasks[i]}\n\n--- A ---\n{a}\n\n--- B ---\n{b}")
-        v = _parse_json(call([{"role": "system", "content": "You are an impartial reviewer."},
-                              {"role": "user", "content": user}], 0.0, 800, schema)) or {}
+        a = sysa[i]["text"] if sysA else basea[i]["text"]
+        b = basea[i]["text"] if sysA else sysa[i]["text"]
+        v = _judge_pairwise(call, tasks[i], a, b, dims, schema)
         if "A" not in v or "B" not in v:
+            skipped.append({"index": i, "task": tasks[i], "error": v.get("error", "invalid_judge_json"),
+                            "raw": v.get("raw", "")})
             continue
         gv, bv = (v["A"], v["B"]) if sysA else (v["B"], v["A"])
-        for d in dims:
-            try:
-                sc[d]["g"].append(float(gv[d])); sc[d]["b"].append(float(bv[d]))
-            except Exception:
-                pass
+        for d in dims + ["primary"]:
+            sc[d]["g"].append(float(gv[d])); sc[d]["b"].append(float(bv[d]))
         p = v.get("preferred", "tie")
-        prefs.append("system" if p == ("A" if sysA else "B") else ("baseline" if p in ("A", "B") else "tie"))
-    print("[compare/pairwise] " + " · ".join(f"{d}: g={np.mean(sc[d]['g']):.2f} b={np.mean(sc[d]['b']):.2f}"
-          for d in dims) + f" | system preferred {100*prefs.count('system')/max(1,len(prefs)):.0f}%")
+        pref = "system" if p == ("A" if sysA else "B") else ("baseline" if p in ("A", "B") else "tie")
+        prefs.append(pref)
+        per_task.append({
+            "index": i,
+            "task": tasks[i],
+            "system_file": sysa[i]["path"],
+            "baseline_file": basea[i]["path"],
+            "system_was": "A" if sysA else "B",
+            "preferred": pref,
+            "scores": {"system": gv, "baseline": bv},
+            "delta_primary": float(gv["primary"] - bv["primary"]),
+            "judge_preferred_label": p,
+            "rationale": v.get("rationale", ""),
+            "judge_raw": v.get("raw", ""),
+        })
+    if not per_task:
+        raise SystemExit("no valid pairwise judge results")
+    _render_pairwise(args, dims, sc, prefs, per_task, skipped)
+
+
+def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
+                         "figure.dpi": 150})
+    all_dims = dims + ["primary"]
+    agg = {d: {"system": _ms(sc[d]["g"]), "baseline": _ms(sc[d]["b"]),
+               "delta": _ms([g - b for g, b in zip(sc[d]["g"], sc[d]["b"])])}
+           for d in all_dims}
+    pref_counts = {k: prefs.count(k) for k in ("system", "baseline", "tie")}
+    n = len(per_task)
+    win_rate = 100.0 * pref_counts["system"] / max(1, n)
+    base_rate = 100.0 * pref_counts["baseline"] / max(1, n)
+    tie_rate = 100.0 * pref_counts["tie"] / max(1, n)
+
+    fig, ax = plt.subplots(1, 2, figsize=(14.5, 5.8), gridspec_kw={"width_ratios": [1.35, 0.9]})
+    x = np.arange(len(all_dims)); w = 0.36
+    sys_means = [agg[d]["system"][0] for d in all_dims]
+    base_means = [agg[d]["baseline"][0] for d in all_dims]
+    sys_err = [agg[d]["system"][1] for d in all_dims]
+    base_err = [agg[d]["baseline"][1] for d in all_dims]
+    a = ax[0]
+    a.bar(x - w / 2, sys_means, w, yerr=sys_err, capsize=3, color="#d62728", label="graph insights")
+    a.bar(x + w / 2, base_means, w, yerr=base_err, capsize=3, color="#1f77b4", label="baseline")
+    a.set_xticks(x); a.set_xticklabels(all_dims, rotation=18, ha="right")
+    a.set_ylim(0, 5.35); a.set_ylabel("GPT-5.5 score (1-5, mean +/- s.e.)")
+    a.set_title("Pairwise blind scores by dimension")
+    a.legend(frameon=False, fontsize=9)
+
+    a = ax[1]; a.axis("off")
+    delta = agg["primary"]["delta"]
+    cap = (
+        f"n scored: {n}\n"
+        f"judge: {args.jm}  effort={args.judge_effort}\n\n"
+        f"primary: system {agg['primary']['system'][0]:.2f} vs "
+        f"baseline {agg['primary']['baseline'][0]:.2f}\n"
+        f"paired delta: {delta[0]:+.2f} +/- {delta[1]:.2f}\n\n"
+        f"preferences:\n"
+        f"  graph insights: {pref_counts['system']} ({win_rate:.0f}%)\n"
+        f"  baseline:       {pref_counts['baseline']} ({base_rate:.0f}%)\n"
+        f"  tie:            {pref_counts['tie']} ({tie_rate:.0f}%)\n\n"
+        "Primary = mean(novelty, insight,\n"
+        "mechanism, testability, specificity),\n"
+        "capped by plausibility when plausibility < 3.\n"
+        f"Skipped invalid judge calls: {len(skipped)}"
+    )
+    a.text(0, 1, cap, va="top", fontsize=9.0, family="monospace")
+    fig.suptitle("Graph-derived insights improve small-model hypothesis answers", y=1.02, fontsize=12.5)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    for ext in ("png", "svg", "pdf"):
+        fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")
+    plt.close(fig)
+
+    report = {
+        "mode": "pairwise",
+        "judge": args.jm,
+        "judge_effort": args.judge_effort,
+        "n_scored": n,
+        "n_skipped": len(skipped),
+        "dimensions": PAIR_DIMS,
+        "primary_definition": {
+            "core_dimensions": PAIR_PRIMARY_DIMS,
+            "plausibility_rule": "if plausibility < 3, primary = min(core_mean, plausibility)",
+        },
+        "aggregate": agg,
+        "preferences": pref_counts,
+        "per_task": per_task,
+        "skipped": skipped,
+    }
+    json.dump(report, open(f"{args.out}.json", "w"), indent=2)
+
+    lines = [f"# Pairwise hypothesis benchmark\n",
+             f"*{n} scored tasks · judge {args.jm} · graph-insight answers in `{args.system}` · "
+             f"baseline answers in `{args.baseline}`*\n",
+             "| dimension | graph insights | baseline | paired delta |",
+             "|---|---:|---:|---:|"]
+    for d in all_dims:
+        lines.append(f"| {d} | {agg[d]['system'][0]:.2f} +/- {agg[d]['system'][1]:.2f} | "
+                     f"{agg[d]['baseline'][0]:.2f} +/- {agg[d]['baseline'][1]:.2f} | "
+                     f"{agg[d]['delta'][0]:+.2f} +/- {agg[d]['delta'][1]:.2f} |")
+    lines += ["",
+              f"Preference counts: graph insights **{pref_counts['system']}**, "
+              f"baseline **{pref_counts['baseline']}**, tie **{pref_counts['tie']}**.",
+              "",
+              "Primary score: mean of novelty, insight, mechanism, testability, and specificity; "
+              "if plausibility is below 3, the primary score is capped by plausibility.",
+              ""]
+    if skipped:
+        lines.append(f"Skipped invalid judge calls: {len(skipped)}.")
+    open(f"{args.out}.md", "w").write("\n".join(lines) + "\n")
+
+    print(f"wrote {args.out}.png/.svg/.pdf")
+    print(f"wrote {args.out}.json / {args.out}.md")
+    print("[compare/pairwise] " + " · ".join(
+        f"{d}: graph={agg[d]['system'][0]:.2f} baseline={agg[d]['baseline'][0]:.2f}"
+        for d in all_dims) + f" | graph preferred {win_rate:.0f}%")
 
 
 # --------------------------------------------------------------------------- #
