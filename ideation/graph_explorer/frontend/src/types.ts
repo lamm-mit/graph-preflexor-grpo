@@ -261,6 +261,7 @@ export type ProfileJobStatus = {
 export type ProfileReportPayload = {
   artifacts: ProfileArtifacts;
   markdown: string;
+  profile_json?: string;
 };
 
 export type GraphFileSummary = {
@@ -316,6 +317,7 @@ export type GraphAskContext = {
     chars: number;
     total_chars: number;
     truncated: boolean;
+    included?: string[];
   };
 };
 
@@ -332,9 +334,12 @@ export type ChatMessage = {
 
 export type VisualState = {
   viewMode: "3d" | "2d";
+  canvasTheme: "dark" | "light";
   layout: "force" | "component" | "community" | "degree" | "timeline";
   colorBy: "component" | "community" | "degree" | "pagerank" | "core" | "iter" | "depth";
   colorPalette: "atlas" | "viridis" | "plasma" | "graphite" | "categorical";
   sizeBy: "degree" | "pagerank" | "core" | "constant";
   edgeOpacity: number;
+  edgeWidth: number;
+  edgeStyle: "straight" | "directed";
 };

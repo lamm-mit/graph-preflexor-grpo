@@ -161,6 +161,36 @@ Key knobs:
 - `--n-leads`: path insights retrieved per task
 - `--answer-leads`: top path insights shown to Llama
 
+Simplest novelty-yield benchmark. This makes the narrowest quantitative paper figure:
+
+- baseline: Llama generates short unconventional idea cards directly from the topic
+- graph: Llama converts mined Graph-PRefLexOR leads into short idea cards
+- judge: GPT-5.5 scores each card independently for novelty only
+- metric: `% ideas with novelty >= 4`
+
+Feasibility and plausibility are intentionally ignored. The judge records coherence for audit, but
+the default pass rule is only `novelty >= 4`.
+
+```bash
+python novelty_yield_benchmark.py \
+  --run runs/exp_leap \
+  --out runs/exp_leap/benchmark/novelty_yield \
+  --n 30 \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --judge-model gpt-5.5 \
+  --judge-effort high \
+  --force
+```
+
+Outputs:
+
+- `novelty_yield.png/.svg/.pdf`: one bar plot, baseline vs Graph-PRefLexOR novelty yield
+- `ideas/baseline.json` and `ideas/graph.json`: generated idea cards
+- `scores.json`: independent novelty/coherence judge scores for every idea
+- `graph_leads.txt`: graph leads used by the graph arm
+- `prompts/`: exact generator and judge prompts
+
 Clean concept-pair bridge benchmark. This is the most direct test of whether the mined graph adds
 usable information to the same small model:
 

@@ -710,6 +710,18 @@ def _load_config():
         return yaml.safe_load(f) or {}, path
 
 
+def _normalize_generation_backend(value, provider="openai"):
+    provider = str(provider or "openai").strip().lower()
+    if provider == "hf":
+        return "hf"
+    backend = str(value or "responses").strip().lower().replace("_", "-")
+    if backend in {"chat", "chat-completions", "chat.completions"}:
+        return "chat"
+    if backend in {"prompt", "completion", "completions", "text"}:
+        return "prompt"
+    return "responses"
+
+
 def _role_from_config(role, cfg):
     if role == "embedder":
         return {
@@ -728,11 +740,7 @@ def _role_from_config(role, cfg):
     if role == "chat" and not data.get("model"):
         data = dict(cfg.get("questioner") or {})
     provider = data.get("provider") or "openai"
-    backend = str(data.get("backend") or "responses")
-    if provider == "openai" and backend != "responses":
-        backend = "responses"
-    elif provider == "hf":
-        backend = "hf"
+    backend = _normalize_generation_backend(data.get("backend"), provider)
     return {
         "role": role,
         "provider": provider,
@@ -761,10 +769,7 @@ def _coerce_role(raw):
     for key in ("role", "provider", "model", "base_url", "backend", "api_key_env", "reasoning_effort"):
         role[key] = str(role.get(key) or "").strip()
     provider = role.get("provider") or "openai"
-    if provider == "openai":
-        role["backend"] = "responses"
-    elif provider == "hf" and not role.get("backend"):
-        role["backend"] = "hf"
+    role["backend"] = _normalize_generation_backend(role.get("backend"), provider)
     for key in ("temperature", "max_tokens"):
         value = role.get(key)
         if value in (None, ""):
@@ -2308,10 +2313,8 @@ def _call_openai_compatible(cfg, messages, previous_response_id=None, return_met
     api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
     base_url = cfg.get("base_url") or None
     client = OpenAI(base_url=base_url, api_key=api_key)
-    backend = str(cfg.get("backend") or "responses").lower()
-    if str(cfg.get("provider") or "openai") == "openai":
-        backend = "responses"
-    if backend in {"prompt", "completion", "completions", "text"}:
+    backend = _normalize_generation_backend(cfg.get("backend"), cfg.get("provider") or "openai")
+    if backend == "prompt":
         return _call_prompt_completion(client, cfg, messages)
     use_responses = backend == "responses"
     if use_responses:
@@ -2419,7 +2422,7 @@ def _call_hf(cfg, messages):
     return tok.decode(gen[0][input_len:], skip_special_tokens=True).strip()
 
 
-def _answer_question(body):
+def _prepare_chat_request(body):
     question = str(body.get("question") or "").strip()
     if not question:
         raise ValueError("Question is required.")
@@ -2479,15 +2482,14 @@ def _answer_question(body):
             "Answer directly."
         )
     provider = cfg.get("provider", "openai")
-    backend = str(cfg.get("backend") or "responses").lower()
-    if str(cfg.get("provider") or "openai") == "openai":
-        backend = "responses"
+    backend = _normalize_generation_backend(cfg.get("backend"), cfg.get("provider") or "openai")
     previous_response_id = str(body.get("previous_response_id") or "").strip()
     native_responses_state = backend == "responses" and bool(previous_response_id)
     instruction_role = _assistant_instruction_role(cfg)
     messages = [{"role": instruction_role, "content": assistant_instruction}]
     fallback_messages = [{"role": instruction_role, "content": assistant_instruction}]
     raw_history = body.get("history") or []
+    history_turns = 0
     if isinstance(raw_history, list):
         for item in raw_history[-8:]:
             if not isinstance(item, dict):
@@ -2495,33 +2497,116 @@ def _answer_question(body):
             role = item.get("role")
             content = str(item.get("content") or "").strip()
             if role in ("user", "assistant") and content:
+                history_turns += 1
                 history_message = {"role": role, "content": content[:5000]}
                 fallback_messages.append(history_message)
                 if not native_responses_state:
                     messages.append(history_message)
     messages.append({"role": "user", "content": user})
     fallback_messages.append({"role": "user", "content": user})
+    return {
+        "question": question,
+        "cfg": cfg,
+        "context": context,
+        "report_context": report_context,
+        "provider": provider,
+        "backend": backend,
+        "previous_response_id": previous_response_id,
+        "native_responses_state": native_responses_state,
+        "instruction_role": instruction_role,
+        "assistant_instruction": assistant_instruction,
+        "user_prompt": user,
+        "messages": messages,
+        "fallback_messages": fallback_messages,
+        "history_turns": history_turns,
+    }
+
+
+def _chat_state_mode(backend, response_id="", history_turns=0, native_responses_state=False):
+    if backend == "responses" and (response_id or native_responses_state):
+        return "responses_previous_response_id"
+    if history_turns:
+        return "history_replay"
+    return "ready_for_multiturn"
+
+
+def _answer_question(body):
+    prepared = _prepare_chat_request(body)
+    cfg = prepared["cfg"]
+    provider = prepared["provider"]
+    backend = prepared["backend"]
     if provider == "hf":
-        answer = _call_hf(cfg, messages)
+        answer = _call_hf(cfg, prepared["messages"])
         response_id = ""
     else:
         result = _call_openai_compatible(
             cfg,
-            messages,
-            previous_response_id=previous_response_id if native_responses_state else None,
+            prepared["messages"],
+            previous_response_id=prepared["previous_response_id"] if prepared["native_responses_state"] else None,
             return_metadata=True,
-            fallback_messages=fallback_messages,
+            fallback_messages=prepared["fallback_messages"],
         )
         answer = str(result.get("text") or "") if isinstance(result, dict) else str(result or "")
         response_id = str(result.get("response_id") or "") if isinstance(result, dict) else ""
+    context = prepared["context"]
+    report_context = prepared["report_context"]
     public_context = {k: v for k, v in context.items() if k != "text"}
     if report_context:
         public_context["report_context"] = {k: v for k, v in report_context.items() if k != "text"}
+    state_mode = _chat_state_mode(
+        backend,
+        response_id=response_id,
+        history_turns=prepared["history_turns"],
+        native_responses_state=prepared["native_responses_state"],
+    )
     return {
         "answer": answer,
         "context": public_context,
         "response_id": response_id,
-        "stateful": bool(response_id and backend == "responses"),
+        "stateful": backend in {"responses", "chat", "hf"} and (bool(response_id) or bool(prepared["history_turns"]) or backend == "chat"),
+        "state_mode": state_mode,
+        "backend": backend,
+    }
+
+
+def _chat_context_preview(body):
+    prepared = _prepare_chat_request(body)
+    context = prepared["context"]
+    report_context = prepared["report_context"]
+    public_context = {k: v for k, v in context.items() if k != "text"}
+    if report_context:
+        public_context["report_context"] = {k: v for k, v in report_context.items() if k != "text"}
+    sanitized_cfg = {
+        key: value
+        for key, value in dict(prepared["cfg"]).items()
+        if key not in {"api_key"} and value not in (None, "")
+    }
+    return {
+        "backend": prepared["backend"],
+        "state_mode": _chat_state_mode(
+            prepared["backend"],
+            history_turns=prepared["history_turns"],
+            native_responses_state=prepared["native_responses_state"],
+        ),
+        "instruction_role": prepared["instruction_role"],
+        "assistant_instruction": prepared["assistant_instruction"],
+        "user_prompt": prepared["user_prompt"],
+        "messages": prepared["messages"],
+        "fallback_messages": prepared["fallback_messages"] if prepared["native_responses_state"] else [],
+        "context": public_context,
+        "request": {
+            "question": prepared["question"],
+            "selected_nodes": body.get("selected_nodes") or [],
+            "query": body.get("query") or "",
+            "depth": _safe_int(body.get("depth"), 1),
+            "max_nodes": _safe_int(body.get("max_nodes"), 90),
+            "max_edges": _safe_int(body.get("max_edges"), 160),
+            "context_mode": _normalize_context_mode(body.get("context_mode") or "none"),
+            "report_context": body.get("report_context") or None,
+            "model_config": sanitized_cfg,
+            "history_turns": prepared["history_turns"],
+            "previous_response_id": prepared["previous_response_id"] or "",
+        },
     }
 
 
@@ -2548,28 +2633,63 @@ def _report_context_payload(raw):
     if not out:
         return None
     max_chars = max(1000, min(50000, _safe_int(raw.get("max_chars"), 12000)))
+    include_report = raw.get("include_report", True) is not False
+    include_profile = bool(raw.get("include_profile"))
+    if not include_report and not include_profile:
+        return None
     artifacts = _profile_artifacts(out)
-    report_path = Path(artifacts.get("report_path") or "")
-    if not report_path.exists() or not report_path.is_file():
-        raise ValueError(f"selected report context is not available: {out}")
-    markdown = report_path.read_text(errors="replace")
     summary = dict(artifacts.get("summary") or {})
-    truncated = len(markdown) > max_chars
-    excerpt = markdown[:max_chars]
     title = summary.get("topic") or Path(out).name
+    parts = []
+    included = []
+    total_chars = 0
+    used_chars = 0
+    truncated = False
+
+    def add_part(label, path_value):
+        nonlocal total_chars, used_chars, truncated
+        path = Path(path_value or "")
+        if not path.exists() or not path.is_file():
+            raise ValueError(f"selected {label} context is not available: {out}")
+        text = path.read_text(errors="replace")
+        total_chars += len(text)
+        remaining = max_chars - used_chars
+        if remaining <= 0:
+            truncated = True
+            return
+        excerpt = text[:remaining]
+        used_chars += len(excerpt)
+        truncated = truncated or len(text) > len(excerpt)
+        included.append(label)
+        parts.append(
+            f"## {label}\n"
+            f"Source: {path.name}\n"
+            f"Excerpt chars: {len(excerpt)} of {len(text)}"
+            f"{' (truncated)' if len(text) > len(excerpt) else ''}\n\n"
+            f"{excerpt}"
+        )
+
+    if include_report:
+        add_part("report.md", artifacts.get("report_path") or "")
+    if include_profile:
+        add_part("profile.json", artifacts.get("profile_path") or "")
+
+    context_text = "\n\n".join(parts)
     return {
         "out": artifacts.get("out") or out,
         "title": str(title),
-        "chars": len(excerpt),
-        "total_chars": len(markdown),
+        "chars": used_chars,
+        "total_chars": total_chars,
         "truncated": truncated,
+        "included": included,
         "text": (
-            f"Report: {artifacts.get('out') or out}\n"
+            f"Profile context: {artifacts.get('out') or out}\n"
             f"Title/topic: {title}\n"
             f"Nodes: {summary.get('nodes', '')}; Edges: {summary.get('edges', '')}; Modules: {summary.get('modules', '')}\n"
-            f"Excerpt chars: {len(excerpt)} of {len(markdown)}"
+            f"Included: {', '.join(included)}\n"
+            f"Excerpt chars: {used_chars} of {total_chars}"
             f"{' (truncated)' if truncated else ''}\n\n"
-            f"{excerpt}"
+            f"{context_text}"
         ),
     }
 
@@ -2936,13 +3056,19 @@ def _stop_profile_job(body):
 def _profile_report_payload(body):
     artifacts = _profile_artifacts(body.get("out") or "")
     markdown = ""
+    profile_json = ""
     report_value = artifacts.get("report_path") or ""
     report_path = Path(report_value) if report_value else None
     if report_path and report_path.exists() and report_path.is_file():
         markdown = report_path.read_text(errors="replace")
+    profile_value = artifacts.get("profile_path") or ""
+    profile_path = Path(profile_value) if profile_value else None
+    if profile_path and profile_path.exists() and profile_path.is_file():
+        profile_json = profile_path.read_text(errors="replace")
     return {
         "artifacts": artifacts,
         "markdown": markdown,
+        "profile_json": profile_json,
     }
 
 
@@ -3089,6 +3215,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_bridge_suggestions_payload(body))
             elif parsed.path == "/api/ask":
                 self._json(_answer_question(body))
+            elif parsed.path == "/api/chat_context_preview":
+                self._json(_chat_context_preview(body))
             elif parsed.path == "/api/graph_rag_context":
                 self._json(_graph_rag_context_payload(body))
             elif parsed.path == "/api/ideate":

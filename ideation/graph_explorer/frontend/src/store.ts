@@ -49,11 +49,14 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
   highlightedPaths: [],
   visual: {
     viewMode: "2d",
+    canvasTheme: "dark",
     layout: "force",
     colorBy: "degree",
     colorPalette: "atlas",
     sizeBy: "degree",
-    edgeOpacity: 0.12,
+    edgeOpacity: 0.18,
+    edgeWidth: 1,
+    edgeStyle: "straight",
   },
   roles: {
     chat: { ...questionerRole, role: "chat" },

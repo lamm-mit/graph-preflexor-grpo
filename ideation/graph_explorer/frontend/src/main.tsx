@@ -1,10 +1,13 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import Graph from "graphology";
 import Sigma from "sigma";
+import { EdgeArrowProgram, EdgeLineProgram } from "sigma/rendering";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   Activity,
+  CircleAlert,
+  CircleCheck,
   BrainCircuit,
   ChevronLeft,
   ChevronRight,
@@ -12,6 +15,7 @@ import {
   Download,
   FileText,
   FolderOpen,
+  Info,
   Loader2,
   Network,
   PanelLeft,
@@ -22,12 +26,13 @@ import {
   Send,
   Settings2,
   SlidersHorizontal,
+  Sparkles,
   X,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
-import { cx, Drawer, formatRunTime, HelpTip, IconButton, SidebarHeader } from "./components/common";
+import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
 import { MarkdownReport, ReportStage, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunExplorer, RunMonitor } from "./features/runs";
 import {
@@ -62,10 +67,13 @@ import type {
 } from "./types";
 import "./styles.css";
 
+const logoUrl = new URL("../../logo.gif", import.meta.url).href;
+
 type CoreWorkspaceMode = "chat" | "graph" | "search" | "runs" | "reports" | "models";
 type OptionalToolMode = "graphrag";
 type WorkspaceMode = CoreWorkspaceMode | OptionalToolMode;
 type ChatContextMode = "none" | "focused" | "graph_rag";
+type ReportContextPart = "report" | "profile";
 
 const TOOL_RAIL_STORAGE_KEY = "graph-preflexor-explorer.tool-rail.v1";
 const SESSION_REPORTS_STORAGE_KEY = "graph-preflexor-explorer.session-reports.v1";
@@ -126,6 +134,20 @@ function chatContextLabel(mode: ChatContextMode) {
   return "None";
 }
 
+function reportPartsLabel(parts: ReportContextPart[]) {
+  const labels = [];
+  if (parts.includes("report")) labels.push("report.md");
+  if (parts.includes("profile")) labels.push("profile.json");
+  return labels.join(" + ") || "no files";
+}
+
+function reportPartsFromIncluded(included?: string[]): ReportContextPart[] {
+  const parts: ReportContextPart[] = [];
+  if (!included?.length || included.includes("report.md")) parts.push("report");
+  if (included?.includes("profile.json")) parts.push("profile");
+  return parts;
+}
+
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -167,7 +189,8 @@ function chatModelRole(roles: Record<string, ModelRole>) {
 
 function normalizedBackend(role?: ModelRole) {
   if (!role || role.provider === "hf" || role.provider === "embedding") return role?.backend || "";
-  return "responses";
+  const backend = (role.backend || "responses").toLowerCase().replace("_", "-");
+  return ["chat", "chat-completions", "chat.completions"].includes(backend) ? "chat" : "responses";
 }
 
 function isResponsesRole(role?: ModelRole) {
@@ -200,6 +223,13 @@ function responseStateMeta(role: ModelRole, responseId?: string) {
         response_base_url: role.base_url || "",
       }
     : {};
+}
+
+function chatStateMeta(res: { stateful?: boolean; state_mode?: string }) {
+  if (res.state_mode === "responses_previous_response_id") return " | Responses state";
+  if (res.state_mode === "history_replay") return " | history replay";
+  if (res.stateful) return " | stateful";
+  return "";
 }
 
 function contextNodesToSearchResults(nodes: GraphAskContextNode[]): SearchResult[] {
@@ -564,7 +594,9 @@ function Header() {
   return (
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark">GP</div>
+        <div className="brand-mark">
+          <img alt="Graph-PRefLexOR" src={logoUrl} />
+        </div>
         <div className="brand-copy">
           <strong>Graph-PRefLexOR Explorer</strong>
           <span>
@@ -638,6 +670,16 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
           </select>
         </label>
         <label>
+          Canvas
+          <select
+            value={visual.canvasTheme}
+            onChange={(event) => setVisual({ canvasTheme: event.target.value as typeof visual.canvasTheme })}
+          >
+            <option value="dark">Black canvas</option>
+            <option value="light">White canvas</option>
+          </select>
+        </label>
+        <label>
           Layout
           <select
             value={visual.layout}
@@ -691,6 +733,16 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
           </select>
         </label>
         <label>
+          2D edge style
+          <select
+            value={visual.edgeStyle}
+            onChange={(event) => setVisual({ edgeStyle: event.target.value as typeof visual.edgeStyle })}
+          >
+            <option value="straight">Straight</option>
+            <option value="directed">Directed arrows</option>
+          </select>
+        </label>
+        <label>
           Edge opacity
           <input
             max="0.8"
@@ -699,6 +751,17 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
             step="0.01"
             type="range"
             value={visual.edgeOpacity}
+          />
+        </label>
+        <label>
+          Edge width
+          <input
+            max="3"
+            min="0.4"
+            onChange={(event) => setVisual({ edgeWidth: Number(event.target.value) })}
+            step="0.1"
+            type="range"
+            value={visual.edgeWidth}
           />
         </label>
       </div>
@@ -724,6 +787,10 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
             aria-label={`${paletteInfo.label} low to high gradient`}
           />
         )}
+      </div>
+      <div className="micro-help">
+        Edge color is relation-based, edge opacity and width are controlled here, and highlighted paths override both.
+        Directed arrows apply in the 2D renderer. 3D highlighted paths are rendered as curved tubes.
       </div>
     </Drawer>
   );
@@ -836,6 +903,8 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
 function SigmaGraphCanvas() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Sigma | null>(null);
+  const appendSelectionRef = useRef(false);
+  const draggedNodeRef = useRef<string | null>(null);
   const graph = useExplorerStore((state) => state.graph);
   const visual = useExplorerStore((state) => state.visual);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
@@ -844,14 +913,26 @@ function SigmaGraphCanvas() {
   const [hoverNode, setHoverNode] = useState<GraphNode | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current || !graph) return undefined;
+    const container = containerRef.current;
+    if (!container || !graph) return undefined;
     rendererRef.current?.kill();
+    const updateAppendSelection = (event: KeyboardEvent | PointerEvent | MouseEvent) => {
+      appendSelectionRef.current = event.shiftKey;
+    };
+    window.addEventListener("keydown", updateAppendSelection);
+    window.addEventListener("keyup", updateAppendSelection);
+    container.addEventListener("pointerdown", updateAppendSelection, true);
 
     const sigmaGraph = new Graph();
     const colorRange = metricRange(graph.nodes, visual.colorBy);
     const selected = new Set(selectedNodes);
     const highlightedNodes = pathNodeSet(highlightedPaths);
     const highlightedEdges = pathEdgeSet(highlightedPaths);
+    const darkCanvas = visual.canvasTheme === "dark";
+    const edgeOpacity = darkCanvas ? Math.max(visual.edgeOpacity, 0.16) : visual.edgeOpacity;
+    const selectedColor = darkCanvas ? "#ffffff" : "#133d35";
+    const selectedBorder = darkCanvas ? "#4df0ab" : "#2f8d68";
+    const highlightedColor = darkCanvas ? "#ffd166" : "#b56b16";
 
     for (const node of graph.nodes) {
       const pos = layoutNode(node, graph, visual);
@@ -864,8 +945,8 @@ function SigmaGraphCanvas() {
         ...pos,
         label: node.label,
         size: selected.has(node.id) || isHighlighted ? nodeSize(node, graph, visual) * 1.9 : nodeSize(node, graph, visual),
-        color: selected.has(node.id) ? "#ffffff" : isHighlighted ? "#ffd166" : nodeColor,
-        borderColor: selected.has(node.id) ? "#37d49a" : isHighlighted ? "#ffef9f" : nodeColor,
+        color: selected.has(node.id) ? selectedColor : isHighlighted ? highlightedColor : nodeColor,
+        borderColor: selected.has(node.id) ? selectedBorder : isHighlighted ? "#ffef9f" : nodeColor,
       });
     }
 
@@ -874,28 +955,77 @@ function SigmaGraphCanvas() {
       const edge = graph.edges[i];
       if (sigmaGraph.hasNode(edge.source) && sigmaGraph.hasNode(edge.target) && !sigmaGraph.hasEdge(edge.id)) {
         const isHighlighted = highlightedEdges.has(edgeKey(edge.source, edge.target));
+        const denseSize = graph.edges.length > 12000 ? 0.35 : 0.55;
         sigmaGraph.addEdgeWithKey(edge.id, edge.source, edge.target, {
-          size: isHighlighted ? 2.4 : graph.edges.length > 12000 ? 0.35 : 0.55,
-          color: isHighlighted ? "rgba(255,209,102,0.92)" : edgeColor(edge, visual.edgeOpacity),
+          type: visual.edgeStyle === "directed" ? "arrow" : "line",
+          size: (isHighlighted ? 2.4 : denseSize) * visual.edgeWidth,
+          color: isHighlighted ? "rgba(255,209,102,0.92)" : edgeColor(edge, edgeOpacity),
         });
       }
     }
 
-    const renderer = new Sigma(sigmaGraph, containerRef.current, {
+    const renderer = new Sigma(sigmaGraph, container, {
       renderLabels: false,
       renderEdgeLabels: false,
-      defaultEdgeColor: "rgba(94,112,132,0.12)",
+      defaultEdgeType: visual.edgeStyle === "directed" ? "arrow" : "line",
+      defaultEdgeColor: darkCanvas ? "rgba(180,196,215,0.18)" : "rgba(94,112,132,0.12)",
+      edgeProgramClasses: {
+        line: EdgeLineProgram,
+        arrow: EdgeArrowProgram,
+      },
       allowInvalidContainer: true,
       labelRenderedSizeThreshold: 12,
       minCameraRatio: 0.05,
       maxCameraRatio: 12,
     });
-    renderer.on("clickNode", ({ node }) => setSelectedNode(node));
+    const mouseCaptor = renderer.getMouseCaptor();
+    const stopDragging = () => {
+      draggedNodeRef.current = null;
+      container.classList.remove("dragging-node");
+    };
+    const dragNode = (event: { x: number; y: number; preventSigmaDefault?: () => void }) => {
+      const node = draggedNodeRef.current;
+      if (!node) return;
+      event.preventSigmaDefault?.();
+      const pos = renderer.viewportToGraph({ x: event.x, y: event.y });
+      sigmaGraph.setNodeAttribute(node, "x", pos.x);
+      sigmaGraph.setNodeAttribute(node, "y", pos.y);
+      renderer.refresh({ partialGraph: { nodes: [node] }, skipIndexation: true });
+    };
+    mouseCaptor.on("mousemovebody", dragNode);
+    mouseCaptor.on("mouseup", stopDragging);
+    mouseCaptor.on("mouseleave", stopDragging);
+    renderer.on("downNode", (payload) => {
+      const eventPayload = payload as typeof payload & {
+        event?: { original?: MouseEvent; originalEvent?: MouseEvent; shiftKey?: boolean };
+      };
+      const sourceEvent = eventPayload.event?.original || eventPayload.event?.originalEvent || eventPayload.event;
+      draggedNodeRef.current = payload.node;
+      container.classList.add("dragging-node");
+      payload.preventSigmaDefault();
+      setSelectedNode(payload.node, Boolean(sourceEvent?.shiftKey || appendSelectionRef.current));
+    });
+    renderer.on("clickNode", (payload) => {
+      const eventPayload = payload as typeof payload & {
+        event?: { original?: MouseEvent; originalEvent?: MouseEvent; shiftKey?: boolean };
+      };
+      const sourceEvent = eventPayload.event?.original || eventPayload.event?.originalEvent || eventPayload.event;
+      setSelectedNode(payload.node, Boolean(sourceEvent?.shiftKey || appendSelectionRef.current));
+    });
     renderer.on("enterNode", ({ node }) => setHoverNode(graph.nodes.find((item) => item.id === node) || null));
     renderer.on("leaveNode", () => setHoverNode(null));
     rendererRef.current = renderer;
 
-    return () => renderer.kill();
+    return () => {
+      window.removeEventListener("keydown", updateAppendSelection);
+      window.removeEventListener("keyup", updateAppendSelection);
+      container.removeEventListener("pointerdown", updateAppendSelection, true);
+      mouseCaptor.off("mousemovebody", dragNode);
+      mouseCaptor.off("mouseup", stopDragging);
+      mouseCaptor.off("mouseleave", stopDragging);
+      draggedNodeRef.current = null;
+      renderer.kill();
+    };
   }, [graph, highlightedPaths, selectedNodes, setSelectedNode, visual]);
 
   const selectedLabel = useMemo(() => {
@@ -905,13 +1035,15 @@ function SigmaGraphCanvas() {
   }, [graph, selectedNodes]);
 
   return (
-    <section className="graph-shell">
+    <section className={cx("graph-shell", visual.canvasTheme === "dark" ? "graph-shell-dark" : "graph-shell-light")}>
       <div className="graph-top-dock">
         <div className="graph-overlay">{contextSummary(graph, selectedNodes)}</div>
-        <GraphIterationStepper />
-        <div className="graph-overlay">{selectedLabel}</div>
+        <div className="graph-overlay">{selectedLabel} | drag nodes to reposition</div>
       </div>
       <div className="graph-canvas" ref={containerRef} />
+      <div className="graph-bottom-dock">
+        <GraphIterationStepper />
+      </div>
       {hoverNode ? (
         <div className="node-card">
           <strong>{hoverNode.label}</strong>
@@ -940,9 +1072,11 @@ function ThreeGraphCanvas() {
     const container = containerRef.current;
     if (!container || !graph) return undefined;
 
+    const darkCanvas = visual.canvasTheme === "dark";
+    const background = darkCanvas ? "#020407" : "#f8f7f2";
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#f8f7f2");
-    scene.fog = new THREE.FogExp2("#f8f7f2", 0.0019);
+    scene.background = new THREE.Color(background);
+    scene.fog = new THREE.FogExp2(background, darkCanvas ? 0.0014 : 0.0019);
 
     const width = Math.max(320, container.clientWidth || 900);
     const height = Math.max(320, container.clientHeight || 640);
@@ -986,7 +1120,7 @@ function ThreeGraphCanvas() {
           ? paletteCategoryColor(nodeMetric(node, visual.colorBy), visual)
           : colorScale(nodeMetric(node, visual.colorBy), colorRange, visual.colorPalette);
       const color = new THREE.Color(
-        selected.has(node.id) ? "#163c3a" : highlightedNodes.has(node.id) ? "#b56b16" : nodeColor,
+        selected.has(node.id) ? (darkCanvas ? "#ffffff" : "#163c3a") : highlightedNodes.has(node.id) ? "#f4b24f" : nodeColor,
       );
       colors.push(color.r, color.g, color.b);
       sizes.push((selected.has(node.id) || highlightedNodes.has(node.id) ? 13.5 : 6.2 + Math.sqrt(node.degree || 1) * 0.95));
@@ -1046,7 +1180,12 @@ function ThreeGraphCanvas() {
     graphGroup.add(
       new THREE.LineSegments(
         edgeGeometry,
-        new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: Math.max(0.18, visual.edgeOpacity * 1.35) }),
+        new THREE.LineBasicMaterial({
+          vertexColors: true,
+          transparent: true,
+          opacity: darkCanvas ? Math.max(0.2, visual.edgeOpacity * 1.5) : Math.max(0.18, visual.edgeOpacity * 1.35),
+          linewidth: visual.edgeWidth,
+        }),
       ),
     );
 
@@ -1055,11 +1194,11 @@ function ThreeGraphCanvas() {
       const points = path.map((id) => coords.get(id)).filter(Boolean) as THREE.Vector3[];
       if (points.length < 2) continue;
       const curve = new THREE.CatmullRomCurve3(points);
-      graphGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(8, points.length * 8), 0.42, 8, false), pathMaterial));
+      graphGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(8, points.length * 8), 0.42 * visual.edgeWidth, 8, false), pathMaterial));
     }
 
     const sphereGeometry = new THREE.SphereGeometry(1.8, 16, 12);
-    const anchorMaterial = new THREE.MeshBasicMaterial({ color: "#163c3a" });
+    const anchorMaterial = new THREE.MeshBasicMaterial({ color: darkCanvas ? "#ffffff" : "#163c3a" });
     const bridgeMaterial = new THREE.MeshBasicMaterial({ color: "#c77b1f" });
     for (const nodeId of new Set([...selectedNodes, ...Array.from(highlightedNodes)])) {
       const point = coords.get(nodeId);
@@ -1132,16 +1271,18 @@ function ThreeGraphCanvas() {
   }, [graph, selectedNodes]);
 
   return (
-    <section className="graph-shell">
+    <section className={cx("graph-shell", visual.canvasTheme === "dark" ? "graph-shell-dark" : "graph-shell-light")}>
       <div className="graph-top-dock">
         <div className="graph-overlay">
           {contextSummary(graph, selectedNodes)}
           {highlightedPaths.length ? ` | ${highlightedPaths.length} paths highlighted` : ""}
         </div>
-        <GraphIterationStepper />
         <div className="graph-overlay">{selectedLabel}</div>
       </div>
       <div className="graph-canvas" ref={containerRef} />
+      <div className="graph-bottom-dock">
+        <GraphIterationStepper />
+      </div>
     </section>
   );
 }
@@ -1207,34 +1348,13 @@ function GraphIterationStepper() {
     }
   }
 
-  if (!runPath) {
-    return <div className="graph-iteration-spacer" aria-hidden="true" />;
-  }
+  if (!runPath) return null;
 
   const busy = Boolean(loadingPath);
   const canStep = orderedSnapshots.length > 0 && !busy;
 
   return (
     <div className={cx("iteration-navigator", "graph-iteration", runPath && "active")}>
-      <div className="iteration-head">
-        <div>
-          <strong>Iterations</strong>
-          <span>
-            {orderedSnapshots.length
-              ? `${orderedSnapshots.length} snapshots`
-              : snapshotsQuery.isFetching
-                ? "Scanning run..."
-                : "No snapshots found"}
-          </span>
-        </div>
-        <IconButton
-          disabled={snapshotsQuery.isFetching}
-          description="Refresh GraphML snapshots generated by this run."
-          icon={snapshotsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
-          label="Refresh"
-          onClick={() => void snapshotsQuery.refetch()}
-        />
-      </div>
       <div className="iteration-stepper">
         <IconButton
           disabled={!canStep || selectedSnapshotIndex <= 0}
@@ -1244,7 +1364,13 @@ function GraphIterationStepper() {
           onClick={() => void loadSnapshotAt(selectedSnapshotIndex - 1)}
         />
         <label className="iteration-select">
-          Snapshot
+          <span>
+            {orderedSnapshots.length
+              ? `Iterations ${selectedSnapshotIndex + 1}/${orderedSnapshots.length}`
+              : snapshotsQuery.isFetching
+                ? "Scanning iterations..."
+                : "No iterations"}
+          </span>
           <select
             disabled={!canStep}
             onChange={(event) => void loadSnapshotAt(Number(event.target.value))}
@@ -1267,22 +1393,26 @@ function GraphIterationStepper() {
           onClick={() => void loadSnapshotAt(selectedSnapshotIndex + 1)}
         />
       </div>
-      <div className="iteration-meta">
-        <span>{status || (selectedSnapshot ? `${snapshotLabel(selectedSnapshot)}${selectedSnapshot.is_latest ? " | latest" : ""}` : "No snapshot selected")}</span>
-        <span>{selectedSnapshot ? `${formatRunTime(selectedSnapshot.updated_at)} | ${formatNumber(selectedSnapshot.size / 1024, 1)} KB` : runPath}</span>
-      </div>
+      <span className="iteration-meta">
+        {status ||
+          (selectedSnapshot
+            ? `${snapshotLabel(selectedSnapshot)}${selectedSnapshot.is_latest ? " | latest" : ""}`
+            : "No snapshot selected")}
+      </span>
+      {snapshotsQuery.isFetching ? <Loader2 className="spin iteration-loader" size={13} /> : null}
       {snapshotsQuery.isError ? <span className="iteration-error">{String(snapshotsQuery.error)}</span> : null}
     </div>
   );
 }
 
-function EmbeddingStatusBar({
+function EmbeddingStatusBadge({
   status,
   onRebuild,
 }: {
   status: EmbeddingStatus | null;
   onRebuild: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   if (!status || status.status === "idle") return null;
   const percent = status.status === "done" ? 100 : Math.round((status.progress?.percent || 0) * 100);
   const label = status.ready
@@ -1290,23 +1420,52 @@ function EmbeddingStatusBar({
     : status.status === "failed"
       ? "Semantic index failed"
       : status.progress?.message || "Building semantic index";
+  const detail = [
+    status.model || "embedding model",
+    status.dimension ? `${formatNumber(status.dimension)} dims` : "",
+    status.nodes ? `${formatNumber(status.nodes)} nodes` : "",
+    status.progress?.detail || "",
+  ]
+    .filter(Boolean)
+    .join(" | ");
   return (
-    <div className={cx("embedding-status", status.status === "failed" && "failed", status.ready && "ready")}>
-      <div className="embedding-copy">
-        <strong>{label}</strong>
-        <span>
-          {status.model || "embedding model"}
-          {status.dimension ? ` | ${formatNumber(status.dimension)} dims` : ""}
-          {status.progress?.detail ? ` | ${status.progress.detail}` : ""}
-        </span>
-      </div>
-      <div className="embedding-meter">
-        <span>{percent}%</span>
-        <progress max={100} value={percent} />
-      </div>
-      <button onClick={onRebuild} title="Force rebuild the semantic node embedding index." type="button">
-        Rebuild
+    <div className="embedding-badge-wrap">
+      <button
+        aria-expanded={open}
+        className={cx("embedding-badge", status.status === "failed" && "failed", status.ready && "ready")}
+        onClick={() => setOpen((value) => !value)}
+        title={`${label}. Click for semantic index details and rebuild controls.`}
+        type="button"
+      >
+        {status.ready ? (
+          <CircleCheck size={15} />
+        ) : status.status === "failed" ? (
+          <CircleAlert size={15} />
+        ) : (
+          <Loader2 className="spin" size={15} />
+        )}
+        <span>Semantic index</span>
       </button>
+      {open ? (
+        <div className={cx("embedding-popover", status.status === "failed" && "failed", status.ready && "ready")} role="dialog">
+          <div className="embedding-copy">
+            <strong>{label}</strong>
+            <span>{detail || "No semantic index details yet."}</span>
+          </div>
+          <div className="embedding-meter">
+            <span>{percent}%</span>
+            <progress max={100} value={percent} />
+          </div>
+          <div className="embedding-popover-actions">
+            <button onClick={onRebuild} title="Force rebuild the semantic node embedding index." type="button">
+              Rebuild
+            </button>
+            <button onClick={() => setOpen(false)} type="button">
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1514,10 +1673,12 @@ function MarkdownMessage({ content }: { content: string }) {
 
 function ReportPreviewModal({
   report,
+  contextParts,
   onClose,
   onOpenReports,
 }: {
   report: SessionReport;
+  contextParts: ReportContextPart[];
   onClose: () => void;
   onOpenReports: () => void;
 }) {
@@ -1529,6 +1690,11 @@ function ReportPreviewModal({
   });
   const artifacts = reportQuery.data?.artifacts;
   const summary = artifacts?.summary || {};
+  const includeReport = contextParts.includes("report");
+  const includeProfile = contextParts.includes("profile");
+  const profileJson = reportQuery.data?.profile_json || "";
+  const profileJsonPreview =
+    profileJson.length > 50000 ? `${profileJson.slice(0, 50000)}\n\n... truncated in preview ...` : profileJson;
   return (
     <div className="model-modal-backdrop report-preview-backdrop" role="presentation">
       <div aria-label="Attached report preview" aria-modal="true" className="serve-modal report-preview-modal" role="dialog">
@@ -1562,18 +1728,126 @@ function ReportPreviewModal({
           ) : null}
         </div>
         <div className="report-preview-context">
-          This report is attached as plain prompt context only when you send a chat request with it selected.
+          Selected context parts: <strong>{reportPartsLabel(contextParts)}</strong>. They are attached as plain prompt
+          context only when you send a chat request with this profile selected.
         </div>
         <div className="report-preview-body">
           {reportQuery.isLoading ? <div className="status-box">Loading report...</div> : null}
           {reportQuery.error ? <div className="status-box">{String(reportQuery.error)}</div> : null}
-          {reportQuery.data?.markdown ? (
-            <MarkdownReport markdown={reportQuery.data.markdown} out={report.out} />
-          ) : (
-            <div className="status-box">
-              {artifacts?.ready ? "Report markdown is empty." : "Report job is still preparing artifacts."}
-            </div>
-          )}
+          {includeReport ? (
+            reportQuery.data?.markdown ? (
+              <section>
+                <h4>report.md</h4>
+                <MarkdownReport markdown={reportQuery.data.markdown} out={report.out} />
+              </section>
+            ) : (
+              <div className="status-box">
+                {artifacts?.ready ? "Report markdown is empty or unavailable." : "Report job is still preparing artifacts."}
+              </div>
+            )
+          ) : null}
+          {includeProfile ? (
+            profileJson ? (
+              <section>
+                <h4>profile.json</h4>
+                <pre className="report-json-preview">{profileJsonPreview}</pre>
+              </section>
+            ) : (
+              <div className="status-box">
+                {artifacts?.ready ? "profile.json is empty or unavailable." : "Profile job is still preparing artifacts."}
+              </div>
+            )
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatContextInfoModal({
+  body,
+  selectedLabels,
+  onClose,
+}: {
+  body: Parameters<typeof api.chatContextPreview>[0];
+  selectedLabels: string[];
+  onClose: () => void;
+}) {
+  const previewQuery = useQuery({
+    queryKey: ["chat-context-preview", body],
+    queryFn: () => api.chatContextPreview(body),
+  });
+  const preview = previewQuery.data;
+  return (
+    <div className="model-modal-backdrop chat-context-backdrop" role="presentation">
+      <div aria-label="LLM context preview" aria-modal="true" className="serve-modal chat-context-modal" role="dialog">
+        <div className="serve-modal-head report-preview-head">
+          <div>
+            <span>LLM transmission preview</span>
+            <h3>Graph Assistant context</h3>
+            <p>Shows the payload built for the next chat turn before the model is called.</p>
+          </div>
+          <button aria-label="Close LLM context preview" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+        <div className="chat-context-summary">
+          <div>
+            <span>Backend</span>
+            <strong>{preview?.backend || normalizedBackend(body.model_config)}</strong>
+          </div>
+          <div>
+            <span>State</span>
+            <strong>{preview?.state_mode || (body.previous_response_id ? "responses_previous_response_id" : "ready_for_multiturn")}</strong>
+          </div>
+          <div>
+            <span>Selection</span>
+            <strong>{selectedLabels.length ? `${selectedLabels.length} nodes` : "none"}</strong>
+          </div>
+          <div>
+            <span>Report</span>
+            <strong>
+              {body.report_context
+                ? reportPartsLabel([
+                    ...(body.report_context.include_report === false ? [] : (["report"] as ReportContextPart[])),
+                    ...(body.report_context.include_profile ? (["profile"] as ReportContextPart[]) : []),
+                  ])
+                : "none"}
+            </strong>
+          </div>
+        </div>
+        {selectedLabels.length ? (
+          <div className="chat-context-chips">
+            {selectedLabels.slice(0, 18).map((label) => (
+              <span key={label}>{label}</span>
+            ))}
+          </div>
+        ) : null}
+        <div className="report-preview-context">
+          Selection is transmitted as node IDs in <code>selected_nodes</code>. The backend expands those IDs into a graph
+          context packet, adds the Graph-PRefLexOR developer/system instruction, and then sends the messages below.
+        </div>
+        <div className="chat-context-body">
+          {previewQuery.isLoading ? <div className="status-box">Building preview...</div> : null}
+          {previewQuery.error ? <div className="status-box">{String(previewQuery.error)}</div> : null}
+          {preview ? (
+            <>
+              <section>
+                <h4>Request Body</h4>
+                <pre>{JSON.stringify(preview.request, null, 2)}</pre>
+              </section>
+              <section>
+                <h4>Messages Sent To Model</h4>
+                <pre>{JSON.stringify(preview.messages, null, 2)}</pre>
+              </section>
+              {preview.fallback_messages.length ? (
+                <section>
+                  <h4>Fallback Messages</h4>
+                  <pre>{JSON.stringify(preview.fallback_messages, null, 2)}</pre>
+                </section>
+              ) : null}
+            </>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1604,8 +1878,10 @@ function ChatPanel({
   const [contextQuery, setContextQuery] = useState("");
   const [contextNodes, setContextNodes] = useState(220);
   const [selectedReportOut, setSelectedReportOut] = useState("");
+  const [reportContextParts, setReportContextParts] = useState<ReportContextPart[]>(["report"]);
   const [reportMenuOpen, setReportMenuOpen] = useState(false);
   const [reportPreviewOpen, setReportPreviewOpen] = useState(false);
+  const [contextInfoOpen, setContextInfoOpen] = useState(false);
   const [reportMaxChars, setReportMaxChars] = useState(14000);
   const [lastRagNodes, setLastRagNodes] = useState<GraphAskContextNode[]>([]);
   const [followups, setFollowups] = useState<string[]>([
@@ -1622,6 +1898,18 @@ function ChatPanel({
   const activeChatRole = chatModelRole(roles);
   const chatRoleName = activeChatRole?.role || "chat";
   const selectedReport = sessionReports.find((report) => report.out === selectedReportOut);
+  const includeReportContext = reportContextParts.includes("report");
+  const includeProfileContext = reportContextParts.includes("profile");
+  const reportContextSelection =
+    selectedReport && (includeReportContext || includeProfileContext)
+      ? {
+          out: selectedReport.out,
+          max_chars: reportMaxChars,
+          include_report: includeReportContext,
+          include_profile: includeProfileContext,
+        }
+      : null;
+  const selectedLabels = selectedNodes.map((id) => nodeLabel(graph, id));
   const commandQuery = question.startsWith("/") ? question.slice(1).trim().toLowerCase() : "";
   const commandItems = [
     { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
@@ -1665,6 +1953,31 @@ function ChatPanel({
       .filter((message) => message.role === "user" || message.role === "assistant")
       .slice(-8)
       .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
+  }
+
+  function buildChatBody(role: ModelRole, text = question || "(next user message)") {
+    return {
+      question: text,
+      selected_nodes: graph ? selectedNodes : [],
+      query: contextQuery,
+      depth: 1,
+      max_nodes: contextNodes,
+      max_edges: agentMode === "graph_rag" ? 520 : 160,
+      context_mode: agentMode,
+      report_context: reportContextSelection,
+      model_config: role,
+      history: recentHistory(),
+      previous_response_id: previousResponseId(messages, role) || undefined,
+    };
+  }
+
+  function toggleReportContextPart(part: ReportContextPart) {
+    setReportContextParts((parts) => {
+      if (parts.includes(part)) {
+        return parts.length === 1 ? parts : parts.filter((item) => item !== part);
+      }
+      return [...parts, part];
+    });
   }
 
   function addCommandHelp() {
@@ -1739,19 +2052,7 @@ function ChatPanel({
     const pending = addChatMessage({ role: "assistant", content: "Thinking...", meta: chatRoleName });
     setBusy(true);
     try {
-      const res = await api.ask({
-        question,
-        selected_nodes: graph ? selectedNodes : [],
-        query: contextQuery,
-        depth: 1,
-        max_nodes: contextNodes,
-        max_edges: agentMode === "graph_rag" ? 520 : 160,
-        context_mode: agentMode,
-        report_context: selectedReport ? { out: selectedReport.out, max_chars: reportMaxChars } : null,
-        model_config: role,
-        history: recentHistory(),
-        previous_response_id: priorResponseId || undefined,
-      });
+      const res = await api.ask({ ...buildChatBody(role, question), previous_response_id: priorResponseId || undefined });
       const retrievedNodes = res.context.nodes || [];
       setLastRagNodes(agentMode === "graph_rag" ? retrievedNodes : []);
       if (agentMode === "graph_rag" && retrievedNodes.length) {
@@ -1759,7 +2060,7 @@ function ChatPanel({
       }
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `${chatContextLabel((res.context.mode || agentMode) as ChatContextMode)} ${res.context.node_count}n/${res.context.edge_count}e${res.stateful ? " | stateful" : ""}${res.context.report_context ? ` | report ${res.context.report_context.title}` : ""}`,
+        meta: `${chatContextLabel((res.context.mode || agentMode) as ChatContextMode)} ${res.context.node_count}n/${res.context.edge_count}e${chatStateMeta(res)}${res.context.report_context ? ` | ${reportPartsLabel(reportPartsFromIncluded(res.context.report_context.included))} ${res.context.report_context.title}` : ""}`,
         ...responseStateMeta(role, res.response_id),
       });
       setQuestion("");
@@ -1789,7 +2090,9 @@ function ChatPanel({
         max_nodes: Math.min(contextNodes, 120),
         max_edges: 160,
         context_mode: agentMode,
-        report_context: selectedReport ? { out: selectedReport.out, max_chars: Math.min(reportMaxChars, 10000) } : null,
+        report_context: reportContextSelection
+          ? { ...reportContextSelection, max_chars: Math.min(reportMaxChars, 10000) }
+          : null,
         model_config: role,
         history: recentHistory(),
       });
@@ -1805,15 +2108,27 @@ function ChatPanel({
   return (
     <section className="chat-panel">
       <div className="chat-head">
-        <div>
-          <h2>Assistant</h2>
-          <span>{contextLabel} | {chatContextLabel(agentMode)} | chat model: {activeChatRole?.model || "not configured"}</span>
+        <div className="chat-title-block">
+          <h2><Sparkles size={15} /> Graph Assistant</h2>
+          <span className="chat-context-line">{contextLabel} | {chatContextLabel(agentMode)} | chat model: {activeChatRole?.model || "not configured"}</span>
         </div>
         <div className="chat-actions">
+          <button
+            className="context-info-button"
+            disabled={!activeChatRole?.model}
+            onClick={() => setContextInfoOpen(true)}
+            title="Preview the exact LLM context and transmission payload for the next chat turn."
+            type="button"
+          >
+            <Info size={14} />
+          </button>
           <span className="model-badge" title="Change this under Model Settings.">chat</span>
           <IconButton description="Clear the current browser-side chat thread." icon={<RotateCcw size={14} />} label="Reset" onClick={resetChat} />
         </div>
       </div>
+      {contextInfoOpen && activeChatRole?.model ? (
+        <ChatContextInfoModal body={buildChatBody(activeChatRole)} onClose={() => setContextInfoOpen(false)} selectedLabels={selectedLabels} />
+      ) : null}
       <div className="chat-log">
         {messages.length ? (
           messages.map((message) => (
@@ -1870,9 +2185,9 @@ function ChatPanel({
             <FileText size={13} />
             <span>
               {selectedReport
-                ? `Report context: ${selectedReport.label}`
+                ? `Profile context: ${selectedReport.label} | ${reportPartsLabel(reportContextParts)}`
                 : sessionReports.length
-                  ? "No report context attached"
+                  ? "No profile context attached"
                   : "No reports generated or opened in this session"}
             </span>
           </button>
@@ -1894,7 +2209,7 @@ function ChatPanel({
           <div className="report-context-menu">
             <div>
               <strong>Attach report context</strong>
-              <span>Reports generated or opened during this browser session. The selected report is added to the next chat request.</span>
+              <span>Reports generated or opened during this browser session. Select the output folder and which artifacts to include in the next chat request.</span>
             </div>
             <button
               className={!selectedReportOut ? "active" : ""}
@@ -1921,8 +2236,27 @@ function ChatPanel({
                 <span>{report.out}</span>
               </button>
             ))}
+            <div className="report-context-options">
+              <span>Artifacts to include</span>
+              <label>
+                <input
+                  checked={includeReportContext}
+                  onChange={() => toggleReportContextPart("report")}
+                  type="checkbox"
+                />
+                report.md
+              </label>
+              <label>
+                <input
+                  checked={includeProfileContext}
+                  onChange={() => toggleReportContextPart("profile")}
+                  type="checkbox"
+                />
+                profile.json
+              </label>
+            </div>
             <label>
-              Max report chars
+              Max context chars
               <input
                 max={50000}
                 min={1000}
@@ -1938,6 +2272,7 @@ function ChatPanel({
           <ReportPreviewModal
             onClose={() => setReportPreviewOpen(false)}
             onOpenReports={onOpenReports}
+            contextParts={reportContextParts}
             report={selectedReport}
           />
         ) : null}
@@ -2127,7 +2462,7 @@ function GraphRagExplorerTool({ defaultOpen = false }: { defaultOpen?: boolean }
       applyContext(res.context.nodes || []);
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `graph-RAG ${res.context.node_count}n/${res.context.edge_count}e${res.stateful ? " | stateful" : ""}`,
+        meta: `graph-RAG ${res.context.node_count}n/${res.context.edge_count}e${chatStateMeta(res)}`,
         ...responseStateMeta(role, res.response_id),
       });
       setStatus(`Agent used ${formatNumber(res.context.node_count)} nodes and ${formatNumber(res.context.edge_count)} edges.`);
@@ -2304,7 +2639,8 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
         <label>
           API mode
           <select value={role.backend || "responses"} onChange={(event) => patchRole({ backend: event.target.value })}>
-            <option value="responses">OpenAI Responses</option>
+            <option value="responses">OpenAI Responses (native state)</option>
+            <option value="chat">Chat completions (history replay)</option>
           </select>
         </label>
         <label>
@@ -2518,7 +2854,7 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
       });
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `path agent | ${res.context.node_count}n/${res.context.edge_count}e${res.stateful ? " | stateful" : ""}`,
+        meta: `path agent | ${res.context.node_count}n/${res.context.edge_count}e${chatStateMeta(res)}`,
         ...responseStateMeta(role, res.response_id),
       });
       setStatus("Agent response added to chat.");
@@ -3025,7 +3361,10 @@ function ThreadStage({
             <Network size={18} />
           </div>
           <div className="artifact-copy">
-            <strong>{graph?.name || "No graph loaded"}</strong>
+            <div className="artifact-title-row">
+              <strong>{graph?.name || "No graph loaded"}</strong>
+              <EmbeddingStatusBadge status={embeddingStatus} onRebuild={onRebuildEmbeddings} />
+            </div>
             <span>{contextSummary(graph, selectedNodes)}</span>
           </div>
           <div className="artifact-metrics">
@@ -3060,7 +3399,6 @@ function ThreadStage({
             <strong>{graph?.path ? graph.path.split("/runs/").pop()?.split("/")[0] || graph.name : "No session"}</strong>
           </div>
         </div>
-        <EmbeddingStatusBar status={embeddingStatus} onRebuild={onRebuildEmbeddings} />
       </div>
     </section>
   );
@@ -3270,7 +3608,10 @@ function App() {
           <section className="artifact-stage">
             <div className="artifact-toolbar">
               <div>
-                <strong>Graph artifact</strong>
+                <div className="artifact-title-row">
+                  <strong>Graph artifact</strong>
+                  <EmbeddingStatusBadge status={embeddingStatus} onRebuild={() => void startEmbeddingIndex(true)} />
+                </div>
                 <span>{contextSummary(graph, selectedNodes)}</span>
               </div>
               <div className="artifact-actions">
@@ -3285,7 +3626,6 @@ function App() {
                 </button>
               </div>
             </div>
-            <EmbeddingStatusBar status={embeddingStatus} onRebuild={() => void startEmbeddingIndex(true)} />
             <GraphCanvas />
           </section>
         ) : (

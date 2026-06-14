@@ -57,11 +57,35 @@ export const api = {
     max_nodes: number;
     max_edges: number;
     context_mode?: "none" | "focused" | "graph_rag";
-    report_context?: { out: string; max_chars?: number } | null;
+    report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
     previous_response_id?: string;
-  }) => request<{ answer: string; context: GraphAskContext; response_id?: string; stateful?: boolean }>("/api/ask", body),
+  }) => request<{ answer: string; context: GraphAskContext; response_id?: string; stateful?: boolean; state_mode?: string; backend?: string }>("/api/ask", body),
+  chatContextPreview: (body: {
+    question: string;
+    selected_nodes: string[];
+    query: string;
+    depth: number;
+    max_nodes: number;
+    max_edges: number;
+    context_mode?: "none" | "focused" | "graph_rag";
+    report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
+    model_config: ModelRole & { api_key?: string };
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+    previous_response_id?: string;
+  }) =>
+    request<{
+      backend: string;
+      state_mode: string;
+      instruction_role: string;
+      assistant_instruction: string;
+      user_prompt: string;
+      messages: Array<{ role: string; content: string }>;
+      fallback_messages: Array<{ role: string; content: string }>;
+      context: GraphAskContext;
+      request: Record<string, unknown>;
+    }>("/api/chat_context_preview", body),
   graphRagContext: (body: {
     question: string;
     selected_nodes: string[];
