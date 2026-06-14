@@ -143,6 +143,7 @@ function initScene() {
   controls.zoomSpeed = 0.9;
 
   raycaster = new THREE.Raycaster();
+  raycaster.params.Points.threshold = 8;
   pointer = new THREE.Vector2();
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0x1b2028, 1.7);
@@ -482,6 +483,14 @@ function colorForEdge(edge, ranges) {
     return sequentialColor(numberValue(edge[state.visual.edgeColorBy], 0), ranges.edge);
   }
   return colorInt(state.visual.edgeColor);
+}
+
+function effectiveEdgeOpacity(graph) {
+  const edges = graph?.edges?.length || 0;
+  if (edges > 30000) return Math.min(state.visual.edgeOpacity, 0.045);
+  if (edges > 15000) return Math.min(state.visual.edgeOpacity, 0.065);
+  if (edges > 5000) return Math.min(state.visual.edgeOpacity, 0.11);
+  return state.visual.edgeOpacity;
 }
 
 function renderVisualLegend(graph) {
@@ -849,6 +858,7 @@ function rebuildScene(shouldFrame = true) {
   if (scene) scene.background = new THREE.Color(state.visual.backgroundColor);
   clearObjects();
   const graph = state.activeGraph;
+  const useSpheres = graph.nodes.length <= 1600;
   const nodeIndex = new Map(graph.nodes.map((n, i) => [n.id, i]));
   const colorRange = metricRange(graph, state.visual.colorBy);
   const sizeRange = metricRange(graph, state.visual.sizeBy);
@@ -877,60 +887,91 @@ function rebuildScene(shouldFrame = true) {
   edgeLines = new THREE.LineSegments(edgeGeom, new THREE.LineBasicMaterial({
     vertexColors: true,
     transparent: true,
-    opacity: graph.edges.length > 10000 ? Math.min(state.visual.edgeOpacity, 0.18) : state.visual.edgeOpacity,
+    opacity: effectiveEdgeOpacity(graph),
   }));
   scene.add(edgeLines);
-
-  const geom = new THREE.SphereGeometry(1, 12, 8);
-  const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    toneMapped: false,
-  });
-  nodeMesh = new THREE.InstancedMesh(geom, mat, graph.nodes.length);
-  nodeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  nodeMesh.userData.nodeIndex = nodeIndex;
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const pointPositions = new Float32Array(graph.nodes.length * 3);
   const pointColors = new Float32Array(graph.nodes.length * 3);
+  const pointSizes = new Float32Array(graph.nodes.length);
+  if (useSpheres) {
+    const geom = new THREE.SphereGeometry(1, 16, 10);
+    const mat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      toneMapped: false,
+    });
+    nodeMesh = new THREE.InstancedMesh(geom, mat, graph.nodes.length);
+    nodeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    nodeMesh.userData.nodeIndex = nodeIndex;
+  }
   graph.nodes.forEach((node, i) => {
     const p = state.layout.get(node.id);
     const size = sizeForNode(node, sizeRange);
-    dummy.position.set(p.x, p.y, p.z);
-    dummy.scale.setScalar(node.id === state.source || node.id === state.target ? size * 1.75 : size);
-    dummy.updateMatrix();
-    nodeMesh.setMatrixAt(i, dummy.matrix);
     color.setHex(colorForNode(node, colorRange));
-    nodeMesh.setColorAt(i, color);
+    if (useSpheres) {
+      dummy.position.set(p.x, p.y, p.z);
+      dummy.scale.setScalar(node.id === state.source || node.id === state.target ? size * 1.75 : size);
+      dummy.updateMatrix();
+      nodeMesh.setMatrixAt(i, dummy.matrix);
+      nodeMesh.setColorAt(i, color);
+    }
     pointPositions[i * 3] = p.x;
     pointPositions[i * 3 + 1] = p.y;
     pointPositions[i * 3 + 2] = p.z;
     pointColors[i * 3] = color.r;
     pointColors[i * 3 + 1] = color.g;
     pointColors[i * 3 + 2] = color.b;
+    pointSizes[i] = Math.max(3.2, Math.min(13, size * 2.05 + 1.8));
   });
-  nodeMesh.instanceMatrix.needsUpdate = true;
-  if (nodeMesh.instanceColor) nodeMesh.instanceColor.needsUpdate = true;
-  scene.add(nodeMesh);
+  if (useSpheres) {
+    nodeMesh.instanceMatrix.needsUpdate = true;
+    if (nodeMesh.instanceColor) nodeMesh.instanceColor.needsUpdate = true;
+    scene.add(nodeMesh);
+  }
 
   const pointGeom = new THREE.BufferGeometry();
   pointGeom.setAttribute("position", new THREE.BufferAttribute(pointPositions, 3));
   pointGeom.setAttribute("color", new THREE.BufferAttribute(pointColors, 3));
-  nodePoints = new THREE.Points(pointGeom, new THREE.PointsMaterial({
-    vertexColors: true,
-    size: Math.max(3.5, 4.8 * state.visual.nodeScale),
-    sizeAttenuation: false,
-    transparent: true,
-    opacity: 0.95,
-    depthWrite: false,
-    toneMapped: false,
-  }));
+  pointGeom.setAttribute("pointSize", new THREE.BufferAttribute(pointSizes, 1));
+  nodePoints = new THREE.Points(pointGeom, circularPointMaterial());
+  nodePoints.userData.nodeIndex = nodeIndex;
   scene.add(nodePoints);
   renderSelectionHighlights(graph, sizeRange);
 
   if (shouldFrame) frameGraph(graph);
   renderVisualLegend(graph);
+}
+
+function circularPointMaterial() {
+  return new THREE.ShaderMaterial({
+    vertexShader: `
+      attribute vec3 color;
+      attribute float pointSize;
+      varying vec3 vColor;
+      void main() {
+        vColor = color;
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mvPosition;
+        gl_PointSize = pointSize;
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vColor;
+      void main() {
+        vec2 uv = gl_PointCoord - vec2(0.5);
+        float radius = length(uv);
+        if (radius > 0.5) discard;
+        float rim = smoothstep(0.35, 0.5, radius);
+        vec3 shaded = mix(vColor, vec3(0.02, 0.025, 0.03), rim * 0.32);
+        gl_FragColor = vec4(shaded, 0.96);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+  });
 }
 
 function renderSelectionHighlights(graph, sizeRange) {
@@ -995,12 +1036,18 @@ function updatePointer(event) {
 }
 
 function pickNode(event) {
-  if (!nodeMesh || !state.activeGraph) return null;
+  if ((!nodeMesh && !nodePoints) || !state.activeGraph) return null;
   updatePointer(event);
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObject(nodeMesh, false)[0];
-  if (!hit || hit.instanceId === undefined) return null;
-  return state.activeGraph.nodes[hit.instanceId] || null;
+  const hits = [];
+  if (nodeMesh) hits.push(...raycaster.intersectObject(nodeMesh, false));
+  if (nodePoints) hits.push(...raycaster.intersectObject(nodePoints, false));
+  hits.sort((a, b) => a.distance - b.distance);
+  const hit = hits[0];
+  if (!hit) return null;
+  const index = hit.instanceId ?? hit.index;
+  if (index === undefined) return null;
+  return state.activeGraph.nodes[index] || null;
 }
 
 function onPointerMove(event) {
@@ -1017,12 +1064,16 @@ function onPointerMove(event) {
   }
   state.hover = node.id;
   tooltip.classList.remove("hidden");
-  tooltip.style.left = `${event.clientX + 12}px`;
-  tooltip.style.top = `${event.clientY + 12}px`;
   tooltip.innerHTML = `<strong>${escapeHtml(nodeLabel(node))}</strong><br>` +
     `degree ${fmt(node.degree)} | PageRank ${fmt(node.pagerank, 4)} | core ${fmt(node.core)}<br>` +
     `between ${fmt(node.betweenness, 4)} | close ${fmt(node.closeness, 4)} | cluster ${fmt(node.clustering, 3)}<br>` +
     `iter ${fmt(node.iter)} | depth ${fmt(node.depth)} | component ${fmt(node.component)} | community ${fmt(node.community)}`;
+  const parent = $("viewport").getBoundingClientRect();
+  const tip = tooltip.getBoundingClientRect();
+  const x = Math.min(parent.width - tip.width - 10, Math.max(10, event.clientX - parent.left + 12));
+  const y = Math.min(parent.height - tip.height - 10, Math.max(10, event.clientY - parent.top + 12));
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${y}px`;
 }
 
 function onPointerDown(event) {

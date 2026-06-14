@@ -206,7 +206,7 @@ textarea {
 
 .shell {
   display: grid;
-  grid-template-columns: 348px minmax(420px, 1fr) 410px;
+  grid-template-columns: 320px minmax(480px, 1fr) 390px;
   height: calc(100vh - 50px);
   min-height: 0;
 }
@@ -359,8 +359,8 @@ label {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
   margin-top: 8px;
 }
 
@@ -368,13 +368,13 @@ label {
   border: 1px solid var(--line);
   background: #0d131d;
   border-radius: 7px;
-  padding: 7px;
+  padding: 6px;
   min-width: 0;
 }
 
 .stat b {
   display: block;
-  font-size: 15px;
+  font-size: 14px;
 }
 
 .stat span {
@@ -832,7 +832,7 @@ progress::-moz-progress-bar {
 
 @media (max-width: 1260px) {
   .shell {
-    grid-template-columns: 330px minmax(360px, 1fr) 390px;
+    grid-template-columns: 300px minmax(360px, 1fr) 370px;
   }
 
   .top-actions {

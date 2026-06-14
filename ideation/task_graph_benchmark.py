@@ -74,6 +74,47 @@ GENERIC_RELATIONS = {
 }
 
 
+def _task_validity_constraints(task):
+    """Small domain guardrails derived from the benchmark task.
+
+    These are applied to BOTH arms' final answer prompts, and also to graph candidate
+    generation/selection. They do not add graph information; they keep the small model
+    from satisfying the format with mechanisms that do not answer the task.
+    """
+    t = task.lower()
+    rules = []
+    if "healing" in t or "self-healing" in t:
+        rules += [
+            "A self-healing answer must restore post-damage mechanical continuity, not merely increase toughness, crack resistance, or initial strength.",
+            "Name the actual repair mechanism: reversible/dynamic bonds, healing-agent transport/reaction, interfacial rebonding, phase transition, capsule release, supramolecular reassociation, or another concrete pathway.",
+            "Permanent crosslinking, static templating, reinforcement, or crack deflection is insufficient unless paired with a dynamic post-damage repair mechanism.",
+        ]
+    if "rate-limiting" in t:
+        rules += [
+            "Name one physical or chemical rate-limiting step and propose an intervention that accelerates that step; do not inhibit the stated bottleneck.",
+            "Keep the setting as autonomic composite repair unless the task explicitly asks for biological wound healing.",
+        ]
+    if "underwater" in t:
+        rules += [
+            "For underwater healing, specify how the mechanism tolerates water: wet adhesion, ionic screening, swelling, diffusion, hydrolysis, oxygen/redox limits, or water-compatible bond exchange.",
+        ]
+    if "trade-off" in t:
+        rules += [
+            "For a trade-off task, explain how the design decouples variables rather than merely compromising between them.",
+        ]
+    if "distinguish intrinsic" in t or "extrinsic" in t:
+        rules += [
+            "For intrinsic-vs-extrinsic healing, the experiment must discriminate reversible bond reformation from released healing-agent/capsule chemistry.",
+        ]
+    if "self-reporting" in t or "signaling" in t or "damage signaling" in t:
+        rules += [
+            "For self-reporting, the same chemistry must plausibly produce both repair and a measurable signal.",
+        ]
+    if not rules:
+        return ""
+    return "\n".join(f"- {r}" for r in rules)
+
+
 def _read_tasks(path, limit=None):
     tasks = [ln.strip() for ln in open(path, encoding="utf-8") if ln.strip()]
     return tasks[:limit] if limit else tasks
@@ -441,6 +482,7 @@ def _build_graph_context(task_run, insights_json, args):
 
 
 def _build_answer_prompt(task, args, graph_context=None):
+    constraints = _task_validity_constraints(task)
     if graph_context:
         background = (
             f"\n# Background notes\n{GRAPH_CONTEXT_NOTE}\n\n{graph_context}\n\n"
@@ -452,9 +494,11 @@ def _build_answer_prompt(task, args, graph_context=None):
         )
     else:
         background = ""
+    constraint_block = f"\n# Validity constraints\n{constraints}\n" if constraints else ""
     return (
         f"# Benchmark task\n{task}\n"
         f"{background}\n"
+        f"{constraint_block}\n"
         f"# Required answer behavior\n{args.answer_task}\n\n"
         "Write only the final answer. Do not include preamble, caveats about being an AI model, "
         "or meta-commentary about the benchmark."
@@ -494,9 +538,12 @@ def _write_answer(args, *, task, out, prompt_path, graph_context=None, dry_run=F
 
 
 def _candidate_prompt(task, args, graph_context):
+    constraints = _task_validity_constraints(task)
+    constraint_block = f"\n# Validity constraints\n{constraints}\n" if constraints else ""
     return (
         f"# Benchmark task\n{task}\n\n"
         f"# Curated graph context\n{GRAPH_CONTEXT_NOTE}\n\n{graph_context}\n\n"
+        f"{constraint_block}\n"
         "# Candidate generation task\n"
         f"Generate {args.graph_candidates} distinct candidate answers inspired by different parts of "
         "the context. Each candidate must be concrete enough to test. For each candidate include:\n"
@@ -504,21 +551,26 @@ def _candidate_prompt(task, args, graph_context):
         "why it is non-obvious; falsifying experiment; expected discriminating result; main risk.\n\n"
         "Rules: reject noisy literal paths, placeholders, and generic hub words. Do not use a candidate "
         "unless you can name a plausible chemistry, phase transition, transport process, interfacial "
-        "mechanism, or measurement. Be bold but scientifically coherent."
+        "mechanism, or measurement. If a candidate improves only toughness or crack resistance without "
+        "post-damage repair, reject it. Be bold but scientifically coherent."
     )
 
 
 def _refine_prompt(task, args, graph_context, candidates):
+    constraints = _task_validity_constraints(task)
+    constraint_block = f"\n# Validity constraints\n{constraints}\n" if constraints else ""
     return (
         f"# Benchmark task\n{task}\n\n"
         "# Curated graph context summary\n"
         f"{graph_context[:5000]}\n\n"
         "# Candidate hypotheses generated from graph context\n"
         f"{candidates}\n\n"
+        f"{constraint_block}\n"
         "# Selection and final-answer task\n"
         "Choose the single best candidate, or recombine candidates if that yields a stronger answer. "
         "Optimize for novelty, mechanism, specificity, testability, and plausibility. Discard candidates "
-        "that are generic, chemically incoherent, or just paraphrase the context.\n\n"
+        "that are generic, chemically incoherent, just paraphrase the context, or fail the validity "
+        "constraints above.\n\n"
         f"# Required answer behavior\n{args.answer_task}\n\n"
         "Write only the final answer in the required structure. Do not mention candidates, background "
         "notes, graph context, or this selection process."
