@@ -19,13 +19,14 @@ Examples
     python profile_graph.py --run runs/exp_leap --embed-model all-MiniLM-L6-v2
 
     # Use the Responses API with high reasoning effort for summaries and deep dive.
+    # Writes report.md, report.pdf, profile.json, and figures/ by default.
     python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 \
-        --reasoning-effort high --deep-dive-tokens 6000
+        --reasoning-effort high --deep-pass-tokens 5000 --deep-dive-tokens 12000
 
     # Local servers without Responses API can use the chat backend.
     python profile_graph.py --graph graph.graphml --llm --backend chat \
         --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
-        --deep-dive-tokens 4000
+        --deep-pass-tokens 5000 --deep-dive-tokens 12000
 """
 from __future__ import annotations
 
@@ -35,7 +36,9 @@ import json
 import math
 import os
 import re
+import shutil
 import statistics
+import subprocess
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
@@ -70,7 +73,8 @@ class LLMOptions:
     api_key: Optional[str] = None
     temperature: float = 0.2
     max_tokens: int = 1200
-    deep_tokens: int = 4000
+    deep_pass_tokens: int = 5000
+    deep_tokens: int = 10000
     reasoning_effort: str = "high"
     deep_passes: int = 3
     device: Optional[str] = None
@@ -894,18 +898,42 @@ def _deep_graph_evidence(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
 
 def _response_text(r: Any) -> str:
     parts = []
-    output_text = getattr(r, "output_text", None)
+    if isinstance(r, dict):
+        output_text = r.get("output_text")
+        output = r.get("output") or []
+        reasoning = r.get("reasoning")
+        status = r.get("status")
+        incomplete = r.get("incomplete_details")
+    else:
+        output_text = getattr(r, "output_text", None)
+        output = getattr(r, "output", None) or []
+        reasoning = getattr(r, "reasoning", None)
+        status = getattr(r, "status", None)
+        incomplete = getattr(r, "incomplete_details", None)
     if output_text:
         parts.append(str(output_text))
-    reasoning = getattr(r, "reasoning", None)
     if isinstance(reasoning, str) and reasoning:
         parts.append(reasoning)
-    for item in (getattr(r, "output", None) or []):
-        for content in (getattr(item, "content", None) or []):
-            text = getattr(content, "text", None)
+    for item in output:
+        contents = item.get("content", []) if isinstance(item, dict) else (getattr(item, "content", None) or [])
+        for content in contents:
+            if isinstance(content, dict):
+                text = content.get("text") or content.get("content")
+            else:
+                text = getattr(content, "text", None)
             if isinstance(text, str) and text:
                 parts.append(text)
-    return "\n".join(parts).strip()
+    text = "\n".join(parts).strip()
+    if text:
+        return text
+    if status or incomplete:
+        return (
+            f"**No visible text was returned by the Responses API.** "
+            f"status={status!r}; incomplete_details={incomplete!r}. "
+            "This usually means the output budget was consumed by reasoning or the response was incomplete; "
+            "rerun with larger token budgets."
+        )
+    return ""
 
 
 def _call_responses_llm(system: str, user: str, opts: LLMOptions) -> str:
@@ -966,6 +994,26 @@ def _call_llm(system: str, user: str, opts: LLMOptions) -> str:
     raise ValueError(f"unknown LLM backend: {opts.backend}")
 
 
+def _call_llm_checked(system: str, user: str, opts: LLMOptions, label: str,
+                      min_chars: int = 40) -> str:
+    text = _call_llm(system, user, opts).strip()
+    no_visible = text.startswith("**No visible text was returned")
+    if len(text) >= min_chars and not no_visible:
+        return text
+    if opts.backend in {"responses", "openai"}:
+        retry_opts = replace(opts, max_tokens=max(opts.max_tokens * 2, opts.max_tokens + 2000))
+        text = _call_llm(system, user, retry_opts).strip()
+        if len(text) >= min_chars and not text.startswith("**No visible text was returned"):
+            return text
+    if text:
+        return text
+    return (
+        f"**LLM call `{label}` returned no visible text.** "
+        "For Responses models with high reasoning effort, increase `--max-summary-tokens`, "
+        "`--deep-pass-tokens`, or `--deep-dive-tokens`."
+    )
+
+
 def _module_prompt(module: Dict[str, Any]) -> str:
     payload = {
         "module_id": module["id"],
@@ -1002,6 +1050,21 @@ def _slim_module(m: Dict[str, Any], top_nodes: int = 8) -> Dict[str, Any]:
         "boundary_nodes": m["boundary_nodes"][:8],
         "relations": m["relations"][:10],
         "source_questions": m["source_questions"][:5],
+    }
+
+
+def _compact_deep_evidence(profile: Dict[str, Any]) -> Dict[str, Any]:
+    deep = profile.get("deep_evidence", {})
+    return {
+        "global_hubs_removed_for_some_views": deep.get("global_hubs_removed_for_some_views", [])[:10],
+        "non_hub_top_pagerank": deep.get("non_hub_top_pagerank", [])[:12],
+        "non_hub_top_betweenness": deep.get("non_hub_top_betweenness", [])[:12],
+        "late_arriving_high_degree": deep.get("late_arriving_high_degree", [])[:12],
+        "late_arriving_high_pagerank": deep.get("late_arriving_high_pagerank", [])[:12],
+        "non_hub_boundary_bridges": deep.get("non_hub_boundary_bridges", [])[:15],
+        "hub_free_cross_module_paths": deep.get("hub_free_cross_module_paths", [])[:12],
+        "epoch_terms": deep.get("epoch_terms", {}),
+        "epoch_relations": deep.get("epoch_relations", {}),
     }
 
 
@@ -1056,7 +1119,7 @@ def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str,
             "distant_connected_paths": sem.get("distant_connected_paths", [])[:15],
             "embedding_error": profile.get("embedding_error") if not sem else None,
         },
-        "deep_evidence": profile.get("deep_evidence", {}),
+        "deep_evidence_digest": _compact_deep_evidence(profile),
     }
     return (
         "Write a paper-level deep dive interpreting this knowledge graph as the final artifact of an "
@@ -1175,6 +1238,51 @@ def _deep_pass_names(n: int) -> List[str]:
     return names[:max(0, min(n, len(names)))]
 
 
+DEEP_DIVE_HEADINGS = [
+    "Central Thesis",
+    "What The Graph Discovered About The Topic",
+    "Major Mechanistic Programs",
+    "Cross-Module Bridges And Critical Concepts",
+    "Novel Or Speculative Hypotheses Worth Human Review",
+    "What Looks Mature Versus What Looks Like Frontier Drift",
+    "Provenance And Search Dynamics",
+    "Reliability, Noise, And Failure Modes",
+    "Concrete Next Analyses Or Experiments",
+    "Short Abstract Suitable For A Paper Or Lab Notebook",
+]
+
+
+def _missing_deep_dive_headings(text: str) -> List[str]:
+    low = text.lower()
+    return [h for h in DEEP_DIVE_HEADINGS if h.lower() not in low]
+
+
+def _deep_dive_completion_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str, Any]],
+                                 draft: str, missing: Sequence[str],
+                                 pass_memos: Dict[str, str]) -> str:
+    payload = {
+        "original_topic": profile.get("topic"),
+        "missing_headings": list(missing),
+        "graph_scope": {
+            "nodes": profile["global_stats"]["nodes"],
+            "edges": profile["global_stats"]["edges"],
+            "modularity": profile["global_stats"].get("modularity"),
+            "largest_component_fraction": profile["global_stats"]["largest_component_frac"],
+        },
+        "major_modules": [_slim_module(m, top_nodes=8) for m in modules],
+        "compact_deep_evidence": _compact_deep_evidence(profile),
+        "supporting_pass_memos": pass_memos,
+        "previous_draft_tail": draft[-5000:],
+    }
+    return (
+        "The previous paper-level graph interpretation is incomplete or truncated. "
+        "Write ONLY the missing sections listed in the payload, using the exact heading names. "
+        "Do not repeat sections already present. Use graph evidence and supporting memos; mark "
+        "speculative implications as hypotheses.\n\n"
+        + json.dumps(payload, indent=2)
+    )
+
+
 def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
                    progress: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     if not opts.enabled:
@@ -1188,7 +1296,8 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
     for i, m in enumerate(modules, 1):
         if progress:
             progress(f"LLM module summary {i}/{len(modules)}: module {m['id']} ({m['size']} nodes)")
-        out["modules"][str(m["id"])] = _call_llm(system, _module_prompt(m), opts)
+        out["modules"][str(m["id"])] = _call_llm_checked(
+            system, _module_prompt(m), opts, f"module_{m['id']}", min_chars=80)
     if progress:
         progress("LLM executive summary")
     overview_payload = {
@@ -1208,14 +1317,16 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
         "and what a human should inspect first. Use Markdown.\n\n"
         + json.dumps(overview_payload, indent=2)
     )
-    out["overview"] = _call_llm(system, user, opts)
+    out["overview"] = _call_llm_checked(system, user, opts, "overview", min_chars=120)
 
     pass_names = _deep_pass_names(opts.deep_passes)
     out["deep_dive_passes"] = {}
+    pass_opts = replace(opts, max_tokens=max(opts.max_tokens, opts.deep_pass_tokens))
     for i, name in enumerate(pass_names, 1):
         if progress:
             progress(f"LLM deep evidence pass {i}/{len(pass_names)}: {name}")
-        out["deep_dive_passes"][name] = _call_llm(system, _deep_pass_prompt(name, profile, modules), opts)
+        out["deep_dive_passes"][name] = _call_llm_checked(
+            system, _deep_pass_prompt(name, profile, modules), pass_opts, name, min_chars=200)
 
     if progress:
         progress("LLM final paper-level synthesis")
@@ -1227,8 +1338,25 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
             "final synthesis grounded in the graph payload above.\n\n"
             + json.dumps(out["deep_dive_passes"], indent=2)
         )
-    out["deep_dive"] = _call_llm(system, final_prompt, deep_opts)
+    out["deep_dive"] = _call_llm_checked(system, final_prompt, deep_opts, "deep_dive", min_chars=500)
+    missing = _missing_deep_dive_headings(out["deep_dive"])
+    out["deep_dive_missing_headings"] = missing
+    if missing:
+        if progress:
+            progress("LLM completion pass for missing deep-dive sections")
+        completion = _call_llm_checked(
+            system,
+            _deep_dive_completion_prompt(profile, modules, out["deep_dive"], missing,
+                                         out["deep_dive_passes"]),
+            deep_opts,
+            "deep_dive_completion",
+            min_chars=300,
+        )
+        out["deep_dive_completion"] = completion
+        out["deep_dive"] += "\n\n## Completion Of Missing Deep-Dive Sections\n\n" + completion
+        out["deep_dive_missing_headings_after_completion"] = _missing_deep_dive_headings(out["deep_dive"])
     out["deep_dive_tokens_requested"] = deep_opts.max_tokens
+    out["deep_pass_tokens_requested"] = pass_opts.max_tokens
     return out
 
 
@@ -1401,6 +1529,15 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
         lines += ["## Paper-Level Graph Interpretation", ""]
         if llm.get("deep_dive"):
             lines += [llm["deep_dive"], ""]
+            residual_missing = llm.get("deep_dive_missing_headings_after_completion",
+                                       llm.get("deep_dive_missing_headings", []))
+            if residual_missing:
+                lines += [
+                    "> **LLM completeness warning:** the final deep-dive text is still missing "
+                    f"these requested headings: {', '.join(residual_missing)}. "
+                    "Increase `--deep-dive-tokens` and rerun if you need a fully structured report.",
+                    "",
+                ]
         else:
             lines += [
                 "LLM summaries were requested, but no paper-level deep-dive text was returned. "
@@ -1579,6 +1716,33 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
     return path
 
 
+def _write_pdf(report_path: Path, out_dir: Path) -> Tuple[Optional[Path], Optional[str]]:
+    pandoc = shutil.which("pandoc")
+    if not pandoc:
+        return None, "pandoc not found"
+    engine = shutil.which("xelatex") or shutil.which("lualatex") or shutil.which("pdflatex")
+    if not engine:
+        return None, "no LaTeX PDF engine found (expected xelatex, lualatex, or pdflatex)"
+    pdf_path = out_dir / "report.pdf"
+    cmd = [
+        pandoc,
+        report_path.name,
+        "-o", pdf_path.name,
+        f"--pdf-engine={Path(engine).name}",
+        "--toc",
+        "-V", "geometry:margin=0.75in",
+        "-V", "colorlinks=true",
+    ]
+    try:
+        r = subprocess.run(cmd, cwd=out_dir, text=True, capture_output=True, check=False)
+    except Exception as exc:
+        return None, str(exc)
+    if r.returncode != 0:
+        msg = "\n".join(x for x in (r.stderr.strip(), r.stdout.strip()) if x)
+        return None, msg or f"pandoc exited with code {r.returncode}"
+    return pdf_path, None
+
+
 def _json_safe(x: Any) -> Any:
     if isinstance(x, dict):
         return {str(k): _json_safe(v) for k, v in x.items() if not str(k).startswith("_")}
@@ -1598,11 +1762,13 @@ def _json_safe(x: Any) -> Any:
 def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = None,
                   out: Optional[str] = None, embed_model: Optional[str] = None,
                   top_nodes: int = 25, max_modules: int = 30, llm_options: Optional[LLMOptions] = None,
-                  llm_modules: int = 12, verbose: bool = False) -> Dict[str, Any]:
-    total_steps = 10
+                  llm_modules: int = 12, verbose: bool = False, pdf: bool = True) -> Dict[str, Any]:
+    total_steps = 11
     if embed_model:
         total_steps += 1
     if llm_options and llm_options.enabled:
+        total_steps += 1
+    if pdf:
         total_steps += 1
     progress = _Progress(verbose, total_steps)
 
@@ -1691,11 +1857,23 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
         profile["llm_summaries"] = _llm_summaries(profile, llm_options, llm_modules,
                                                   progress=progress.detail)
 
-    progress.step("Writing JSON profile and Markdown report")
-    (out_dir / "profile.json").write_text(json.dumps(_json_safe(profile), indent=2), encoding="utf-8")
+    progress.step("Writing Markdown report")
     report = _write_markdown(profile, out_dir)
     profile["report_path"] = str(report)
+
+    if pdf:
+        progress.step("Rendering PDF report")
+        pdf_path, pdf_error = _write_pdf(report, out_dir)
+        profile["pdf_path"] = str(pdf_path) if pdf_path else None
+        profile["pdf_error"] = pdf_error
+        if pdf_path:
+            progress.detail(f"pdf: {pdf_path}")
+        elif pdf_error:
+            progress.detail(f"PDF skipped/failed: {pdf_error}")
+
+    progress.step("Writing JSON profile")
     profile["json_path"] = str(out_dir / "profile.json")
+    (out_dir / "profile.json").write_text(json.dumps(_json_safe(profile), indent=2), encoding="utf-8")
     progress.finish()
     return profile
 
@@ -1720,7 +1898,9 @@ def main() -> None:
     p.add_argument("--api-key", help="API key, else $OPENAI_API_KEY or 'x' for local servers")
     p.add_argument("--temperature", type=float, default=0.2)
     p.add_argument("--max-summary-tokens", type=int, default=1200)
-    p.add_argument("--deep-dive-tokens", type=int, default=4000,
+    p.add_argument("--deep-pass-tokens", type=int, default=5000,
+                   help="output-token budget for each deep evidence-pass LLM call")
+    p.add_argument("--deep-dive-tokens", type=int, default=10000,
                    help="output-token budget for the paper-level LLM deep dive")
     p.add_argument("--reasoning-effort", default="high", choices=["minimal", "low", "medium", "high"],
                    help="[responses/openai] reasoning effort for the LLM analysis calls")
@@ -1728,22 +1908,29 @@ def main() -> None:
                    help="number of extra LLM evidence passes before the final deep dive; 0 disables")
     p.add_argument("--device", help="[hf] device_map")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16", "float32"])
+    p.add_argument("--pdf", dest="pdf", action="store_true", default=True,
+                   help="render report.pdf with pandoc after writing report.md (default)")
+    p.add_argument("--no-pdf", dest="pdf", action="store_false", help="skip report.pdf rendering")
     p.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = p.parse_args()
 
     opts = LLMOptions(enabled=args.llm, backend=args.backend, model=args.model,
                       base_url=args.base_url, api_key=args.api_key,
                       temperature=args.temperature, max_tokens=args.max_summary_tokens,
-                      deep_tokens=args.deep_dive_tokens,
+                      deep_pass_tokens=args.deep_pass_tokens, deep_tokens=args.deep_dive_tokens,
                       reasoning_effort=args.reasoning_effort,
                       deep_passes=args.llm_deep_passes,
                       device=args.device, dtype=args.dtype)
     prof = profile_graph(graph_path=args.graph, run_dir=args.run, out=args.out,
                          embed_model=args.embed_model, top_nodes=args.top_nodes,
                          max_modules=args.max_modules, llm_options=opts,
-                         llm_modules=args.llm_modules, verbose=not args.quiet)
+                         llm_modules=args.llm_modules, verbose=not args.quiet, pdf=args.pdf)
     if not args.quiet:
         print(f"wrote {prof['report_path']}")
+        if prof.get("pdf_path"):
+            print(f"wrote {prof['pdf_path']}")
+        elif prof.get("pdf_error"):
+            print(f"PDF not written: {prof['pdf_error']}")
         print(f"wrote {prof['json_path']}")
 
 

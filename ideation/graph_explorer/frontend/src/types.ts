@@ -50,6 +50,15 @@ export type GraphPayload = {
   edges: GraphEdge[];
 };
 
+export type PathConnector = {
+  id: string;
+  label: string;
+  count: number;
+  degree: number;
+  pagerank: number;
+  core: number;
+};
+
 export type SearchResult = {
   id: string;
   label: string;
@@ -125,6 +134,7 @@ export type ChatMessage = {
 };
 
 export type VisualState = {
+  viewMode: "3d" | "2d";
   layout: "force" | "component" | "community" | "degree" | "timeline";
   colorBy: "component" | "community" | "degree" | "pagerank" | "core" | "iter" | "depth";
   sizeBy: "degree" | "pagerank" | "core" | "constant";

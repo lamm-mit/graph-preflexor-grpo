@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import * as Collapsible from "@radix-ui/react-collapsible";
 import Graph from "graphology";
 import Sigma from "sigma";
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   Activity,
   BrainCircuit,
@@ -29,15 +31,19 @@ import {
   colorScale,
   contextSummary,
   edgeColor,
+  edgeKey,
   formatNumber,
   layoutNode,
+  layoutNode3D,
   metricRange,
   nodeMetric,
   nodeSize,
   palette,
+  pathEdgeSet,
+  pathNodeSet,
 } from "./graph-utils";
 import { useExplorerStore } from "./store";
-import type { GraphNode, JobStatus, ModelRole, SearchResult } from "./types";
+import type { GraphNode, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
 import "./styles.css";
 
 type WorkspaceMode = "chat" | "graph" | "search" | "runs" | "models";
@@ -214,6 +220,16 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
     <Drawer defaultOpen={defaultOpen} icon={<SlidersHorizontal size={14} />} note="layout, color, size" title="Visual Mapping">
       <div className="control-grid">
         <label>
+          Renderer
+          <select
+            value={visual.viewMode}
+            onChange={(event) => setVisual({ viewMode: event.target.value as typeof visual.viewMode })}
+          >
+            <option value="3d">Atlas 3D</option>
+            <option value="2d">2D map</option>
+          </select>
+        </label>
+        <label>
           Layout
           <select
             value={visual.layout}
@@ -347,12 +363,13 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   );
 }
 
-function GraphCanvas() {
+function SigmaGraphCanvas() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Sigma | null>(null);
   const graph = useExplorerStore((state) => state.graph);
   const visual = useExplorerStore((state) => state.visual);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
+  const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
   const [hoverNode, setHoverNode] = useState<GraphNode | null>(null);
 
@@ -363,9 +380,12 @@ function GraphCanvas() {
     const sigmaGraph = new Graph();
     const colorRange = metricRange(graph.nodes, visual.colorBy);
     const selected = new Set(selectedNodes);
+    const highlightedNodes = pathNodeSet(highlightedPaths);
+    const highlightedEdges = pathEdgeSet(highlightedPaths);
 
     for (const node of graph.nodes) {
       const pos = layoutNode(node, graph, visual);
+      const isHighlighted = highlightedNodes.has(node.id);
       const categoryColor =
         visual.colorBy === "component" || visual.colorBy === "community"
           ? palette[Math.abs(Math.floor(nodeMetric(node, visual.colorBy))) % palette.length]
@@ -373,9 +393,9 @@ function GraphCanvas() {
       sigmaGraph.addNode(node.id, {
         ...pos,
         label: node.label,
-        size: selected.has(node.id) ? nodeSize(node, graph, visual) * 1.8 : nodeSize(node, graph, visual),
-        color: selected.has(node.id) ? "#ffffff" : categoryColor,
-        borderColor: selected.has(node.id) ? "#37d49a" : categoryColor,
+        size: selected.has(node.id) || isHighlighted ? nodeSize(node, graph, visual) * 1.9 : nodeSize(node, graph, visual),
+        color: selected.has(node.id) ? "#ffffff" : isHighlighted ? "#ffd166" : categoryColor,
+        borderColor: selected.has(node.id) ? "#37d49a" : isHighlighted ? "#ffef9f" : categoryColor,
       });
     }
 
@@ -383,9 +403,10 @@ function GraphCanvas() {
     for (let i = 0; i < maxEdges; i++) {
       const edge = graph.edges[i];
       if (sigmaGraph.hasNode(edge.source) && sigmaGraph.hasNode(edge.target) && !sigmaGraph.hasEdge(edge.id)) {
+        const isHighlighted = highlightedEdges.has(edgeKey(edge.source, edge.target));
         sigmaGraph.addEdgeWithKey(edge.id, edge.source, edge.target, {
-          size: graph.edges.length > 12000 ? 0.35 : 0.55,
-          color: edgeColor(edge, visual.edgeOpacity),
+          size: isHighlighted ? 2.4 : graph.edges.length > 12000 ? 0.35 : 0.55,
+          color: isHighlighted ? "rgba(255,209,102,0.92)" : edgeColor(edge, visual.edgeOpacity),
         });
       }
     }
@@ -405,7 +426,7 @@ function GraphCanvas() {
     rendererRef.current = renderer;
 
     return () => renderer.kill();
-  }, [graph, selectedNodes, setSelectedNode, visual]);
+  }, [graph, highlightedPaths, selectedNodes, setSelectedNode, visual]);
 
   const selectedLabel = useMemo(() => {
     if (!graph || !selectedNodes.length) return "No selection";
@@ -432,6 +453,226 @@ function GraphCanvas() {
       ) : null}
     </section>
   );
+}
+
+function ThreeGraphCanvas() {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const graph = useExplorerStore((state) => state.graph);
+  const visual = useExplorerStore((state) => state.visual);
+  const selectedNodes = useExplorerStore((state) => state.selectedNodes);
+  const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
+  const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !graph) return undefined;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color("#f8f7f2");
+    scene.fog = new THREE.FogExp2("#f8f7f2", 0.0019);
+
+    const width = Math.max(320, container.clientWidth || 900);
+    const height = Math.max(320, container.clientHeight || 640);
+    const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 2200);
+    camera.position.set(0, -18, 230);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(width, height);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.autoRotate = highlightedPaths.length === 0;
+    controls.autoRotateSpeed = 0.35;
+
+    const selected = new Set(selectedNodes);
+    const highlightedNodes = pathNodeSet(highlightedPaths);
+    const highlightedEdges = pathEdgeSet(highlightedPaths);
+    const colorRange = metricRange(graph.nodes, visual.colorBy);
+    const raw = graph.nodes.map((node) => [node, layoutNode3D(node, graph, visual)] as const);
+    const maxRadius = Math.max(
+      1,
+      ...raw.map(([, p]) => Math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)),
+    );
+    const scale = 172 / maxRadius;
+    const coords = new Map<string, THREE.Vector3>();
+
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const sizes: number[] = [];
+    const nodeIds: string[] = [];
+    for (const [node, pos] of raw) {
+      const point = new THREE.Vector3(pos.x * scale, pos.y * scale, pos.z * scale);
+      coords.set(node.id, point);
+      nodeIds.push(node.id);
+      positions.push(point.x, point.y, point.z);
+      const categoryColor =
+        visual.colorBy === "component" || visual.colorBy === "community"
+          ? palette[Math.abs(Math.floor(nodeMetric(node, visual.colorBy))) % palette.length]
+          : colorScale(nodeMetric(node, visual.colorBy), colorRange);
+      const color = new THREE.Color(
+        selected.has(node.id) ? "#163c3a" : highlightedNodes.has(node.id) ? "#b56b16" : categoryColor,
+      );
+      colors.push(color.r, color.g, color.b);
+      sizes.push((selected.has(node.id) || highlightedNodes.has(node.id) ? 13.5 : 6.2 + Math.sqrt(node.degree || 1) * 0.95));
+    }
+
+    const graphGroup = new THREE.Group();
+    scene.add(graphGroup);
+
+    const nodeGeometry = new THREE.BufferGeometry();
+    nodeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    nodeGeometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    nodeGeometry.setAttribute("pointSize", new THREE.Float32BufferAttribute(sizes, 1));
+    const nodeMaterial = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      vertexColors: true,
+      vertexShader: `
+        attribute float pointSize;
+        varying vec3 vColor;
+        void main() {
+          vColor = color;
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = pointSize * (360.0 / max(80.0, -mvPosition.z));
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main() {
+          vec2 delta = gl_PointCoord - vec2(0.5);
+          float dist = dot(delta, delta);
+          if (dist > 0.25) discard;
+          float alpha = smoothstep(0.25, 0.12, dist) * 0.92;
+          gl_FragColor = vec4(vColor, alpha);
+        }
+      `,
+    });
+    const pointCloud = new THREE.Points(nodeGeometry, nodeMaterial);
+    graphGroup.add(pointCloud);
+
+    const edgePositions: number[] = [];
+    const edgeColors: number[] = [];
+    const maxEdges = Math.min(graph.edges.length, 42000);
+    for (let i = 0; i < maxEdges; i++) {
+      const edge = graph.edges[i];
+      const a = coords.get(edge.source);
+      const b = coords.get(edge.target);
+      if (!a || !b || highlightedEdges.has(edgeKey(edge.source, edge.target))) continue;
+      edgePositions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      const color = new THREE.Color(edgeColor(edge, 1));
+      edgeColors.push(color.r, color.g, color.b, color.r, color.g, color.b);
+    }
+    const edgeGeometry = new THREE.BufferGeometry();
+    edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
+    edgeGeometry.setAttribute("color", new THREE.Float32BufferAttribute(edgeColors, 3));
+    graphGroup.add(
+      new THREE.LineSegments(
+        edgeGeometry,
+        new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: Math.max(0.12, visual.edgeOpacity * 1.15) }),
+      ),
+    );
+
+    const pathMaterial = new THREE.MeshBasicMaterial({ color: "#c77b1f", transparent: true, opacity: 0.9 });
+    for (const path of highlightedPaths.slice(0, 18)) {
+      const points = path.map((id) => coords.get(id)).filter(Boolean) as THREE.Vector3[];
+      if (points.length < 2) continue;
+      const curve = new THREE.CatmullRomCurve3(points);
+      graphGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(8, points.length * 8), 0.42, 8, false), pathMaterial));
+    }
+
+    const sphereGeometry = new THREE.SphereGeometry(1.8, 16, 12);
+    const anchorMaterial = new THREE.MeshBasicMaterial({ color: "#163c3a" });
+    const bridgeMaterial = new THREE.MeshBasicMaterial({ color: "#c77b1f" });
+    for (const nodeId of new Set([...selectedNodes, ...Array.from(highlightedNodes)])) {
+      const point = coords.get(nodeId);
+      if (!point) continue;
+      const sphere = new THREE.Mesh(sphereGeometry, selected.has(nodeId) ? anchorMaterial : bridgeMaterial);
+      sphere.position.copy(point);
+      sphere.scale.setScalar(selected.has(nodeId) ? 1.55 : 1.15);
+      graphGroup.add(sphere);
+    }
+
+    const resize = () => {
+      const nextWidth = Math.max(320, container.clientWidth || width);
+      const nextHeight = Math.max(320, container.clientHeight || height);
+      camera.aspect = nextWidth / nextHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(nextWidth, nextHeight);
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.params.Points = { threshold: 3.5 };
+    const pointer = new THREE.Vector2();
+    const onPointerDown = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hit = raycaster.intersectObject(pointCloud, false)[0];
+      if (hit?.index !== undefined && nodeIds[hit.index]) {
+        setSelectedNode(nodeIds[hit.index], event.shiftKey);
+      }
+    };
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+
+    let frame = 0;
+    let stopped = false;
+    const animate = () => {
+      if (stopped) return;
+      frame = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      controls.dispose();
+      renderer.dispose();
+      nodeGeometry.dispose();
+      nodeMaterial.dispose();
+      edgeGeometry.dispose();
+      sphereGeometry.dispose();
+      pathMaterial.dispose();
+      anchorMaterial.dispose();
+      bridgeMaterial.dispose();
+      if (renderer.domElement.parentElement === container) {
+        container.removeChild(renderer.domElement);
+      }
+    };
+  }, [graph, highlightedPaths, selectedNodes, setSelectedNode, visual]);
+
+  const selectedLabel = useMemo(() => {
+    if (!graph || !selectedNodes.length) return "Atlas 3D";
+    const names = selectedNodes.slice(0, 2).map((id) => graph.nodes.find((node) => node.id === id)?.label || id);
+    return `Selected: ${names.join(", ")}${selectedNodes.length > 2 ? ` +${selectedNodes.length - 2}` : ""}`;
+  }, [graph, selectedNodes]);
+
+  return (
+    <section className="graph-shell">
+      <div className="graph-overlay top-left">
+        {contextSummary(graph, selectedNodes)}
+        {highlightedPaths.length ? ` | ${highlightedPaths.length} paths highlighted` : ""}
+      </div>
+      <div className="graph-overlay top-right">{selectedLabel}</div>
+      <div className="graph-canvas" ref={containerRef} />
+    </section>
+  );
+}
+
+function GraphCanvas() {
+  const viewMode = useExplorerStore((state) => state.visual.viewMode);
+  return viewMode === "3d" ? <ThreeGraphCanvas /> : <SigmaGraphCanvas />;
 }
 
 function ChatPanel() {
@@ -759,11 +1000,23 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const selectedNode = useExplorerStore((state) => state.selectedNode);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const setGraph = useExplorerStore((state) => state.setGraph);
+  const setHighlightedPaths = useExplorerStore((state) => state.setHighlightedPaths);
+  const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
+  const roles = useExplorerStore((state) => state.roles);
+  const chatRole = useExplorerStore((state) => state.chatRole);
+  const addChatMessage = useExplorerStore((state) => state.addChatMessage);
+  const updateChatMessage = useExplorerStore((state) => state.updateChatMessage);
   const [depth, setDepth] = useState(1);
   const [limit, setLimit] = useState(400);
   const [source, setSource] = useState("");
   const [target, setTarget] = useState("");
+  const [concepts, setConcepts] = useState("");
+  const [pathMode, setPathMode] = useState<"pairwise" | "sequence">("pairwise");
+  const [pathCutoff, setPathCutoff] = useState(8);
+  const [connectors, setConnectors] = useState<PathConnector[]>([]);
   const [status, setStatus] = useState("");
+  const [pathBusy, setPathBusy] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
   const seed = selectedNodes.length ? selectedNodes : selectedNode ? [selectedNode] : [];
 
   useEffect(() => {
@@ -781,11 +1034,65 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
     if (!source.trim() || !target.trim()) return;
     const next = await api.path({ source: source.trim(), target: target.trim(), k: 5, cutoff: 8 });
     setGraph(next);
+    setHighlightedPaths(next.paths || []);
+    setConnectors([]);
     setStatus(`${formatNumber(next.paths?.length || 0)} paths`);
+  }
+
+  async function findBridgeNetwork() {
+    const nodes = seed.length >= 2 && !concepts.trim() ? seed : [];
+    setPathBusy(true);
+    try {
+      const next = await api.multipath({
+        nodes,
+        query: concepts,
+        mode: pathMode,
+        cutoff: pathCutoff,
+        anchor_limit: 8,
+      });
+      setGraph(next);
+      setHighlightedPaths(next.paths || []);
+      setConnectors(next.connectors || []);
+      setStatus(`${formatNumber(next.paths?.length || 0)} paths | ${formatNumber(next.connectors?.length || 0)} connector nodes`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPathBusy(false);
+    }
+  }
+
+  async function askPathAgent() {
+    if (!graph || !highlightedPaths.length) return;
+    const connectorText = connectors.map((item) => `${item.label} (degree ${item.degree}, seen ${item.count}x)`).join(", ");
+    const pendingQuestion = `Analyze the highlighted bridge paths. Identify the key connector concepts, explain why the route matters, and suggest the next graph queries. Connectors: ${connectorText || "none ranked"}.`;
+    addChatMessage({ role: "user", content: pendingQuestion, meta: `${highlightedPaths.length} highlighted paths` });
+    const pending = addChatMessage({ role: "assistant", content: "Inspecting highlighted paths...", meta: chatRole });
+    setAgentBusy(true);
+    try {
+      const res = await api.ask({
+        question: pendingQuestion,
+        selected_nodes: Array.from(new Set(highlightedPaths.flat())),
+        query: concepts,
+        depth: 1,
+        max_nodes: 120,
+        max_edges: 220,
+        model_config: roles[chatRole],
+      });
+      updateChatMessage(pending, {
+        content: res.answer || "(empty response)",
+        meta: `path agent | ${res.context.node_count}n/${res.context.edge_count}e`,
+      });
+    } catch (error) {
+      updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "error" });
+    } finally {
+      setAgentBusy(false);
+    }
   }
 
   async function restoreGraph() {
     setGraph(await api.graph());
+    setHighlightedPaths([]);
+    setConnectors([]);
     setStatus("");
   }
 
@@ -818,6 +1125,53 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
       <div className="button-row">
         <IconButton disabled={!graph || !source.trim() || !target.trim()} icon={<Network size={14} />} label="Paths" onClick={showPath} />
       </div>
+      <label>
+        Multi-concept bridge
+        <textarea
+          onChange={(event) => setConcepts(event.target.value)}
+          placeholder="paste concept ids or labels, separated by commas or lines"
+          rows={3}
+          value={concepts}
+        />
+      </label>
+      <div className="control-grid">
+        <label>
+          Mode
+          <select value={pathMode} onChange={(event) => setPathMode(event.target.value as typeof pathMode)}>
+            <option value="pairwise">Pairwise bridge</option>
+            <option value="sequence">Ordered route</option>
+          </select>
+        </label>
+        <label>
+          Max hops
+          <input min={2} max={16} onChange={(event) => setPathCutoff(Number(event.target.value))} type="number" value={pathCutoff} />
+        </label>
+      </div>
+      <div className="button-row">
+        <IconButton
+          disabled={!graph || pathBusy || (!concepts.trim() && seed.length < 2)}
+          icon={pathBusy ? <Loader2 className="spin" size={14} /> : <Network size={14} />}
+          label="Find Bridges"
+          onClick={findBridgeNetwork}
+          tone="primary"
+        />
+        <IconButton
+          disabled={!graph || agentBusy || !highlightedPaths.length}
+          icon={agentBusy ? <Loader2 className="spin" size={14} /> : <BrainCircuit size={14} />}
+          label="Ask Agent"
+          onClick={askPathAgent}
+        />
+      </div>
+      {connectors.length ? (
+        <div className="connector-list">
+          {connectors.slice(0, 6).map((item) => (
+            <button key={item.id} onClick={() => useExplorerStore.getState().setSelectedNode(item.id)} type="button">
+              <strong>{item.label}</strong>
+              <span>{item.count} paths | degree {formatNumber(item.degree)}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       {status ? <div className="status-box">{status}</div> : null}
     </Drawer>
   );
@@ -913,6 +1267,83 @@ function ActivityRail({
   );
 }
 
+function ThreadStage({
+  onOpenGraph,
+  onOpenSearch,
+  onOpenRuns,
+}: {
+  onOpenGraph: () => void;
+  onOpenSearch: () => void;
+  onOpenRuns: () => void;
+}) {
+  const graph = useExplorerStore((state) => state.graph);
+  const selectedNodes = useExplorerStore((state) => state.selectedNodes);
+  const messages = useExplorerStore((state) => state.chatMessages);
+  const stats = graph?.stats;
+  const latest = messages.slice(-4);
+
+  return (
+    <section className="thread-stage">
+      <div className="thread-inner">
+        <div className="thread-titlebar">
+          <div>
+            <strong>Current graph workspace</strong>
+            <span>{graph?.topic || "Ask questions, inspect runs, and open graph artifacts as needed."}</span>
+          </div>
+          <button type="button" onClick={onOpenRuns}>
+            Runs
+          </button>
+        </div>
+
+        <div className="thread-artifact">
+          <div className="artifact-icon">
+            <Network size={18} />
+          </div>
+          <div className="artifact-copy">
+            <strong>{graph?.name || "No graph loaded"}</strong>
+            <span>{contextSummary(graph, selectedNodes)}</span>
+          </div>
+          <div className="artifact-metrics">
+            <span>{formatNumber(stats?.components || 0)} components</span>
+            <span>{formatNumber(stats?.communities || 0)} communities</span>
+            <span>{formatNumber(stats?.avg_degree || 0, 2)} avg degree</span>
+          </div>
+          <div className="thread-actions">
+            <button type="button" onClick={onOpenGraph}>
+              Open graph
+            </button>
+            <button type="button" onClick={onOpenSearch}>
+              Search nodes
+            </button>
+          </div>
+        </div>
+
+        <div className="thread-feed">
+          {latest.length ? (
+            latest.map((message) => (
+              <div className={cx("thread-message", message.role)} key={message.id}>
+                <div className="thread-meta">
+                  {message.role}
+                  {message.meta ? ` | ${message.meta}` : ""}
+                </div>
+                <div>{message.content}</div>
+              </div>
+            ))
+          ) : (
+            <div className="thread-message assistant">
+              <div className="thread-meta">system | workspace</div>
+              <div>
+                Load or start a run, then ask for summaries, gaps, bridges, central nodes, or paths. Open the graph only
+                when you need spatial inspection.
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function App() {
   const setGraph = useExplorerStore((state) => state.setGraph);
   const setRoles = useExplorerStore((state) => state.setRoles);
@@ -938,25 +1369,42 @@ function App() {
     [setGraph],
   );
 
+  const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
+
   return (
     <div className="app">
       <Header onLoadRun={loadRun} />
       <main className="workspace">
         <ActivityRail activeMode={activeMode} onModeChange={setActiveMode} />
         <SideRail activeMode={activeMode} onRunGraphReady={loadRun} />
-        <section className="artifact-stage">
-          <div className="artifact-toolbar">
-            <div>
-              <strong>Graph artifact</strong>
-              <span>{contextSummary(graph, selectedNodes)}</span>
+        {graphArtifactOpen ? (
+          <section className="artifact-stage">
+            <div className="artifact-toolbar">
+              <div>
+                <strong>Graph artifact</strong>
+                <span>{contextSummary(graph, selectedNodes)}</span>
+              </div>
+              <div className="artifact-actions">
+                <button type="button" onClick={() => setActiveMode("chat")}>
+                  Back to chat
+                </button>
+                <button type="button" onClick={() => setActiveMode("graph")}>
+                  Controls
+                </button>
+                <button type="button" onClick={() => setActiveMode("search")}>
+                  Search
+                </button>
+              </div>
             </div>
-            <div className="artifact-actions">
-              <button type="button" onClick={() => setActiveMode("graph")}>Controls</button>
-              <button type="button" onClick={() => setActiveMode("search")}>Search</button>
-            </div>
-          </div>
-          <GraphCanvas />
-        </section>
+            <GraphCanvas />
+          </section>
+        ) : (
+          <ThreadStage
+            onOpenGraph={() => setActiveMode("graph")}
+            onOpenRuns={() => setActiveMode("runs")}
+            onOpenSearch={() => setActiveMode("search")}
+          />
+        )}
         <aside className="assistant-panel">
           <ChatPanel />
           {!graph ? (

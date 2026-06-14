@@ -772,6 +772,91 @@ def _path_payload(source, target, k=5, cutoff=6):
     return payload
 
 
+def _resolve_concept_nodes(G, concepts, *, limit=8):
+    found = []
+    seen = set()
+    labels = {str(d.get("label") or n).lower(): str(n) for n, d in G.nodes(data=True)}
+    for raw in concepts:
+        query = str(raw or "").strip()
+        if not query:
+            continue
+        node_id = query if query in G else labels.get(query.lower())
+        if not node_id:
+            hits = _search_nodes(G, query, limit=1)
+            node_id = hits[0]["id"] if hits else None
+        if node_id and node_id not in seen:
+            seen.add(node_id)
+            found.append(str(node_id))
+        if len(found) >= limit:
+            break
+    return found
+
+
+def _multipath_payload(body):
+    G = _require_graph()
+    raw = body.get("nodes") or []
+    raw_nodes = list(raw) if isinstance(raw, (list, tuple)) else [raw]
+    raw_query = str(body.get("query") or "")
+    if raw_query:
+        raw_nodes.extend([part.strip() for part in re.split(r"[,;\n]+", raw_query) if part.strip()])
+    anchors = _resolve_concept_nodes(G, raw_nodes, limit=_safe_int(body.get("anchor_limit"), 8))
+    if len(anchors) < 2:
+        raise ValueError("At least two resolvable concepts are required.")
+
+    U = G.to_undirected()
+    degree = dict(U.degree())
+    metrics = _centrality(G)
+    cutoff = _safe_int(body.get("cutoff"), 8)
+    mode = str(body.get("mode") or "pairwise")
+    pairs = []
+    if mode == "sequence":
+        pairs = list(zip(anchors, anchors[1:]))
+    else:
+        for i, a in enumerate(anchors):
+            for b in anchors[i + 1:]:
+                pairs.append((a, b))
+
+    paths = []
+    for a, b in pairs[:24]:
+        if a not in U or b not in U:
+            continue
+        try:
+            p = nx.shortest_path(U, a, b)
+        except nx.NetworkXNoPath:
+            continue
+        if cutoff <= 0 or len(p) - 1 <= cutoff:
+            paths.append([str(x) for x in p])
+
+    path_nodes = set(x for p in paths for x in p)
+    if not path_nodes:
+        payload = _subgraph_payload([], name="empty bridge network")
+        payload.update({"anchors": anchors, "paths": [], "connectors": []})
+        return payload
+
+    connector_counts = {}
+    for p in paths:
+        for n in p[1:-1]:
+            if n not in anchors:
+                connector_counts[n] = connector_counts.get(n, 0) + 1
+    connectors = []
+    for n, count in sorted(connector_counts.items(), key=lambda item: (item[1], degree.get(item[0], 0)), reverse=True)[:18]:
+        d = G.nodes[n]
+        connectors.append({
+            "id": str(n),
+            "label": str(d.get("label") or n),
+            "count": int(count),
+            "degree": int(degree.get(n, 0)),
+            "pagerank": float(metrics.get("pagerank", {}).get(n, 0.0)),
+            "core": int(metrics.get("core", {}).get(n, 0)),
+        })
+
+    payload = _subgraph_payload(path_nodes, name="bridge network")
+    payload["anchors"] = anchors
+    payload["paths"] = paths
+    payload["connectors"] = connectors
+    return payload
+
+
 def _format_node(G, n):
     d = dict(G.nodes[n])
     label = str(d.get("label") or n)
@@ -1160,6 +1245,8 @@ class Handler(SimpleHTTPRequestHandler):
                     int(body.get("k", 5)),
                     int(body.get("cutoff", 6)),
                 ))
+            elif parsed.path == "/api/multipath":
+                self._json(_multipath_payload(body))
             elif parsed.path == "/api/ask":
                 self._json(_answer_question(body))
             elif parsed.path == "/api/ideate":

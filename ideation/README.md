@@ -161,6 +161,63 @@ Key knobs:
 - `--n-leads`: path insights retrieved per task
 - `--answer-leads`: top path insights shown to Llama
 
+Clean concept-pair bridge benchmark. This is the most direct test of whether the mined graph adds
+usable information to the same small model:
+
+- baseline: Llama sees the run topic plus Concept A and Concept B only
+- graph: Llama sees the same topic and concepts, plus the true mined path/neighborhood connecting
+  them
+
+The script samples 10 concrete endpoint pairs from `graph.graphml`, writes both prompts and answer
+sets, then calls the same blind pairwise GPT judge/plotter used by `compare.py`.
+
+```bash
+python path_pair_benchmark.py \
+  --run runs/exp_leap \
+  --out runs/exp_leap/benchmark/path_pairs \
+  --n 10 \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --judge-model gpt-5.5 \
+  --judge-effort high
+```
+
+Useful controls:
+
+```bash
+# Preview the selected pairs and exact prompts without model or judge calls.
+python path_pair_benchmark.py \
+  --run runs/exp_leap \
+  --out runs/exp_leap/benchmark/path_pairs_preview \
+  --n 10 \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --dry-run \
+  --no-judge
+
+# Resample/reselect endpoint pairs after changing path constraints.
+python path_pair_benchmark.py \
+  --run runs/exp_leap \
+  --out runs/exp_leap/benchmark/path_pairs_harder \
+  --n 10 \
+  --min-hops 3 \
+  --max-hops 6 \
+  --neighbors 6 \
+  --force-pairs \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --judge-model gpt-5.5 \
+  --judge-effort high
+```
+
+Outputs:
+
+- `pairs.json`: the 10 concept pairs, raw graph node IDs, true paths, and path scores
+- `tasks.txt`: pairwise judge task descriptions
+- `prompts/baseline/*.txt` and `prompts/graph/*.txt`: exact prompts sent to Llama
+- `answers/baseline/*.md` and `answers/graph/*.md`: generated answers
+- `benchmark/pairwise.{png,svg,pdf,json,md}`: blind pairwise judge results
+
 Benchmark the stronger test-time-compute claim by rebuilding a short graph per benchmark task. This
 compares:
 
@@ -1351,12 +1408,13 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 ## Deep graph profile report (`profile_graph.py`)
 
 `profile_graph.py` makes a single-graph audit report for a completed run, a mid-run snapshot, or any
-GraphML file. It reads the graph directly and writes a browsable Markdown report, machine-readable JSON,
-and diagnostic figures covering graph statistics, top nodes, relation types, connected components,
+GraphML file. It reads the graph directly and writes a browsable Markdown report, PDF, machine-readable
+JSON, and diagnostic figures covering graph statistics, top nodes, relation types, connected components,
 communities/modules, bridge edges, articulation points, cross-module paths, provenance, and data-quality
 flags. If Graph-PRefLexOR attributes such as `iter`, `depth`, `question`, and `response_id` are present,
 the provenance section can explain where concepts entered the graph; arbitrary GraphML still gets the
-structural/module audit.
+structural/module audit. `report.pdf` is rendered by default with Pandoc when available; add `--no-pdf`
+to skip PDF generation.
 
 ```bash
 # Completed run; writes runs/exp_leap/profile/{report.md,profile.json,figures/*}
@@ -1368,27 +1426,66 @@ python profile_graph.py --graph /path/to/graph.graphml --out graph_profile
 # Add embedding-based semantic diagnostics
 python profile_graph.py --run runs/exp_leap --embed-model auto --out runs/exp_leap/profile
 
-# Add evidence-grounded LLM summaries plus a paper-level deep-dive interpretation.
-# Default LLM backend is the OpenAI Responses API with high reasoning effort.
-python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 \
-    --reasoning-effort high --llm-deep-passes 3 --deep-dive-tokens 6000 \
-    --out runs/exp_leap/profile
+# GPT-5.5 paper-level deep dive via OpenAI Responses API.
+# Use a separate output directory if you plan to compare against a local model.
+python profile_graph.py \
+    --run runs/exp_leap \
+    --out runs/exp_leap/profile_gpt55 \
+    --embed-model auto \
+    --llm \
+    --backend responses \
+    --model gpt-5.5 \
+    --reasoning-effort high \
+    --llm-modules 12 \
+    --llm-deep-passes 3 \
+    --max-summary-tokens 1600 \
+    --deep-pass-tokens 5000 \
+    --deep-dive-tokens 12000
 
-# For local OpenAI-compatible servers that do not implement Responses API, use chat.
-python profile_graph.py --graph graph.graphml --llm --backend chat \
-    --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
-    --deep-dive-tokens 4000
+# Local Llama comparison on an OpenAI-compatible server at localhost:8000.
+# Most local servers expose chat-completions, not Responses API, so use --backend chat.
+python profile_graph.py \
+    --run runs/exp_leap \
+    --out runs/exp_leap/profile_llama \
+    --embed-model auto \
+    --llm \
+    --backend chat \
+    --model meta-llama/Llama-3.2-3B-Instruct \
+    --base-url http://localhost:8000/v1 \
+    --llm-modules 12 \
+    --llm-deep-passes 3 \
+    --max-summary-tokens 1600 \
+    --deep-pass-tokens 5000 \
+    --deep-dive-tokens 12000
+
+# If your local server implements the Responses API, you can compare that path directly.
+python profile_graph.py \
+    --run runs/exp_leap \
+    --out runs/exp_leap/profile_llama_responses \
+    --embed-model auto \
+    --llm \
+    --backend responses \
+    --model meta-llama/Llama-3.2-3B-Instruct \
+    --base-url http://localhost:8000/v1 \
+    --reasoning-effort high \
+    --llm-modules 12 \
+    --llm-deep-passes 3 \
+    --max-summary-tokens 1600 \
+    --deep-pass-tokens 5000 \
+    --deep-dive-tokens 12000
 ```
 
 For OpenAI models, `--backend responses` (also accepted as `--backend openai`) uses the Responses API
 with `reasoning={"effort": "high"}` by default; adjust with `--reasoning-effort`. For direct Hugging
 Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files do not
 always contain the original embedding model context. The CLI prints stage-by-stage progress while it
-runs, including per-module summaries, extra evidence-pass calls (`--llm-deep-passes`, default 3), and
-the final paper-level synthesis; add `--quiet` to suppress progress output. The deep-dive text is
-written near the top of `report.md` under **Paper-Level Graph Interpretation** and stored in
+runs, including per-module summaries, extra evidence-pass calls (`--llm-deep-passes`, default 3), PDF
+rendering, and the final paper-level synthesis; add `--quiet` to suppress progress output. The deep-dive
+text is written near the top of `report.md` under **Paper-Level Graph Interpretation** and stored in
 `profile.json` at `llm_summaries.deep_dive`; the supporting LLM evidence memos are stored at
-`llm_summaries.deep_dive_passes`.
+`llm_summaries.deep_dive_passes`. If a high-reasoning Responses call returns no visible text or the
+final synthesis misses required sections, the profiler retries/completes the missing sections and records
+diagnostics in `profile.json`.
 
 ## Files
 

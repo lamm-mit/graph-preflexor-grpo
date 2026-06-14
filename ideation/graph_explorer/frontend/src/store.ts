@@ -16,6 +16,7 @@ export type ExplorerState = {
   selectedNode: string | null;
   selectedNodes: string[];
   searchResults: SearchResult[];
+  highlightedPaths: string[][];
   visual: VisualState;
   roles: Record<string, ModelRole>;
   chatRole: string;
@@ -24,6 +25,7 @@ export type ExplorerState = {
   setSelectedNode: (id: string | null, append?: boolean) => void;
   clearSelection: () => void;
   setSearchResults: (results: SearchResult[]) => void;
+  setHighlightedPaths: (paths: string[][]) => void;
   setVisual: (visual: Partial<VisualState>) => void;
   setRoles: (roles: Record<string, ModelRole>) => void;
   updateRole: (name: string, role: ModelRole) => void;
@@ -38,7 +40,9 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
   selectedNode: null,
   selectedNodes: [],
   searchResults: [],
+  highlightedPaths: [],
   visual: {
+    viewMode: "3d",
     layout: "force",
     colorBy: "degree",
     sizeBy: "degree",
@@ -70,6 +74,7 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
       selectedNode: null,
       selectedNodes: [],
       searchResults: [],
+      highlightedPaths: [],
     }),
   setSelectedNode: (id, append = false) =>
     set((state) => {
@@ -81,6 +86,7 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
     }),
   clearSelection: () => set({ selectedNode: null, selectedNodes: [] }),
   setSearchResults: (searchResults) => set({ searchResults }),
+  setHighlightedPaths: (highlightedPaths) => set({ highlightedPaths }),
   setVisual: (visual) => set((state) => ({ visual: { ...state.visual, ...visual } })),
   setRoles: (roles) =>
     set((state) => ({

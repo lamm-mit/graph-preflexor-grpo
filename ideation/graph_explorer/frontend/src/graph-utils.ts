@@ -72,6 +72,24 @@ export function hash01(input: string, salt = 0) {
   return ((h >>> 0) % 100000) / 100000;
 }
 
+export function pathNodeSet(paths: string[][]) {
+  return new Set(paths.flat());
+}
+
+export function edgeKey(source: string, target: string) {
+  return source <= target ? `${source}::${target}` : `${target}::${source}`;
+}
+
+export function pathEdgeSet(paths: string[][]) {
+  const out = new Set<string>();
+  for (const path of paths) {
+    for (let i = 0; i < path.length - 1; i++) {
+      out.add(edgeKey(path[i], path[i + 1]));
+    }
+  }
+  return out;
+}
+
 export function layoutNode(node: GraphNode, graph: GraphPayload, visual: VisualState) {
   const comp = Math.max(0, node.component || 0);
   const community = Math.max(0, node.community || 0);
@@ -101,6 +119,19 @@ export function layoutNode(node: GraphNode, graph: GraphPayload, visual: VisualS
   const angle = comp * 2.3999632297;
   const cr = Math.sqrt(comp + 1) * 8;
   return { x: Math.cos(angle) * cr + Math.cos(local) * radius, y: Math.sin(angle) * cr + Math.sin(local) * radius };
+}
+
+export function layoutNode3D(node: GraphNode, graph: GraphPayload, visual: VisualState) {
+  const base = layoutNode(node, graph, visual);
+  const zMetric = visual.colorBy === "component" || visual.colorBy === "community" ? "pagerank" : visual.colorBy;
+  const range = metricRange(graph.nodes, zMetric);
+  const zT = normalize(nodeMetric(node, zMetric), range);
+  const jitter = (hash01(node.id, 101) - 0.5) * 42;
+  return {
+    x: base.x,
+    y: base.y,
+    z: (zT - 0.5) * 95 + jitter,
+  };
 }
 
 export function nodeSize(node: GraphNode, graph: GraphPayload, visual: VisualState) {

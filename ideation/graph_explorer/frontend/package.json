@@ -21,12 +21,14 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sigma": "^3.0.2",
+    "three": "^0.184.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
+    "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.5.2",

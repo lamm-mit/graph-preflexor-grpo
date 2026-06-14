@@ -1,4 +1,4 @@
-import type { ConfigPayload, GraphPayload, JobStatus, ModelRole, SearchResult } from "./types";
+import type { ConfigPayload, GraphPayload, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const init =
@@ -38,6 +38,8 @@ export const api = {
     request<GraphPayload & { focus_nodes?: string[] }>("/api/neighborhood", body),
   path: (body: { source: string; target: string; k: number; cutoff: number }) =>
     request<GraphPayload & { paths?: string[][] }>("/api/path", body),
+  multipath: (body: { nodes?: string[]; query?: string; mode: "pairwise" | "sequence"; cutoff: number; anchor_limit?: number }) =>
+    request<GraphPayload & { anchors?: string[]; paths?: string[][]; connectors?: PathConnector[] }>("/api/multipath", body),
   ideate: (body: {
     topic: string;
     strategy: string;
