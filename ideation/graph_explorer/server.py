@@ -521,6 +521,8 @@ def _role_from_config(role, cfg):
             "reasoning_effort": "",
         }
     data = dict(cfg.get(role) or {})
+    if role == "graph_qa" and not data.get("model"):
+        data = dict(cfg.get("questioner") or {})
     return {
         "role": role,
         "provider": data.get("provider") or "openai",

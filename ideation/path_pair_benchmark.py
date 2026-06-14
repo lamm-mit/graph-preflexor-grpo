@@ -571,7 +571,7 @@ def main():
     p.add_argument("--neighbors", type=int, default=4,
                    help="specific off-path neighbors shown per path node in graph arm")
     p.add_argument("--quality-mode", choices=["strict", "permissive"], default="strict",
-                   help="strict rejects meta/speculative/topic-hub paths; permissive only applies basic cleanup")
+                   help="strict adds domain/generic bridge constraints; allow flags control meta/speculative/topic hubs")
     p.add_argument("--allow-meta", action="store_true",
                    help="allow meta/method labels such as NovelIdea, UntestedIdea, or testing protocols")
     p.add_argument("--allow-speculative", action="store_true",

@@ -43,7 +43,7 @@ import {
   pathNodeSet,
 } from "./graph-utils";
 import { useExplorerStore } from "./store";
-import type { GraphNode, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
+import type { GraphNode, GraphPayload, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
 import "./styles.css";
 
 type WorkspaceMode = "chat" | "graph" | "search" | "runs" | "models";
@@ -116,9 +116,14 @@ function Drawer({
   );
 }
 
-function Header({ onLoadRun }: { onLoadRun: (run: string) => Promise<void> }) {
+function Header({
+  onLoadRun,
+  onGraphLoaded,
+}: {
+  onLoadRun: (run: string) => Promise<void>;
+  onGraphLoaded: (graph: GraphPayload) => void;
+}) {
   const graph = useExplorerStore((state) => state.graph);
-  const setGraph = useExplorerStore((state) => state.setGraph);
   const [run, setRun] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -127,7 +132,7 @@ function Header({ onLoadRun }: { onLoadRun: (run: string) => Promise<void> }) {
     setBusy(true);
     try {
       const text = await file.text();
-      setGraph(await api.uploadGraphml(file.name, text));
+      onGraphLoaded(await api.uploadGraphml(file.name, text));
     } finally {
       setBusy(false);
     }
@@ -1353,9 +1358,17 @@ function App() {
   const { data: initialGraph } = useQuery({ queryKey: ["graph"], queryFn: api.graph, retry: false });
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.config });
 
+  const showGraph = React.useCallback(
+    (next: GraphPayload) => {
+      setGraph(next);
+      setActiveMode("graph");
+    },
+    [setGraph],
+  );
+
   useEffect(() => {
-    if (initialGraph) setGraph(initialGraph);
-  }, [initialGraph, setGraph]);
+    if (initialGraph) showGraph(initialGraph);
+  }, [initialGraph, showGraph]);
 
   useEffect(() => {
     if (config?.roles) setRoles(config.roles);
@@ -1364,16 +1377,16 @@ function App() {
   const loadRun = React.useCallback(
     async (run: string) => {
       if (!run.trim()) return;
-      setGraph(await api.loadRun(run));
+      showGraph(await api.loadRun(run));
     },
-    [setGraph],
+    [showGraph],
   );
 
   const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
 
   return (
     <div className="app">
-      <Header onLoadRun={loadRun} />
+      <Header onGraphLoaded={showGraph} onLoadRun={loadRun} />
       <main className="workspace">
         <ActivityRail activeMode={activeMode} onModeChange={setActiveMode} />
         <SideRail activeMode={activeMode} onRunGraphReady={loadRun} />

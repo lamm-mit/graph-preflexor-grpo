@@ -11,6 +11,8 @@ const defaultRole: ModelRole = {
   reasoning_effort: "",
 };
 
+const questionerRole: ModelRole = { ...defaultRole, model: "Qwen/Qwen3-0.6B", base_url: "http://localhost:1234/v1" };
+
 export type ExplorerState = {
   graph: GraphPayload | null;
   selectedNode: string | null;
@@ -49,13 +51,13 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
     edgeOpacity: 0.12,
   },
   roles: {
-    graph_qa: defaultRole,
+    graph_qa: { ...questionerRole },
     generator: {
       ...defaultRole,
       model: "lamm-mit/Graph-Preflexor-3b_08012026",
       base_url: "http://localhost:1234/v1",
     },
-    questioner: { ...defaultRole, model: "Qwen/Qwen3-0.6B", base_url: "http://localhost:1234/v1" },
+    questioner: questionerRole,
     judge: {
       ...defaultRole,
       model: "gpt-4o",
