@@ -11,4 +11,5 @@ __pycache__/
 ./ideation/runs/*
 ./ideation/figures/*
 ./ideation/.cache*
+./ideation/.cache/*
 ./ideation/.*
