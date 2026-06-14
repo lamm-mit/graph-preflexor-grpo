@@ -10,3 +10,5 @@ __pycache__/
 ./runs/*
 ./ideation/runs/*
 ./ideation/figures/*
+./ideation/.cache*
+./ideation/.*
