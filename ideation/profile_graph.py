@@ -18,10 +18,10 @@ Examples
     # Add semantic figures/mined bridges by re-embedding labels.
     python profile_graph.py --run runs/exp_leap --embed-model all-MiniLM-L6-v2
 
-    # Use an OpenAI-compatible model, including a local endpoint, for summaries.
-    python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5
+    # Use an OpenAI-compatible model, including a local endpoint, for summaries and deep dive.
+    python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 --deep-dive-tokens 6000
     python profile_graph.py --graph graph.graphml --llm --model meta-llama/Llama-3.2-3B-Instruct \
-        --base-url http://localhost:8000/v1
+        --base-url http://localhost:8000/v1 --deep-dive-tokens 4000
 """
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ import re
 import statistics
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import networkx as nx
 import numpy as np
@@ -66,12 +66,35 @@ class LLMOptions:
     api_key: Optional[str] = None
     temperature: float = 0.2
     max_tokens: int = 1200
+    deep_tokens: int = 4000
     device: Optional[str] = None
     dtype: str = "auto"
 
 
 def _now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+class _Progress:
+    def __init__(self, enabled: bool, total: int):
+        self.enabled = enabled
+        self.total = total
+        self.index = 0
+        self.started = time.time()
+
+    def step(self, message: str) -> None:
+        if not self.enabled:
+            return
+        self.index += 1
+        print(f"[{self.index:02d}/{self.total:02d}] {message}", flush=True)
+
+    def detail(self, message: str) -> None:
+        if self.enabled:
+            print(f"    {message}", flush=True)
+
+    def finish(self) -> None:
+        if self.enabled:
+            print(f"[done] completed in {time.time() - self.started:.1f}s", flush=True)
 
 
 def _short(s: Any, n: int = 80) -> str:
@@ -177,6 +200,46 @@ def _read_transcript(run_dir: Optional[Path]) -> List[Dict[str, Any]]:
             except Exception:
                 rows.append({"_parse_error": line[:500]})
     return rows
+
+
+def _read_run_summary(run_dir: Optional[Path]) -> Dict[str, Any]:
+    if not run_dir:
+        return {}
+    path = run_dir / "summary.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _infer_topic(G: nx.Graph, run_summary: Dict[str, Any], transcript: List[Dict[str, Any]]) -> Optional[str]:
+    for key in ("topic", "seed_topic", "query"):
+        value = run_summary.get(key)
+        if value:
+            return _short(value, 260)
+    for key in ("topic", "seed_topic", "query"):
+        value = G.graph.get(key)
+        if value:
+            return _short(value, 260)
+    for row in transcript:
+        q = row.get("question")
+        if q:
+            return _short(q, 260)
+    min_iter = None
+    questions = Counter()
+    for _n, d in G.nodes(data=True):
+        it = _int_attr(d, "iter")
+        q = d.get("question")
+        if q and (min_iter is None or it is not None and it < min_iter):
+            min_iter = it
+            questions.clear()
+        if q and (min_iter is None or it == min_iter):
+            questions[_short(q, 260)] += 1
+    if questions:
+        return questions.most_common(1)[0][0]
+    return None
 
 
 def _read_growth(run_dir: Optional[Path]) -> List[Dict[str, Any]]:
@@ -735,23 +798,123 @@ def _module_prompt(module: Dict[str, Any]) -> str:
         "source_questions": module["source_questions"][:6],
     }
     return (
-        "Summarize this graph community as an evidence-based module in a knowledge graph.\n"
+        "Interpret this graph community as an evidence-based research module in a knowledge graph.\n"
         "Use only the provided labels, relations, and provenance. Do not invent facts.\n"
-        "Return Markdown with: theme, subthemes, central concepts, bridge concepts, odd/noisy labels, "
-        "and 2-4 concrete questions a human should inspect next.\n\n"
+        "Return Markdown with these headings: Theme, Evidence In The Graph, Mechanistic Reading, "
+        "Bridge Role, Noise Or Ambiguity, and Research Questions To Inspect Next. Be specific: "
+        "cite node labels, relation verbs, boundary nodes, and source-question clues.\n\n"
         + json.dumps(payload, indent=2)
     )
 
 
-def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int) -> Dict[str, Any]:
+def _slim_module(m: Dict[str, Any], top_nodes: int = 8) -> Dict[str, Any]:
+    return {
+        "id": m["id"],
+        "size": m["size"],
+        "internal_edges": m["internal_edges"],
+        "external_edges": m["external_edges"],
+        "iter": m["iter"],
+        "depth": m["depth"],
+        "top_terms": m["top_terms"][:12],
+        "top_nodes": m["top_nodes"][:top_nodes],
+        "boundary_nodes": m["boundary_nodes"][:8],
+        "relations": m["relations"][:10],
+        "source_questions": m["source_questions"][:5],
+    }
+
+
+def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str, Any]]) -> str:
+    gs = profile["global_stats"]
+    prov = profile["provenance"]
+    sem = profile.get("semantic_audit") or {}
+    payload = {
+        "original_topic": profile.get("topic"),
+        "graph_scope": {
+            "nodes": gs["nodes"],
+            "edges": gs["edges"],
+            "directed": gs["directed"],
+            "density": gs["density"],
+            "average_degree": gs["avg_degree"],
+            "weak_or_connected_components": gs["weak_or_connected_components"],
+            "largest_component_fraction": gs["largest_component_frac"],
+            "strong_components": gs.get("strong_components"),
+            "modularity": gs.get("modularity"),
+            "node_iter_range": gs["iter"]["nodes"],
+            "edge_iter_range": gs["iter"]["edges"],
+            "node_depth_range": gs["depth"],
+        },
+        "top_relations": gs["relations"][:30],
+        "top_nodes": {
+            "degree": profile["top_nodes"]["degree"][:15],
+            "pagerank": profile["top_nodes"]["pagerank"][:15],
+            "betweenness": profile["top_nodes"]["betweenness"][:15],
+        },
+        "major_modules": [_slim_module(m) for m in modules],
+        "inter_module_edges": profile["module_edges"][:30],
+        "critical_connectors": {
+            "articulation_points": profile["critical_connectors"]["articulation_points"][:20],
+            "bridge_edges": profile["critical_connectors"]["bridge_edges"][:20],
+        },
+        "representative_paths": profile["representative_paths"][:25],
+        "provenance": {
+            "transcript_rows": prov["n_transcript_rows"],
+            "zero_yield_count": len(prov["zero_yield_iterations"]),
+            "high_token_zero_yield_examples": prov["high_token_zero_yield_iterations"][:10],
+            "top_source_questions_by_new_nodes": prov["source_questions_by_new_nodes"][:20],
+        },
+        "data_quality": {
+            "n_flagged_labels": profile["quality"]["n_flagged_labels"],
+            "flagged_examples": profile["quality"]["flagged_labels"][:25],
+            "duplicate_normalized_examples": profile["quality"]["duplicate_normalized_labels"][:20],
+        },
+        "semantic_audit": {
+            "embedding_model": profile.get("embedding_model"),
+            "embedding_spread": sem.get("embedding_spread"),
+            "semantic_outliers": sem.get("semantic_outliers", [])[:15],
+            "distant_connected_paths": sem.get("distant_connected_paths", [])[:15],
+            "embedding_error": profile.get("embedding_error") if not sem else None,
+        },
+    }
+    return (
+        "Write a paper-level deep dive interpreting this knowledge graph as the final artifact of an "
+        "iterative ideation run. The original topic is in the payload. The goal is to explain what the "
+        "graph is actually telling us about that topic, not just restate graph statistics.\n\n"
+        "Use only the provided graph evidence. You may synthesize and interpret, but distinguish "
+        "direct graph evidence from speculative research implications. Cite concrete labels, module ids, "
+        "relation verbs, bridge concepts, paths, provenance patterns, and quality caveats.\n\n"
+        "Return a substantial Markdown section with these headings:\n"
+        "1. Central Thesis\n"
+        "2. What The Graph Discovered About The Topic\n"
+        "3. Major Mechanistic Programs\n"
+        "4. Cross-Module Bridges And Critical Concepts\n"
+        "5. Novel Or Speculative Hypotheses Worth Human Review\n"
+        "6. What Looks Mature Versus What Looks Like Frontier Drift\n"
+        "7. Provenance And Search Dynamics\n"
+        "8. Reliability, Noise, And Failure Modes\n"
+        "9. Concrete Next Analyses Or Experiments\n"
+        "10. Short Abstract Suitable For A Paper Or Lab Notebook\n\n"
+        "Be deep and analytical. Prefer dense paragraphs and short evidence tables over generic prose. "
+        "Do not claim biological, chemical, or materials-science truth unless the graph evidence supports "
+        "it; phrase such claims as hypotheses generated by the graph.\n\n"
+        + json.dumps(payload, indent=2)
+    )
+
+
+def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
+                   progress: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     if not opts.enabled:
         return {}
     system = ("You are a careful graph analyst. You summarize graph evidence without inventing "
-              "domain facts. Be concise, specific, and cite labels/relations from the payload.")
+              "domain facts. You are allowed to synthesize research implications only when you mark "
+              "them as graph-generated hypotheses. Be specific and cite labels/relations from the payload.")
     modules = profile["communities"][:max_modules]
-    out = {"modules": {}}
-    for m in modules:
+    out = {"model": opts.model, "backend": opts.backend, "modules": {}}
+    for i, m in enumerate(modules, 1):
+        if progress:
+            progress(f"LLM module summary {i}/{len(modules)}: module {m['id']} ({m['size']} nodes)")
         out["modules"][str(m["id"])] = _call_llm(system, _module_prompt(m), opts)
+    if progress:
+        progress("LLM executive summary")
     overview_payload = {
         "global_stats": profile["global_stats"],
         "top_degree": profile["top_nodes"]["degree"][:10],
@@ -770,6 +933,11 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int) 
         + json.dumps(overview_payload, indent=2)
     )
     out["overview"] = _call_llm(system, user, opts)
+    if progress:
+        progress("LLM paper-level deep dive")
+    deep_opts = replace(opts, max_tokens=max(opts.max_tokens, opts.deep_tokens))
+    out["deep_dive"] = _call_llm(system, _paper_deep_dive_prompt(profile, modules), deep_opts)
+    out["deep_dive_tokens_requested"] = deep_opts.max_tokens
     return out
 
 
@@ -938,15 +1106,29 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
             "",
         ]
 
+    if llm:
+        lines += ["## Paper-Level Graph Interpretation", ""]
+        if llm.get("deep_dive"):
+            lines += [llm["deep_dive"], ""]
+        else:
+            lines += [
+                "LLM summaries were requested, but no paper-level deep-dive text was returned. "
+                "Check `profile.json` under `llm_summaries` and rerun with a larger "
+                "`--deep-dive-tokens` value if the model truncated or returned an empty answer.",
+                "",
+            ]
+
     lines += [
         "## Source",
         "",
         _md_table([
+            ("inferred topic", profile.get("topic")),
             ("input kind", gs["source"].get("kind")),
             ("graph path", gs["source"].get("graph_path")),
             ("run dir", gs["source"].get("run_dir")),
             ("input multigraph", gs["source"].get("input_multigraph")),
             ("input directed", gs["source"].get("input_directed")),
+            ("llm model", llm.get("model") if llm else None),
         ], ["field", "value"]),
         "",
         "## Global Statistics",
@@ -1117,27 +1299,69 @@ def _json_safe(x: Any) -> Any:
 def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = None,
                   out: Optional[str] = None, embed_model: Optional[str] = None,
                   top_nodes: int = 25, max_modules: int = 30, llm_options: Optional[LLMOptions] = None,
-                  llm_modules: int = 8) -> Dict[str, Any]:
+                  llm_modules: int = 12, verbose: bool = False) -> Dict[str, Any]:
+    total_steps = 10
+    if embed_model:
+        total_steps += 1
+    if llm_options and llm_options.enabled:
+        total_steps += 1
+    progress = _Progress(verbose, total_steps)
+
+    progress.step("Loading graph")
     G, source = _load_graph(graph_path, run_dir)
     run_path = Path(source["run_dir"]) if source.get("run_dir") else None
     out_dir = Path(out or (str(run_path / "profile") if run_path else "graph_profile")).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    progress.detail(f"graph: {source.get('graph_path')}")
+    progress.detail(f"nodes={G.number_of_nodes()} edges={G.number_of_edges()} directed={G.is_directed()}")
 
+    progress.step("Reading run transcript and preparing output directory")
+    run_summary = _read_run_summary(run_path)
     transcript = _read_transcript(run_path)
+    topic = _infer_topic(G, run_summary, transcript)
+    progress.detail(f"out: {out_dir}")
+    if topic:
+        progress.detail(f"topic: {topic}")
+    progress.detail(f"transcript rows: {len(transcript)}")
+
+    progress.step("Computing centrality metrics")
     cents = _centralities(G)
+
+    progress.step("Profiling connected components")
     components = _component_profiles(G, cents, top=30)
+
+    progress.step("Detecting graph communities/modules")
     communities, module_of, modularity = _community_profiles(G, cents, max_modules=max_modules)
+    progress.detail(f"reported modules: {len(communities)}; modularity={modularity:.4g}")
+
+    progress.step("Compiling global statistics and data-quality flags")
     global_stats = _global_stats(G, source, components, communities, modularity)
     quality = _quality_report(G)
+    progress.detail(f"flagged labels: {quality['n_flagged_labels']}")
+
+    progress.step("Analyzing provenance")
     provenance = _provenance_report(G, run_path, transcript)
+    progress.detail(f"zero-yield iterations: {len(provenance['zero_yield_iterations'])}")
+
+    progress.step("Finding critical connectors, module edges, and representative paths")
     critical = _critical_connectors(G, cents, max_rows=30)
     module_edges = _module_edges(G, module_of, max_edges=60)
     representative_paths = _representative_paths(G, cents, module_of, max_paths=30)
-    vecs, resolved_model, embed_error = _try_embed(G, run_path, embed_model)
+
+    vecs, resolved_model, embed_error = None, None, None
+    if embed_model:
+        progress.step(f"Running semantic audit embeddings ({embed_model})")
+        vecs, resolved_model, embed_error = _try_embed(G, run_path, embed_model)
+        if embed_error:
+            progress.detail(f"embedding skipped/failed: {embed_error}")
+        else:
+            progress.detail(f"embedding model: {resolved_model}")
     semantic = _semantic_audit(G, vecs, module_of) if vecs else {}
 
     profile: Dict[str, Any] = {
         "generated_at": _now(),
+        "topic": topic,
+        "run_summary": run_summary,
         "global_stats": global_stats,
         "components": components,
         "communities": communities,
@@ -1160,14 +1384,19 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
         "_centrality_values": cents,
     }
 
+    progress.step("Writing diagnostic figures")
     profile["figures"] = _save_figures(profile, G, vecs, module_of, out_dir)
     if llm_options and llm_options.enabled:
-        profile["llm_summaries"] = _llm_summaries(profile, llm_options, llm_modules)
+        progress.step(f"Running LLM summaries ({llm_options.model})")
+        profile["llm_summaries"] = _llm_summaries(profile, llm_options, llm_modules,
+                                                  progress=progress.detail)
 
+    progress.step("Writing JSON profile and Markdown report")
     (out_dir / "profile.json").write_text(json.dumps(_json_safe(profile), indent=2), encoding="utf-8")
     report = _write_markdown(profile, out_dir)
     profile["report_path"] = str(report)
     profile["json_path"] = str(out_dir / "profile.json")
+    progress.finish()
     return profile
 
 
@@ -1181,8 +1410,9 @@ def main() -> None:
                    help="optional sentence-transformers model for semantic audit; use 'auto' for run/default")
     p.add_argument("--top-nodes", type=int, default=25)
     p.add_argument("--max-modules", type=int, default=30)
-    p.add_argument("--llm", action="store_true", help="ask an LLM to summarize top modules + overview")
-    p.add_argument("--llm-modules", type=int, default=8, help="number of largest modules to summarize")
+    p.add_argument("--llm", action="store_true",
+                   help="ask an LLM for module summaries, overview, and a paper-level deep dive")
+    p.add_argument("--llm-modules", type=int, default=12, help="number of largest modules to summarize")
     p.add_argument("--backend", choices=["openai", "hf"], default="openai",
                    help="LLM backend. openai also covers OpenAI-compatible local servers.")
     p.add_argument("--model", default="gpt-5.5", help="summary model id")
@@ -1190,20 +1420,25 @@ def main() -> None:
     p.add_argument("--api-key", help="API key, else $OPENAI_API_KEY or 'x' for local servers")
     p.add_argument("--temperature", type=float, default=0.2)
     p.add_argument("--max-summary-tokens", type=int, default=1200)
+    p.add_argument("--deep-dive-tokens", type=int, default=4000,
+                   help="output-token budget for the paper-level LLM deep dive")
     p.add_argument("--device", help="[hf] device_map")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16", "float32"])
+    p.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = p.parse_args()
 
     opts = LLMOptions(enabled=args.llm, backend=args.backend, model=args.model,
                       base_url=args.base_url, api_key=args.api_key,
                       temperature=args.temperature, max_tokens=args.max_summary_tokens,
+                      deep_tokens=args.deep_dive_tokens,
                       device=args.device, dtype=args.dtype)
     prof = profile_graph(graph_path=args.graph, run_dir=args.run, out=args.out,
                          embed_model=args.embed_model, top_nodes=args.top_nodes,
                          max_modules=args.max_modules, llm_options=opts,
-                         llm_modules=args.llm_modules)
-    print(f"wrote {prof['report_path']}")
-    print(f"wrote {prof['json_path']}")
+                         llm_modules=args.llm_modules, verbose=not args.quiet)
+    if not args.quiet:
+        print(f"wrote {prof['report_path']}")
+        print(f"wrote {prof['json_path']}")
 
 
 if __name__ == "__main__":

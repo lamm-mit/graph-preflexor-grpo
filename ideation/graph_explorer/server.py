@@ -117,6 +117,8 @@ def _load_topic(run_dir, G=None):
 
 def _safe_float(value, default=0.0):
     try:
+        if value in (None, ""):
+            return default
         return float(value)
     except Exception:
         return default
@@ -124,6 +126,8 @@ def _safe_float(value, default=0.0):
 
 def _safe_int(value, default=0):
     try:
+        if value in (None, ""):
+            return default
         return int(float(value))
     except Exception:
         return default
@@ -840,8 +844,8 @@ def _call_openai_compatible(cfg, messages):
     kwargs = {
         "model": cfg["model"],
         "messages": messages,
-        "temperature": float(cfg.get("temperature", 0.3)),
-        "max_completion_tokens": int(cfg.get("max_tokens", 1600)),
+        "temperature": _safe_float(cfg.get("temperature"), 0.3),
+        "max_completion_tokens": _safe_int(cfg.get("max_tokens"), 1600),
     }
     if cfg.get("reasoning_effort"):
         kwargs["reasoning_effort"] = cfg["reasoning_effort"]
@@ -898,10 +902,10 @@ def _call_hf(cfg, messages):
         enc = tok(prompt, return_tensors="pt")
     enc = {k: v.to(lm.device) for k, v in dict(enc).items()}
     input_len = enc["input_ids"].shape[-1]
-    temp = float(cfg.get("temperature", 0.3))
+    temp = _safe_float(cfg.get("temperature"), 0.3)
     gen = lm.generate(
         **enc,
-        max_new_tokens=int(cfg.get("max_tokens", 1200)),
+        max_new_tokens=_safe_int(cfg.get("max_tokens"), 1200),
         do_sample=temp > 0,
         temperature=max(temp, 1e-5),
         pad_token_id=tok.pad_token_id or tok.eos_token_id,
@@ -922,9 +926,9 @@ def _answer_question(body):
         question,
         selected_nodes=body.get("selected_nodes") or [],
         query=body.get("query") or "",
-        depth=int(body.get("depth", 1)),
-        max_nodes=int(body.get("max_nodes", 90)),
-        max_edges=int(body.get("max_edges", 160)),
+        depth=_safe_int(body.get("depth"), 1),
+        max_nodes=_safe_int(body.get("max_nodes"), 90),
+        max_edges=_safe_int(body.get("max_edges"), 160),
     )
     system = (
         "You are a graph-aware research assistant. Use the graph context as exploratory leads, "
@@ -1187,8 +1191,10 @@ def main():
         try:
             run, graph_path, G = _load_run_graph(args.run)
         except ValueError as exc:
-            raise SystemExit(f"[graph-explorer] {exc}") from None
-        _set_graph(G, name=run.name, path=str(graph_path), topic=_load_topic(run, G))
+            print(f"[graph-explorer] warning: {exc}")
+            print("[graph-explorer] starting without a preloaded graph")
+        else:
+            _set_graph(G, name=run.name, path=str(graph_path), topic=_load_topic(run, G))
 
     STATIC_DIR.mkdir(exist_ok=True)
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)

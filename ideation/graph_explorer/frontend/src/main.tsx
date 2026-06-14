@@ -824,6 +824,28 @@ function SideRail({ onRunGraphReady }: { onRunGraphReady: (run: string) => Promi
   );
 }
 
+function ActivityRail() {
+  return (
+    <nav className="activity-rail" aria-label="Explorer modes">
+      <button className="rail-button active" title="Graph" type="button">
+        <Network size={17} />
+      </button>
+      <button className="rail-button" title="Visual mapping" type="button">
+        <SlidersHorizontal size={17} />
+      </button>
+      <button className="rail-button" title="Search" type="button">
+        <Search size={17} />
+      </button>
+      <button className="rail-button" title="Runs" type="button">
+        <Play size={17} />
+      </button>
+      <button className="rail-button" title="Models" type="button">
+        <Settings2 size={17} />
+      </button>
+    </nav>
+  );
+}
+
 function App() {
   const setGraph = useExplorerStore((state) => state.setGraph);
   const setRoles = useExplorerStore((state) => state.setRoles);
@@ -851,6 +873,7 @@ function App() {
     <div className="app">
       <Header onLoadRun={loadRun} />
       <main className="workspace">
+        <ActivityRail />
         <SideRail onRunGraphReady={loadRun} />
         <GraphCanvas />
         <aside className="assistant-panel">

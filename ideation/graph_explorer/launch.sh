@@ -35,9 +35,14 @@ if [[ ! -d "$FRONTEND/node_modules" ]]; then
 fi
 
 if [[ "$DEV" == "1" ]]; then
-  GRAPH_EXPLORER_API_PORT="$API_PORT" python "$ROOT/server.py" "${SERVER_ARGS[@]}" &
+  PYTHONUNBUFFERED=1 GRAPH_EXPLORER_API_PORT="$API_PORT" python "$ROOT/server.py" "${SERVER_ARGS[@]}" &
   API_PID="$!"
   trap 'kill "$API_PID" 2>/dev/null || true' EXIT INT TERM
+  sleep 0.8
+  if ! kill -0 "$API_PID" 2>/dev/null; then
+    wait "$API_PID"
+    exit $?
+  fi
   GRAPH_EXPLORER_API_PORT="$API_PORT" GRAPH_EXPLORER_VITE_PORT="$VITE_PORT" npm --prefix "$FRONTEND" run dev
 else
   npm --prefix "$FRONTEND" run build
