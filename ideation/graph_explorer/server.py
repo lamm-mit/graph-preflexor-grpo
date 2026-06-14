@@ -40,6 +40,15 @@ IDEATION_DIR = ROOT.parent
 PROJECT_DIR = IDEATION_DIR.parent
 EMBEDDING_CACHE_VERSION = "graph-explorer-embeddings-v1"
 EMBEDDING_CACHE_DIR = IDEATION_DIR / ".cache" / "graph_explorer" / "embeddings"
+GRAPH_PREFLEXOR_ASSISTANT_PROMPT = (
+    "You are Graph-PRefLexOR Assistant, a graph-aware research copilot for "
+    "scientific ideation. Help the user inspect generated concept graphs, reason "
+    "over selected nodes, neighborhoods, bridges, paths, communities, and attached "
+    "reports, and propose concrete next analyses. Treat graph context as exploratory "
+    "evidence rather than verified fact. If graph or report context is absent or "
+    "insufficient, say so and answer from general reasoning without inventing graph "
+    "evidence."
+)
 
 STATE = {
     "graph": None,
@@ -718,11 +727,18 @@ def _role_from_config(role, cfg):
         data = dict(cfg.get("questioner") or {})
     if role == "chat" and not data.get("model"):
         data = dict(cfg.get("questioner") or {})
+    provider = data.get("provider") or "openai"
+    backend = str(data.get("backend") or "responses")
+    if provider == "openai" and backend != "responses":
+        backend = "responses"
+    elif provider == "hf":
+        backend = "hf"
     return {
         "role": role,
-        "provider": data.get("provider") or "openai",
+        "provider": provider,
         "model": str(data.get("model") or ""),
         "base_url": str(data.get("base_url") or ""),
+        "backend": backend,
         "api_key_env": str(data.get("api_key_env") or data.get("api_key") or ""),
         "temperature": data.get("temperature", ""),
         "max_tokens": data.get("max_tokens", ""),
@@ -742,8 +758,13 @@ def _config_payload():
 
 def _coerce_role(raw):
     role = dict(raw or {})
-    for key in ("role", "provider", "model", "base_url", "api_key_env", "reasoning_effort"):
+    for key in ("role", "provider", "model", "base_url", "backend", "api_key_env", "reasoning_effort"):
         role[key] = str(role.get(key) or "").strip()
+    provider = role.get("provider") or "openai"
+    if provider == "openai":
+        role["backend"] = "responses"
+    elif provider == "hf" and not role.get("backend"):
+        role["backend"] = "hf"
     for key in ("temperature", "max_tokens"):
         value = role.get(key)
         if value in (None, ""):
@@ -770,7 +791,7 @@ def _roles_to_config_text(roles):
                 cfg["embed_model"] = role["model"]
             continue
         block = dict(cfg.get(name) or {})
-        for key in ("provider", "model", "base_url", "api_key_env", "temperature", "max_tokens", "reasoning_effort"):
+        for key in ("provider", "model", "base_url", "backend", "api_key_env", "temperature", "max_tokens", "reasoning_effort"):
             value = role.get(key)
             if value not in (None, ""):
                 block[key] = value
@@ -1859,9 +1880,34 @@ def _graph_rag_ranked_nodes(G, question, selected_nodes=None, query="", max_node
     return ranked[:max_nodes], scores, sources, path_rows, retrieval_query
 
 
-def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_nodes=90, max_edges=160, context_mode="focused"):
+def _normalize_context_mode(value):
+    mode = str(value or "").strip().lower().replace("-", "_")
+    if mode in {"graph_rag", "rag", "graphrag"}:
+        return "graph_rag"
+    if mode in {"focused", "focus"}:
+        return "focused"
+    if mode in {"none", "off", "regular", "chat", "selection", "selected"}:
+        return "none"
+    return "none"
+
+
+def _empty_graph_context(question, selected_nodes=None, mode="none"):
+    selected_nodes = [str(n) for n in (selected_nodes or [])]
+    return {
+        "mode": mode,
+        "selected": selected_nodes,
+        "query": "",
+        "node_count": 0,
+        "edge_count": 0,
+        "node_ids": [],
+        "nodes": [],
+        "text": "",
+    }
+
+
+def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_nodes=90, max_edges=160, context_mode="none"):
     selected_nodes = [str(n) for n in (selected_nodes or []) if str(n) in G]
-    context_mode = "graph_rag" if str(context_mode or "").lower() in {"graph_rag", "rag", "graph-rag"} else "focused"
+    context_mode = _normalize_context_mode(context_mode)
     source_map = {}
     path_rows = []
     retrieval_query = query
@@ -1878,6 +1924,11 @@ def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_no
         )
         nodes = set(ranked_nodes)
         ranked_seed = ranked_nodes
+    elif context_mode == "none":
+        nodes = set(selected_nodes)
+        ranked_seed = []
+        retrieval_query = ""
+        max_edges = min(max(_safe_int(max_edges), 0), 80)
     else:
         seeds = list(selected_nodes)
         if query:
@@ -1896,13 +1947,14 @@ def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_no
     else:
         ranked_nodes = sorted(H.nodes, key=lambda n: degree.get(n, 0), reverse=True)[:max_nodes]
     edge_rows = []
-    for u, v, d in H.edges(data=True):
-        edge_rows.append((degree.get(u, 0) + degree.get(v, 0), str(u), str(v), str(d.get("relation", "related_to"))))
-    edge_rows.sort(reverse=True)
-    edge_rows = edge_rows[:max_edges]
+    if context_mode != "none" or selected_nodes:
+        for u, v, d in H.edges(data=True):
+            edge_rows.append((degree.get(u, 0) + degree.get(v, 0), str(u), str(v), str(d.get("relation", "related_to"))))
+        edge_rows.sort(reverse=True)
+        edge_rows = edge_rows[:max_edges]
 
     shortest_paths = []
-    if len(selected_nodes) >= 2:
+    if context_mode != "none" and len(selected_nodes) >= 2:
         U = G.to_undirected()
         for a, b in zip(selected_nodes, selected_nodes[1:]):
             try:
@@ -1926,6 +1978,8 @@ def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_no
         node_text = "\n".join(f"- {_format_node(G, n)}; degree={degree.get(n, 0)}" for n in ranked_nodes)
     edge_text = "\n".join(f"- {u} -[{rel}]- {v}" for _, u, v, rel in edge_rows)
     path_text = "\n".join(f"- {p}" for p in shortest_paths) if shortest_paths else "(none requested or no short path found)"
+    node_heading = "Selected nodes" if context_mode == "none" else "Key nodes in focus context"
+    edge_heading = "Edges among selected nodes" if context_mode == "none" else "Edges in focus context"
     return {
         "mode": context_mode,
         "selected": selected_nodes,
@@ -1941,20 +1995,342 @@ def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_no
             f"Context mode: {context_mode}\n"
             f"Selected nodes: {', '.join(selected_nodes) if selected_nodes else '(none)'}\n"
             f"Retrieval query: {retrieval_query or '(none)'}\n\n"
-            f"Key nodes in focus context:\n{node_text or '(none)'}\n\n"
-            f"Edges in focus context:\n{edge_text or '(none)'}\n\n"
+            f"{node_heading}:\n{node_text or '(none)'}\n\n"
+            f"{edge_heading}:\n{edge_text or '(none)'}\n\n"
             f"Short selected paths:\n{path_text}\n"
         ),
     }
 
 
-def _call_openai_compatible(cfg, messages):
+def _assistant_instruction_role(cfg):
+    provider = str((cfg or {}).get("provider") or "openai").strip().lower()
+    if provider != "openai":
+        return "system"
+    model = str((cfg or {}).get("model") or "").strip().lower()
+    base_url = str((cfg or {}).get("base_url") or "").strip().lower()
+    openai_hosted = not base_url or "api.openai.com" in base_url
+    openai_reasoning_model = model.startswith(("gpt-5", "gpt-4.1", "o1", "o3", "o4"))
+    return "developer" if openai_hosted or openai_reasoning_model else "system"
+
+
+def _messages_to_prompt(messages):
+    parts = []
+    for message in messages:
+        role = str(message.get("role") or "user").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if role in {"system", "developer"}:
+            prefix = "Developer" if role == "developer" else "System"
+            parts.append(f"{prefix}:\n{content}")
+        elif role == "assistant":
+            parts.append(f"Assistant:\n{content}")
+        else:
+            parts.append(f"User:\n{content}")
+    parts.append("Assistant:")
+    return "\n\n".join(parts)
+
+
+def _completion_text(response):
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return ""
+    choice = choices[0]
+    text = getattr(choice, "text", None)
+    if text:
+        return text
+    message = getattr(choice, "message", None)
+    if message is not None:
+        return getattr(message, "content", None) or ""
+    if isinstance(choice, dict):
+        return choice.get("text") or (choice.get("message") or {}).get("content") or ""
+    return ""
+
+
+def _completion_text_from_payload(payload):
+    if not isinstance(payload, dict):
+        return ""
+    text = payload.get("output_text")
+    if text:
+        return str(text)
+    choices = payload.get("choices") or []
+    if choices and isinstance(choices[0], dict):
+        choice = choices[0]
+        return str(choice.get("text") or (choice.get("message") or {}).get("content") or "")
+    output = payload.get("output") or []
+    chunks = []
+    for item in output:
+        for content in item.get("content", []) if isinstance(item, dict) else []:
+            if isinstance(content, dict) and content.get("text"):
+                chunks.append(str(content["text"]))
+    return "\n".join(chunks).strip()
+
+
+def _messages_to_responses_parts(messages, cfg=None):
+    instruction_role = _assistant_instruction_role(cfg)
+    inputs = []
+    for message in messages:
+        role = str(message.get("role") or "user").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "developer":
+            inputs.append({"role": "developer", "content": content})
+        elif role == "system":
+            inputs.append({"role": instruction_role, "content": content})
+        else:
+            inputs.append({"role": "assistant" if role == "assistant" else "user", "content": content})
+    return inputs
+
+
+def _response_text(response):
+    text = getattr(response, "output_text", None)
+    if text:
+        return text
+    chunks = []
+    for item in getattr(response, "output", []) or []:
+        for content in getattr(item, "content", []) or []:
+            value = getattr(content, "text", None)
+            if value:
+                chunks.append(value)
+            elif isinstance(content, dict) and content.get("text"):
+                chunks.append(str(content["text"]))
+    return "\n".join(chunks).strip()
+
+
+def _response_result(response):
+    return {
+        "text": _response_text(response),
+        "response_id": str(getattr(response, "id", "") or ""),
+    }
+
+
+def _response_result_from_payload(payload):
+    return {
+        "text": _completion_text_from_payload(payload),
+        "response_id": str((payload or {}).get("id") or ""),
+    }
+
+
+def _is_no_chat_template_error(message):
+    msg = str(message or "").lower()
+    return (
+        "chat template" in msg
+        or "single string as the prompt" in msg
+        or ("received messages" in msg and "prompt" in msg)
+    )
+
+
+def _is_previous_response_error(message):
+    msg = str(message or "").lower()
+    return (
+        "previous_response_id" in msg
+        or "previous response" in msg
+        or ("unknown" in msg and "parameter" in msg)
+        or ("unexpected" in msg and "parameter" in msg)
+        or ("not found" in msg and "response" in msg)
+        or ("expired" in msg and "response" in msg)
+    )
+
+
+def _prompt_completion_payload(cfg, messages):
+    payload = {
+        "model": cfg["model"],
+        "prompt": _messages_to_prompt(messages),
+        "temperature": _safe_float(cfg.get("temperature"), 0.3),
+        "max_tokens": _safe_int(cfg.get("max_tokens"), 1600),
+    }
+    return {k: v for k, v in payload.items() if v not in (None, "")}
+
+
+def _responses_payload(cfg, messages, previous_response_id=None):
+    input_items = _messages_to_responses_parts(messages, cfg)
+    payload = {
+        "model": cfg["model"],
+        "input": input_items or _messages_to_prompt(messages),
+        "store": True,
+        "temperature": _safe_float(cfg.get("temperature"), 0.3),
+        "max_output_tokens": _safe_int(cfg.get("max_tokens"), 1600),
+    }
+    if previous_response_id:
+        payload["previous_response_id"] = previous_response_id
+    if cfg.get("reasoning_effort"):
+        payload["reasoning"] = {"effort": cfg["reasoning_effort"]}
+    return {k: v for k, v in payload.items() if v not in (None, "")}
+
+
+def _call_responses_http(cfg, messages, previous_response_id=None, previous_error=None, return_metadata=False, fallback_messages=None, payload_override=None):
+    base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+    api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
+    api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
+    payload = dict(payload_override or _responses_payload(cfg, messages, previous_response_id=previous_response_id))
+    last = previous_error
+    for _ in range(6):
+        req = urllib.request.Request(
+            f"{base_url}/responses",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode("utf-8") or "{}")
+            result = _response_result_from_payload(data)
+            return result if return_metadata else result["text"]
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:
+                detail = str(exc)
+            last = RuntimeError(f"HTTP {exc.code} from /responses: {detail}")
+            msg = detail.lower()
+            if "previous_response_id" in payload and _is_previous_response_error(msg):
+                payload = _responses_payload(cfg, fallback_messages or messages)
+            elif "store" in payload and "store" in msg:
+                payload.pop("store", None)
+            elif isinstance(payload.get("input"), list) and any(s in msg for s in ("input", "array", "list", "string", "messages")):
+                payload["input"] = _messages_to_prompt(fallback_messages or messages)
+            elif "reasoning" in payload and "reasoning" in msg:
+                payload.pop("reasoning", None)
+            elif "max_output_tokens" in payload and any(s in msg for s in ("unsupported", "unexpected", "not supported", "max_output_tokens")):
+                payload.pop("max_output_tokens", None)
+                payload["max_tokens"] = _safe_int(cfg.get("max_tokens"), 1600)
+            elif "temperature" in payload and any(s in msg for s in ("temperature", "not support")):
+                payload.pop("temperature", None)
+            else:
+                break
+        except Exception as exc:
+            last = exc
+            break
+    raise last
+
+
+def _call_responses(client, cfg, messages, previous_response_id=None, return_metadata=False, fallback_messages=None):
+    kwargs = _responses_payload(cfg, messages, previous_response_id=previous_response_id)
+    last = None
+    for _ in range(7):
+        try:
+            result = _response_result(client.responses.create(**kwargs))
+            return result if return_metadata else result["text"]
+        except Exception as e:
+            last = e
+            msg = str(e).lower()
+            if "previous_response_id" in kwargs and _is_previous_response_error(msg):
+                kwargs = _responses_payload(cfg, fallback_messages or messages)
+            elif "store" in kwargs and "store" in msg:
+                kwargs.pop("store", None)
+            elif isinstance(kwargs.get("input"), list) and any(s in msg for s in ("input", "array", "list", "string", "messages")):
+                kwargs["input"] = _messages_to_prompt(fallback_messages or messages)
+            elif "reasoning" in kwargs and "reasoning" in msg:
+                kwargs.pop("reasoning", None)
+            elif "max_output_tokens" in kwargs and any(s in msg for s in ("unsupported", "unexpected", "not supported")):
+                kwargs.pop("max_output_tokens", None)
+                kwargs["max_tokens"] = _safe_int(cfg.get("max_tokens"), 1600)
+            elif "temperature" in kwargs and any(s in msg for s in ("temperature", "not support")):
+                kwargs.pop("temperature", None)
+            else:
+                return _call_responses_http(
+                    cfg,
+                    messages,
+                    previous_response_id=previous_response_id,
+                    previous_error=e,
+                    return_metadata=return_metadata,
+                    fallback_messages=fallback_messages,
+                    payload_override=kwargs,
+                )
+    return _call_responses_http(
+        cfg,
+        messages,
+        previous_response_id=previous_response_id,
+        previous_error=last,
+        return_metadata=return_metadata,
+        fallback_messages=fallback_messages,
+        payload_override=kwargs,
+    )
+
+
+def _call_prompt_completion_http(cfg, messages, previous_error=None):
+    base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+    api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
+    api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
+    payload = _prompt_completion_payload(cfg, messages)
+    last = previous_error
+    for suffix in ("/completions", "/chat/completions"):
+        req = urllib.request.Request(
+            f"{base_url}{suffix}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode("utf-8") or "{}")
+            return _completion_text_from_payload(data)
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:
+                detail = str(exc)
+            last = RuntimeError(f"HTTP {exc.code} from {suffix}: {detail}")
+        except Exception as exc:
+            last = exc
+    raise last
+
+
+def _call_prompt_completion(client, cfg, messages):
+    kwargs = _prompt_completion_payload(cfg, messages)
+    last = None
+    for _ in range(4):
+        try:
+            return _completion_text(client.completions.create(**kwargs))
+        except Exception as e:
+            last = e
+            msg = str(e).lower()
+            if "temperature" in kwargs and any(s in msg for s in ("temperature", "not support")):
+                kwargs.pop("temperature", None)
+            elif "max_tokens" in kwargs and any(s in msg for s in ("max_tokens", "not support", "unsupported", "unexpected")):
+                kwargs.pop("max_tokens", None)
+            else:
+                return _call_prompt_completion_http(cfg, messages, previous_error=e)
+    return _call_prompt_completion_http(cfg, messages, previous_error=last)
+
+
+def _call_openai_compatible(cfg, messages, previous_response_id=None, return_metadata=False, fallback_messages=None):
     from openai import OpenAI
 
     api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
     api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
     base_url = cfg.get("base_url") or None
     client = OpenAI(base_url=base_url, api_key=api_key)
+    backend = str(cfg.get("backend") or "responses").lower()
+    if str(cfg.get("provider") or "openai") == "openai":
+        backend = "responses"
+    if backend in {"prompt", "completion", "completions", "text"}:
+        return _call_prompt_completion(client, cfg, messages)
+    use_responses = backend == "responses"
+    if use_responses:
+        if hasattr(client, "responses"):
+            return _call_responses(
+                client,
+                cfg,
+                messages,
+                previous_response_id=previous_response_id,
+                return_metadata=return_metadata,
+                fallback_messages=fallback_messages,
+            )
+        return _call_responses_http(
+            cfg,
+            messages,
+            previous_response_id=previous_response_id,
+            return_metadata=return_metadata,
+            fallback_messages=fallback_messages,
+        )
     kwargs = {
         "model": cfg["model"],
         "messages": messages,
@@ -1967,10 +2343,24 @@ def _call_openai_compatible(cfg, messages):
     for _ in range(5):
         try:
             r = client.chat.completions.create(**kwargs)
-            return r.choices[0].message.content or ""
+            text = r.choices[0].message.content or ""
+            return {"text": text, "response_id": ""} if return_metadata else text
         except Exception as e:
             last = e
             msg = str(e).lower()
+            if _is_no_chat_template_error(msg):
+                try:
+                    return _call_responses(
+                        client,
+                        cfg,
+                        messages,
+                        previous_response_id=previous_response_id,
+                        return_metadata=return_metadata,
+                        fallback_messages=fallback_messages,
+                    )
+                except Exception:
+                    text = _call_prompt_completion(client, cfg, messages)
+                    return {"text": text, "response_id": ""} if return_metadata else text
             if "reasoning_effort" in kwargs and "reasoning_effort" in msg:
                 kwargs.pop("reasoning_effort")
             elif "max_completion_tokens" in kwargs and any(s in msg for s in ("unsupported", "unexpected", "not supported")):
@@ -1979,6 +2369,8 @@ def _call_openai_compatible(cfg, messages):
                 kwargs.pop("temperature", None)
             else:
                 raise
+    if return_metadata:
+        raise last
     raise last
 
 
@@ -2028,48 +2420,73 @@ def _call_hf(cfg, messages):
 
 
 def _answer_question(body):
-    G = _require_graph()
     question = str(body.get("question") or "").strip()
     if not question:
         raise ValueError("Question is required.")
     cfg = body.get("model_config") or {}
     if not cfg.get("model"):
         raise ValueError("Model is required.")
-    context = _context_for_llm(
-        G,
-        question,
-        selected_nodes=body.get("selected_nodes") or [],
-        query=body.get("query") or "",
-        depth=_safe_int(body.get("depth"), 1),
-        max_nodes=_safe_int(body.get("max_nodes"), 90),
-        max_edges=_safe_int(body.get("max_edges"), 160),
-        context_mode=body.get("context_mode") or "focused",
-    )
+    context_mode = _normalize_context_mode(body.get("context_mode") or "none")
+    selected_nodes = [str(x) for x in (body.get("selected_nodes") or []) if str(x)]
+    if context_mode == "none" and not selected_nodes:
+        context = _empty_graph_context(question, mode="none")
+    else:
+        G = _require_graph()
+        context = _context_for_llm(
+            G,
+            question,
+            selected_nodes=selected_nodes,
+            query=body.get("query") or "",
+            depth=_safe_int(body.get("depth"), 1),
+            max_nodes=_safe_int(body.get("max_nodes"), 90),
+            max_edges=_safe_int(body.get("max_edges"), 160),
+            context_mode=context_mode,
+        )
     report_context = _report_context_payload(body.get("report_context"))
     if context.get("mode") == "graph_rag":
-        system = (
-            "You are a graph-RAG research agent. Use the selected nodes, semantic/text retrieval hits, "
+        mode_instructions = (
+            "Use the selected nodes, semantic/text retrieval hits, "
             "neighborhoods, path connectors, and centrality anchors in the graph context as exploratory "
             "evidence, not verified facts. Surface the most relevant nodes and neighborhoods, explain why "
             "they were retrieved, identify bridge concepts and structural gaps, and propose concrete next "
             "queries or experiments. If retrieval is weak or ambiguous, say exactly what more context is needed."
         )
+    elif context.get("mode") == "none" and not context.get("node_count"):
+        mode_instructions = (
+            "Answer the user directly. "
+            "Do not claim graph evidence was provided unless an attached report or selected-node context is present."
+        )
     else:
-        system = (
-            "You are a graph-aware research assistant. Use the graph context as exploratory leads, "
+        mode_instructions = (
+            "Use the graph context as exploratory leads, "
             "not as verified facts. Explain what the selected neighborhood or paths suggest, name "
             "specific mechanisms, identify structural gaps, and propose concrete next queries or "
             "experiments when useful. If the graph context is insufficient, say what is missing."
         )
+    assistant_instruction = f"{GRAPH_PREFLEXOR_ASSISTANT_PROMPT}\n\n{mode_instructions}"
     report_text = f"# Attached user-selected report context\n{report_context['text']}\n\n" if report_context else ""
-    user = (
-        f"# User question\n{question}\n\n"
-        f"# Graph context packet\n{context['text']}\n\n"
-        f"{report_text}"
-        "Answer directly. Refer to node labels and path structure when they matter."
-    )
+    if context.get("text"):
+        user = (
+            f"# User question\n{question}\n\n"
+            f"# Graph context packet\n{context['text']}\n\n"
+            f"{report_text}"
+            "Answer directly. Refer to node labels and path structure when they matter."
+        )
+    else:
+        user = (
+            f"# User question\n{question}\n\n"
+            f"{report_text}"
+            "Answer directly."
+        )
     provider = cfg.get("provider", "openai")
-    messages = [{"role": "system", "content": system}]
+    backend = str(cfg.get("backend") or "responses").lower()
+    if str(cfg.get("provider") or "openai") == "openai":
+        backend = "responses"
+    previous_response_id = str(body.get("previous_response_id") or "").strip()
+    native_responses_state = backend == "responses" and bool(previous_response_id)
+    instruction_role = _assistant_instruction_role(cfg)
+    messages = [{"role": instruction_role, "content": assistant_instruction}]
+    fallback_messages = [{"role": instruction_role, "content": assistant_instruction}]
     raw_history = body.get("history") or []
     if isinstance(raw_history, list):
         for item in raw_history[-8:]:
@@ -2078,16 +2495,34 @@ def _answer_question(body):
             role = item.get("role")
             content = str(item.get("content") or "").strip()
             if role in ("user", "assistant") and content:
-                messages.append({"role": role, "content": content[:5000]})
+                history_message = {"role": role, "content": content[:5000]}
+                fallback_messages.append(history_message)
+                if not native_responses_state:
+                    messages.append(history_message)
     messages.append({"role": "user", "content": user})
+    fallback_messages.append({"role": "user", "content": user})
     if provider == "hf":
         answer = _call_hf(cfg, messages)
+        response_id = ""
     else:
-        answer = _call_openai_compatible(cfg, messages)
+        result = _call_openai_compatible(
+            cfg,
+            messages,
+            previous_response_id=previous_response_id if native_responses_state else None,
+            return_metadata=True,
+            fallback_messages=fallback_messages,
+        )
+        answer = str(result.get("text") or "") if isinstance(result, dict) else str(result or "")
+        response_id = str(result.get("response_id") or "") if isinstance(result, dict) else ""
     public_context = {k: v for k, v in context.items() if k != "text"}
     if report_context:
         public_context["report_context"] = {k: v for k, v in report_context.items() if k != "text"}
-    return {"answer": answer, "context": public_context}
+    return {
+        "answer": answer,
+        "context": public_context,
+        "response_id": response_id,
+        "stateful": bool(response_id and backend == "responses"),
+    }
 
 
 def _graph_rag_context_payload(body):

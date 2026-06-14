@@ -8,18 +8,21 @@ server:
 
 generator:                                # Graph-PRefLexOR
   model: "lamm-mit/Graph-Preflexor-3b_08012026"
+  backend: "responses"
   temperature: 0.1
   max_tokens: 8000
 
 questioner:
-  model: "google/gemma-4-E4B"
+  model: "google/gemma-4-E4B-it"
   base_url: "http://localhost:1234/v1"
+  backend: "responses"
   api_key: "x"
   temperature: 0.9
 
 graph_qa:                                  # Explorer main chat / Ask Agent
-  model: "google/gemma-4-E4B"
+  model: "google/gemma-4-E4B-it"
   base_url: "http://localhost:1234/v1"
+  backend: "responses"
   api_key: "x"
   temperature: 0.3
   max_tokens: 1800
@@ -28,6 +31,7 @@ graph_qa:                                  # Explorer main chat / Ask Agent
 # baseline:
 #   base_url: "https://api.openai.com/v1"
 #   api_key:  "${OPENAI_API_KEY}"
+#   backend:  "responses"
 #   model:    "gpt-4o"
 #   max_tokens: 6000
 

@@ -53,7 +53,7 @@ Use **OpenAI-compatible** for most cases:
 Set the model field to the exact served model name, for example:
 
 ```text
-google/gemma-4-E4B
+google/gemma-4-E4B-it
 ```
 
 Use **Local HF** only when this machine has `transformers`, `torch`, and model weights available.

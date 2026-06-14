@@ -87,7 +87,7 @@ const profilePresetHelp = {
   light:
     "Fast LLM report preset. Uses --profile-preset light, six modules, one deep pass, medium reasoning, smaller token budgets, no LLM report review, and PDF output.",
   local:
-    "Local draft path for privacy/cost-sensitive iteration. Uses an OpenAI-compatible chat backend on localhost:8000 and skips PDF by default.",
+    "Local draft path for privacy/cost-sensitive iteration. Uses the Responses backend on localhost:8000 and skips PDF by default.",
   fast:
     "Metrics-only audit. Disables LLM reporting and PDF generation; useful to inspect graph statistics quickly before spending model calls.",
 } as const;
@@ -237,7 +237,7 @@ export function ReportStudio({
       patchOptions({
         profile_preset: "full",
         llm: true,
-        backend: "chat",
+        backend: "responses",
         model: "meta-llama/Llama-3.2-3B-Instruct",
         base_url: "http://localhost:8000/v1",
         reasoning_effort: "medium",
@@ -459,9 +459,6 @@ export function ReportStudio({
             Backend
             <select value={options.backend} onChange={(event) => patchOptions({ backend: event.target.value as ProfileOptions["backend"] })}>
               <option value="responses">Responses</option>
-              <option value="openai">OpenAI</option>
-              <option value="chat">Chat</option>
-              <option value="hf">HF</option>
             </select>
           </label>
           <label>
@@ -593,7 +590,7 @@ function renderInline(text: string) {
   });
 }
 
-function MarkdownReport({ markdown, out }: { markdown: string; out: string }) {
+export function MarkdownReport({ markdown, out }: { markdown: string; out: string }) {
   const blocks: React.ReactNode[] = [];
   const lines = markdown.split(/\r?\n/);
   let i = 0;

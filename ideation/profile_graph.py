@@ -29,8 +29,8 @@ Examples
     python profile_graph.py --run runs/exp_leap --profile-preset light \
         --embed-model auto --backend responses --model gpt-5.5
 
-    # Local servers without Responses API can use the chat backend.
-    python profile_graph.py --graph graph.graphml --llm --backend chat \
+    # Local OpenAI-compatible servers should expose /v1/responses as well.
+    python profile_graph.py --graph graph.graphml --llm --backend responses \
         --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
         --deep-pass-tokens 5000 --deep-dive-tokens 12000
 """
@@ -3436,8 +3436,8 @@ def main() -> None:
     p.add_argument("--llm", action="store_true",
                    help="ask an LLM for module summaries, overview, and a paper-level deep dive")
     p.add_argument("--llm-modules", type=int, default=12, help="number of largest modules to summarize")
-    p.add_argument("--backend", choices=["responses", "openai", "chat", "hf"], default="responses",
-                   help="LLM backend. responses/openai use OpenAI Responses API; chat is for local OpenAI-compatible servers without Responses.")
+    p.add_argument("--backend", choices=["responses", "openai", "hf"], default="responses",
+                   help="LLM backend. responses/openai use OpenAI Responses API.")
     p.add_argument("--model", default="gpt-5.5", help="summary model id")
     p.add_argument("--base-url", help="OpenAI-compatible base URL, e.g. http://localhost:8000/v1")
     p.add_argument("--api-key", help="API key, else $OPENAI_API_KEY or 'x' for local servers")

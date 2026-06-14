@@ -6,6 +6,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   Activity,
   BrainCircuit,
+  ChevronLeft,
+  ChevronRight,
   Command,
   Download,
   FileText,
@@ -20,14 +22,13 @@ import {
   Send,
   Settings2,
   SlidersHorizontal,
-  Upload,
   X,
 } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
-import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
-import { ReportStage, ReportStudio, readReportStudioStorage } from "./features/reporting";
+import { cx, Drawer, formatRunTime, HelpTip, IconButton, SidebarHeader } from "./components/common";
+import { MarkdownReport, ReportStage, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunExplorer, RunMonitor } from "./features/runs";
 import {
   colorScale,
@@ -48,7 +49,9 @@ import {
 import { useExplorerStore } from "./store";
 import type {
   BridgeIdea,
+  ChatMessage,
   EmbeddingStatus,
+  GraphFileSummary,
   GraphAskContextNode,
   GraphNode,
   GraphPayload,
@@ -62,9 +65,11 @@ import "./styles.css";
 type CoreWorkspaceMode = "chat" | "graph" | "search" | "runs" | "reports" | "models";
 type OptionalToolMode = "graphrag";
 type WorkspaceMode = CoreWorkspaceMode | OptionalToolMode;
+type ChatContextMode = "none" | "focused" | "graph_rag";
 
 const TOOL_RAIL_STORAGE_KEY = "graph-preflexor-explorer.tool-rail.v1";
 const SESSION_REPORTS_STORAGE_KEY = "graph-preflexor-explorer.session-reports.v1";
+const PANEL_WIDTH_STORAGE_KEY = "graph-preflexor-explorer.panel-widths.v1";
 const OPTIONAL_TOOL_IDS = ["graphrag"] as const;
 
 type SessionReport = {
@@ -115,6 +120,34 @@ function writeSessionReports(reports: SessionReport[]) {
   window.sessionStorage.setItem(SESSION_REPORTS_STORAGE_KEY, JSON.stringify(reports));
 }
 
+function chatContextLabel(mode: ChatContextMode) {
+  if (mode === "graph_rag") return "Graph-RAG retrieval";
+  if (mode === "focused") return "Focused selection";
+  return "None";
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function readPanelWidths() {
+  if (typeof window === "undefined") return { left: 282, right: 388 };
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY) || "{}");
+    return {
+      left: clampNumber(Number(stored.left) || 282, 220, 560),
+      right: clampNumber(Number(stored.right) || 388, 300, 680),
+    };
+  } catch {
+    return { left: 282, right: 388 };
+  }
+}
+
+function writePanelWidths(widths: { left: number; right: number }) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, JSON.stringify(widths));
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -132,6 +165,43 @@ function chatModelRole(roles: Record<string, ModelRole>) {
   return roles.chat?.model ? roles.chat : roles.questioner?.model ? roles.questioner : roles.graph_qa;
 }
 
+function normalizedBackend(role?: ModelRole) {
+  if (!role || role.provider === "hf" || role.provider === "embedding") return role?.backend || "";
+  return "responses";
+}
+
+function isResponsesRole(role?: ModelRole) {
+  return normalizedBackend(role).toLowerCase() === "responses";
+}
+
+function previousResponseId(messages: ChatMessage[], role?: ModelRole) {
+  if (!isResponsesRole(role)) return "";
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message.role === "assistant" &&
+      message.response_id &&
+      message.response_model === role?.model &&
+      message.response_backend === normalizedBackend(role) &&
+      message.response_base_url === (role?.base_url || "")
+    ) {
+      return message.response_id;
+    }
+  }
+  return "";
+}
+
+function responseStateMeta(role: ModelRole, responseId?: string) {
+  return responseId
+    ? {
+        response_id: responseId,
+        response_model: role.model,
+        response_backend: normalizedBackend(role),
+        response_base_url: role.base_url || "",
+      }
+    : {};
+}
+
 function contextNodesToSearchResults(nodes: GraphAskContextNode[]): SearchResult[] {
   return nodes.map((node) => ({
     id: node.id,
@@ -146,6 +216,19 @@ function contextNodesToSearchResults(nodes: GraphAskContextNode[]): SearchResult
 
 function nodeLabel(graph: GraphPayload | null, id: string) {
   return graph?.nodes.find((node) => node.id === id)?.label || id;
+}
+
+function inferRunFromGraphPath(path = "") {
+  const match = path.match(/(?:^|\/)(runs\/[^/]+)/);
+  return match?.[1] || "";
+}
+
+function snapshotLabel(snapshot: GraphFileSummary) {
+  return snapshot.iter == null ? "Final graph" : `Iteration ${snapshot.iter}`;
+}
+
+function snapshotPath(snapshot: GraphFileSummary) {
+  return snapshot.absolute_path || snapshot.path || "";
 }
 
 function nodeLookupOptions(graph: GraphPayload | null, query: string, selectedNodes: string[] = []) {
@@ -220,12 +303,24 @@ function localServePort(baseUrl?: string) {
 function serveCommands(probe: ModelProbe) {
   const model = probe.model || "<model-id>";
   const port = localServePort(probe.base_url);
-  const mistralNote =
-    port === "1234"
-      ? "# models.toml already serves the default local graph/questioner models on port 1234"
-      : `# set [server].port = ${port} in models.toml, then add this model if it is missing`;
+  const toml = `# Save as models.${model.replace(/[^a-zA-Z0-9_.-]+/g, "_")}.toml, then run:
+#   mistralrs from-config -f models.${model.replace(/[^a-zA-Z0-9_.-]+/g, "_")}.toml
+command = "serve"
+default_model_id = "${model}"
+
+[server]
+host = "127.0.0.1"
+port = ${port}
+
+[[models]]
+kind = "auto"
+model_id = "${model}"
+[models.quantization]
+in_situ_quant = "8"
+`;
   return {
-    mistral: `cd ideation\n${mistralNote}\nmistralrs from-config -f models.toml`,
+    mistral: `mistralrs serve -m ${model} --host 127.0.0.1 --port ${port}`,
+    mistralToml: toml,
     vllm: `vllm serve ${model} --host 127.0.0.1 --port ${port} --served-model-name ${model}`,
   };
 }
@@ -243,15 +338,37 @@ function CopyCommandButton({ text }: { text: string }) {
   );
 }
 
+function DownloadTextButton({ fileName, text }: { fileName: string; text: string }) {
+  return (
+    <button
+      onClick={() => {
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }}
+      type="button"
+    >
+      Download
+    </button>
+  );
+}
+
 function ServeModelModal({ probe, onClose }: { probe: ModelProbe; onClose: () => void }) {
   const commands = serveCommands(probe);
+  const tomlName = `models.${(probe.model || "local_model").replace(/[^a-zA-Z0-9_.-]+/g, "_")}.toml`;
   return (
     <div className="model-modal-backdrop" role="presentation">
       <section aria-modal="true" className="serve-modal" role="dialog">
         <div className="serve-modal-head">
           <div>
             <span className="eyebrow">Local model check</span>
-            <h3>Model is not available</h3>
+            <h3>Model probe needs attention</h3>
           </div>
           <button aria-label="Close model help" onClick={onClose} type="button">
             <X size={16} />
@@ -263,19 +380,29 @@ function ServeModelModal({ probe, onClose }: { probe: ModelProbe; onClose: () =>
           <span>Failure: {probe.message}</span>
         </div>
         <p className="serve-note">
-          Start a local OpenAI-compatible server, then run Test again. If this is a new model, add it to
-          ideation/models.toml for the mistral.rs path.
+          Start or adjust the local OpenAI-compatible server, then run Test again. The explorer expects
+          <strong> OpenAI Responses</strong> at /v1/responses for local and hosted models.
         </p>
         <div className="command-card">
           <div>
-            <strong>mistral.rs</strong>
+            <strong>mistral.rs single model</strong>
             <CopyCommandButton text={commands.mistral} />
           </div>
           <pre>{commands.mistral}</pre>
         </div>
         <div className="command-card">
           <div>
-            <strong>vLLM</strong>
+            <strong>mistral.rs TOML option</strong>
+            <span className="command-actions">
+              <CopyCommandButton text={commands.mistralToml} />
+              <DownloadTextButton fileName={tomlName} text={commands.mistralToml} />
+            </span>
+          </div>
+          <pre>{commands.mistralToml}</pre>
+        </div>
+        <div className="command-card">
+          <div>
+            <strong>vLLM single model</strong>
             <CopyCommandButton text={commands.vllm} />
           </div>
           <pre>{commands.vllm}</pre>
@@ -287,11 +414,51 @@ function ServeModelModal({ probe, onClose }: { probe: ModelProbe; onClose: () =>
 
 const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
   {
-    label: "Local Gemma chat/questioner",
+    label: "Local Gemma on 1234",
     values: {
       provider: "openai",
-      model: "google/gemma-4-E4B",
+      model: "google/gemma-4-E4B-it",
       base_url: "http://localhost:1234/v1",
+      backend: "responses",
+      api_key_env: "",
+      temperature: 0.3,
+      max_tokens: 1800,
+      reasoning_effort: "",
+    },
+  },
+  {
+    label: "Local Gemma on 8000",
+    values: {
+      provider: "openai",
+      model: "google/gemma-4-E4B-it",
+      base_url: "http://localhost:8000/v1",
+      backend: "responses",
+      api_key_env: "",
+      temperature: 0.3,
+      max_tokens: 1800,
+      reasoning_effort: "",
+    },
+  },
+  {
+    label: "Local Qwen3-4B on 1234",
+    values: {
+      provider: "openai",
+      model: "Qwen/Qwen3-4B",
+      base_url: "http://localhost:1234/v1",
+      backend: "responses",
+      api_key_env: "",
+      temperature: 0.3,
+      max_tokens: 1800,
+      reasoning_effort: "",
+    },
+  },
+  {
+    label: "Local Qwen3-4B on 8000",
+    values: {
+      provider: "openai",
+      model: "Qwen/Qwen3-4B",
+      base_url: "http://localhost:8000/v1",
+      backend: "responses",
       api_key_env: "",
       temperature: 0.3,
       max_tokens: 1800,
@@ -304,6 +471,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       provider: "openai",
       model: "gpt-5.5",
       base_url: "https://api.openai.com/v1",
+      backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.3,
       max_tokens: 4000,
@@ -316,6 +484,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       provider: "openai",
       model: "gpt-5.5-mini",
       base_url: "https://api.openai.com/v1",
+      backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.3,
       max_tokens: 3000,
@@ -328,6 +497,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       provider: "openai",
       model: "gpt-5.5-nano",
       base_url: "https://api.openai.com/v1",
+      backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.3,
       max_tokens: 1800,
@@ -340,10 +510,24 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       provider: "openai",
       model: "gpt-5.5",
       base_url: "https://api.openai.com/v1",
+      backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.2,
       max_tokens: 6000,
       reasoning_effort: "high",
+    },
+  },
+  {
+    label: "Local Llama on 1234",
+    values: {
+      provider: "openai",
+      model: "meta-llama/Llama-3.2-3B-Instruct",
+      base_url: "http://localhost:1234/v1",
+      backend: "responses",
+      api_key_env: "",
+      temperature: 0.3,
+      max_tokens: 1800,
+      reasoning_effort: "",
     },
   },
   {
@@ -352,6 +536,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       provider: "openai",
       model: "meta-llama/Llama-3.2-3B-Instruct",
       base_url: "http://localhost:8000/v1",
+      backend: "responses",
       api_key_env: "",
       temperature: 0.3,
       max_tokens: 1800,
@@ -364,6 +549,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       provider: "openai",
       model: "lamm-mit/Graph-Preflexor-3b_08012026",
       base_url: "http://localhost:1234/v1",
+      backend: "responses",
       api_key_env: "",
       temperature: 0.7,
       max_tokens: 1800,
@@ -372,27 +558,8 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
   },
 ];
 
-function Header({
-  onLoadRun,
-  onGraphLoaded,
-}: {
-  onLoadRun: (run: string) => Promise<void>;
-  onGraphLoaded: (graph: GraphPayload) => void;
-}) {
+function Header() {
   const graph = useExplorerStore((state) => state.graph);
-  const [run, setRun] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function upload(file: File | undefined) {
-    if (!file) return;
-    setBusy(true);
-    try {
-      const text = await file.text();
-      onGraphLoaded(await api.uploadGraphml(file.name, text));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   return (
     <header className="topbar">
@@ -406,29 +573,6 @@ function Header({
               : "No graph loaded"}
           </span>
         </div>
-      </div>
-      <div className="top-actions">
-        <label className="file-button" title="Upload a single GraphML/XML file from your machine. To load an existing run folder, use the path field or Run Explorer.">
-          <Upload size={14} />
-          Upload GraphML
-          <input accept=".graphml,.xml" onChange={(event) => upload(event.target.files?.[0])} type="file" />
-        </label>
-        <input
-          className="path-input"
-          onChange={(event) => setRun(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void onLoadRun(run);
-          }}
-          placeholder="run folder, e.g. runs/exp_leap, or /path/to/file.graphml"
-          title="Enter a previous run folder or a GraphML file path, then press Enter or Load."
-          value={run}
-        />
-        <IconButton
-          disabled={busy || !run.trim()}
-          icon={busy ? <Loader2 className="spin" size={14} /> : <FolderOpen size={14} />}
-          label="Load"
-          onClick={() => onLoadRun(run)}
-        />
       </div>
     </header>
   );
@@ -762,8 +906,11 @@ function SigmaGraphCanvas() {
 
   return (
     <section className="graph-shell">
-      <div className="graph-overlay top-left">{contextSummary(graph, selectedNodes)}</div>
-      <div className="graph-overlay top-right">{selectedLabel}</div>
+      <div className="graph-top-dock">
+        <div className="graph-overlay">{contextSummary(graph, selectedNodes)}</div>
+        <GraphIterationStepper />
+        <div className="graph-overlay">{selectedLabel}</div>
+      </div>
       <div className="graph-canvas" ref={containerRef} />
       {hoverNode ? (
         <div className="node-card">
@@ -986,11 +1133,14 @@ function ThreeGraphCanvas() {
 
   return (
     <section className="graph-shell">
-      <div className="graph-overlay top-left">
-        {contextSummary(graph, selectedNodes)}
-        {highlightedPaths.length ? ` | ${highlightedPaths.length} paths highlighted` : ""}
+      <div className="graph-top-dock">
+        <div className="graph-overlay">
+          {contextSummary(graph, selectedNodes)}
+          {highlightedPaths.length ? ` | ${highlightedPaths.length} paths highlighted` : ""}
+        </div>
+        <GraphIterationStepper />
+        <div className="graph-overlay">{selectedLabel}</div>
       </div>
-      <div className="graph-overlay top-right">{selectedLabel}</div>
       <div className="graph-canvas" ref={containerRef} />
     </section>
   );
@@ -999,6 +1149,131 @@ function ThreeGraphCanvas() {
 function GraphCanvas() {
   const viewMode = useExplorerStore((state) => state.visual.viewMode);
   return viewMode === "3d" ? <ThreeGraphCanvas /> : <SigmaGraphCanvas />;
+}
+
+function GraphIterationStepper() {
+  const graph = useExplorerStore((state) => state.graph);
+  const setGraph = useExplorerStore((state) => state.setGraph);
+  const runPath = useMemo(() => inferRunFromGraphPath(graph?.path || ""), [graph?.path]);
+  const [loadingPath, setLoadingPath] = useState("");
+  const [status, setStatus] = useState("");
+  const snapshotsQuery = useQuery({
+    queryKey: ["graph-artifact-run-graphs", runPath],
+    queryFn: () => api.runGraphs(runPath),
+    enabled: Boolean(runPath),
+    refetchInterval: 6000,
+  });
+  const orderedSnapshots = useMemo(() => {
+    const items = [...(snapshotsQuery.data?.graphs || [])];
+    return items.sort((a, b) => {
+      const aIter = a.iter == null ? Number.POSITIVE_INFINITY : a.iter;
+      const bIter = b.iter == null ? Number.POSITIVE_INFINITY : b.iter;
+      if (aIter !== bIter) return aIter - bIter;
+      return (a.updated_at || 0) - (b.updated_at || 0);
+    });
+  }, [snapshotsQuery.data?.graphs]);
+  const currentSnapshotIndex = useMemo(() => {
+    if (!orderedSnapshots.length || !graph?.path) return -1;
+    return orderedSnapshots.findIndex((snapshot) => {
+      const absolute = snapshot.absolute_path || "";
+      const relative = snapshot.path || "";
+      return graph.path === absolute || (relative && graph.path.endsWith(relative));
+    });
+  }, [graph?.path, orderedSnapshots]);
+  const latestSnapshotIndex = orderedSnapshots.findIndex((snapshot) => snapshot.is_latest);
+  const selectedSnapshotIndex =
+    currentSnapshotIndex >= 0
+      ? currentSnapshotIndex
+      : latestSnapshotIndex >= 0
+        ? latestSnapshotIndex
+        : orderedSnapshots.length
+          ? orderedSnapshots.length - 1
+          : -1;
+  const selectedSnapshot = selectedSnapshotIndex >= 0 ? orderedSnapshots[selectedSnapshotIndex] : null;
+
+  async function loadSnapshotAt(index: number) {
+    const snapshot = orderedSnapshots[index];
+    const path = snapshot ? snapshotPath(snapshot) : "";
+    if (!path) return;
+    setLoadingPath(path);
+    setStatus("");
+    try {
+      setGraph(await api.loadRun(path));
+      setStatus(`Loaded ${snapshotLabel(snapshot)}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingPath("");
+    }
+  }
+
+  if (!runPath) {
+    return <div className="graph-iteration-spacer" aria-hidden="true" />;
+  }
+
+  const busy = Boolean(loadingPath);
+  const canStep = orderedSnapshots.length > 0 && !busy;
+
+  return (
+    <div className={cx("iteration-navigator", "graph-iteration", runPath && "active")}>
+      <div className="iteration-head">
+        <div>
+          <strong>Iterations</strong>
+          <span>
+            {orderedSnapshots.length
+              ? `${orderedSnapshots.length} snapshots`
+              : snapshotsQuery.isFetching
+                ? "Scanning run..."
+                : "No snapshots found"}
+          </span>
+        </div>
+        <IconButton
+          disabled={snapshotsQuery.isFetching}
+          description="Refresh GraphML snapshots generated by this run."
+          icon={snapshotsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
+          label="Refresh"
+          onClick={() => void snapshotsQuery.refetch()}
+        />
+      </div>
+      <div className="iteration-stepper">
+        <IconButton
+          disabled={!canStep || selectedSnapshotIndex <= 0}
+          description="Load the previous generated graph snapshot."
+          icon={<ChevronLeft size={14} />}
+          label="Previous"
+          onClick={() => void loadSnapshotAt(selectedSnapshotIndex - 1)}
+        />
+        <label className="iteration-select">
+          Snapshot
+          <select
+            disabled={!canStep}
+            onChange={(event) => void loadSnapshotAt(Number(event.target.value))}
+            value={selectedSnapshotIndex >= 0 ? String(selectedSnapshotIndex) : ""}
+          >
+            <option value="">Choose iteration...</option>
+            {orderedSnapshots.map((snapshot, index) => (
+              <option key={snapshotPath(snapshot) || index} value={index}>
+                {snapshotLabel(snapshot)}
+                {snapshot.is_latest ? " (latest)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <IconButton
+          disabled={!canStep || selectedSnapshotIndex < 0 || selectedSnapshotIndex >= orderedSnapshots.length - 1}
+          description="Load the next generated graph snapshot."
+          icon={<ChevronRight size={14} />}
+          label="Next"
+          onClick={() => void loadSnapshotAt(selectedSnapshotIndex + 1)}
+        />
+      </div>
+      <div className="iteration-meta">
+        <span>{status || (selectedSnapshot ? `${snapshotLabel(selectedSnapshot)}${selectedSnapshot.is_latest ? " | latest" : ""}` : "No snapshot selected")}</span>
+        <span>{selectedSnapshot ? `${formatRunTime(selectedSnapshot.updated_at)} | ${formatNumber(selectedSnapshot.size / 1024, 1)} KB` : runPath}</span>
+      </div>
+      {snapshotsQuery.isError ? <span className="iteration-error">{String(snapshotsQuery.error)}</span> : null}
+    </div>
+  );
 }
 
 function EmbeddingStatusBar({
@@ -1036,7 +1311,284 @@ function EmbeddingStatusBar({
   );
 }
 
-function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
+function safeUrl(url: string) {
+  return /^https?:\/\//i.test(url) || /^mailto:/i.test(url) ? url : "#";
+}
+
+function trimInlineFence(value: string, left: string, right = left) {
+  return value.slice(left.length, value.length - right.length);
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string) {
+  const pattern = /(`[^`]*`|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$[^$\n]+\$|\*\*[^*]+\*\*|\[[^\]]+\]\((?:https?:\/\/|mailto:)[^)\s]+\))/g;
+  const nodes: React.ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text))) {
+    if (match.index > last) nodes.push(text.slice(last, match.index));
+    const token = match[0];
+    const key = `${keyPrefix}-${match.index}`;
+    if (token.startsWith("`")) {
+      nodes.push(<code key={key}>{trimInlineFence(token, "`")}</code>);
+    } else if (token.startsWith("$$")) {
+      nodes.push(<span className="math-inline" key={key}>{trimInlineFence(token, "$$")}</span>);
+    } else if (token.startsWith("\\[")) {
+      nodes.push(<span className="math-inline" key={key}>{trimInlineFence(token, "\\[", "\\]")}</span>);
+    } else if (token.startsWith("\\(")) {
+      nodes.push(<span className="math-inline" key={key}>{trimInlineFence(token, "\\(", "\\)")}</span>);
+    } else if (token.startsWith("$")) {
+      nodes.push(<span className="math-inline" key={key}>{trimInlineFence(token, "$")}</span>);
+    } else if (token.startsWith("**")) {
+      nodes.push(<strong key={key}>{renderInlineMarkdown(trimInlineFence(token, "**"), `${key}-strong`)}</strong>);
+    } else {
+      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      if (link) {
+        nodes.push(
+          <a href={safeUrl(link[2])} key={key} rel="noreferrer" target="_blank">
+            {link[1]}
+          </a>,
+        );
+      } else {
+        nodes.push(token);
+      }
+    }
+    last = pattern.lastIndex;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function isMarkdownBlockStart(line: string) {
+  const trimmed = line.trim();
+  return (
+    !trimmed ||
+    trimmed.startsWith("```") ||
+    trimmed.startsWith(">") ||
+    trimmed.startsWith("$$") ||
+    trimmed.startsWith("\\[") ||
+    /^#{1,4}\s+/.test(trimmed) ||
+    /^[-*]\s+/.test(trimmed) ||
+    /^\d+\.\s+/.test(trimmed)
+  );
+}
+
+function parseMarkdownTable(lines: string[]) {
+  return lines.map((line) =>
+    line
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((cell) => cell.trim()),
+  );
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: React.ReactNode[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const key = `md-${i}`;
+    if (!trimmed) {
+      i += 1;
+      continue;
+    }
+    if (trimmed.startsWith("```")) {
+      const language = trimmed.slice(3).trim();
+      const code: string[] = [];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().startsWith("```")) {
+        code.push(lines[i]);
+        i += 1;
+      }
+      i += 1;
+      blocks.push(
+        <pre className="chat-code-block" key={key}>
+          {language ? <span>{language}</span> : null}
+          <code>{code.join("\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+    if (trimmed.startsWith("$$") || trimmed.startsWith("\\[")) {
+      const close = trimmed.startsWith("$$") ? "$$" : "\\]";
+      const open = trimmed.startsWith("$$") ? "$$" : "\\[";
+      const math = [trimmed.replace(open, "")];
+      i += 1;
+      while (i < lines.length && !lines[i].trim().endsWith(close)) {
+        math.push(lines[i]);
+        i += 1;
+      }
+      if (i < lines.length) {
+        math.push(lines[i].trim().replace(close, ""));
+        i += 1;
+      }
+      blocks.push(<div className="math-block" key={key}>{math.join("\n").trim()}</div>);
+      continue;
+    }
+    if (/^#{1,4}\s+/.test(trimmed)) {
+      const level = Math.min(4, trimmed.match(/^#+/)?.[0].length || 2);
+      const text = trimmed.replace(/^#{1,4}\s+/, "");
+      if (level === 1) blocks.push(<h1 key={key}>{renderInlineMarkdown(text, key)}</h1>);
+      else if (level === 2) blocks.push(<h2 key={key}>{renderInlineMarkdown(text, key)}</h2>);
+      else if (level === 3) blocks.push(<h3 key={key}>{renderInlineMarkdown(text, key)}</h3>);
+      else blocks.push(<h4 key={key}>{renderInlineMarkdown(text, key)}</h4>);
+      i += 1;
+      continue;
+    }
+    if (trimmed.startsWith(">")) {
+      const quote: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith(">")) {
+        quote.push(lines[i].trim().replace(/^>\s?/, ""));
+        i += 1;
+      }
+      blocks.push(<blockquote key={key}>{renderInlineMarkdown(quote.join(" "), key)}</blockquote>);
+      continue;
+    }
+    if (/^[-*]\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*]\s+/, ""));
+        i += 1;
+      }
+      blocks.push(
+        <ul key={key}>
+          {items.map((item, index) => (
+            <li key={`${key}-${index}`}>{renderInlineMarkdown(item, `${key}-${index}`)}</li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const items: string[] = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+\.\s+/, ""));
+        i += 1;
+      }
+      blocks.push(
+        <ol key={key}>
+          {items.map((item, index) => (
+            <li key={`${key}-${index}`}>{renderInlineMarkdown(item, `${key}-${index}`)}</li>
+          ))}
+        </ol>,
+      );
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[i + 1])) {
+      const tableLines = [line];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        tableLines.push(lines[i]);
+        i += 1;
+      }
+      const [head, ...body] = parseMarkdownTable(tableLines);
+      blocks.push(
+        <table key={key}>
+          <thead>
+            <tr>{head.map((cell, index) => <th key={`${key}-h-${index}`}>{renderInlineMarkdown(cell, `${key}-h-${index}`)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {body.map((row, rowIndex) => (
+              <tr key={`${key}-r-${rowIndex}`}>
+                {row.map((cell, cellIndex) => <td key={`${key}-r-${rowIndex}-${cellIndex}`}>{renderInlineMarkdown(cell, `${key}-r-${rowIndex}-${cellIndex}`)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>,
+      );
+      continue;
+    }
+    const paragraph = [trimmed];
+    i += 1;
+    while (i < lines.length && !isMarkdownBlockStart(lines[i])) {
+      paragraph.push(lines[i].trim());
+      i += 1;
+    }
+    blocks.push(<p key={key}>{renderInlineMarkdown(paragraph.join(" "), key)}</p>);
+  }
+  return <div className="chat-markdown">{blocks.length ? blocks : <p>{content}</p>}</div>;
+}
+
+function ReportPreviewModal({
+  report,
+  onClose,
+  onOpenReports,
+}: {
+  report: SessionReport;
+  onClose: () => void;
+  onOpenReports: () => void;
+}) {
+  const reportQuery = useQuery({
+    queryKey: ["profile-report", report.out],
+    queryFn: () => api.profileReport(report.out),
+    enabled: Boolean(report.out),
+    refetchInterval: (query) => (query.state.data?.artifacts.ready ? false : 5000),
+  });
+  const artifacts = reportQuery.data?.artifacts;
+  const summary = artifacts?.summary || {};
+  return (
+    <div className="model-modal-backdrop report-preview-backdrop" role="presentation">
+      <div aria-label="Attached report preview" aria-modal="true" className="serve-modal report-preview-modal" role="dialog">
+        <div className="serve-modal-head report-preview-head">
+          <div>
+            <span>Attached report context</span>
+            <h3>{summary.topic || report.label}</h3>
+            <p>{report.out}</p>
+          </div>
+          <button aria-label="Close report preview" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+        <div className="report-preview-actions">
+          <button onClick={() => void reportQuery.refetch()} type="button">
+            Refresh
+          </button>
+          <button
+            onClick={() => {
+              onClose();
+              onOpenReports();
+            }}
+            type="button"
+          >
+            Open in Reports
+          </button>
+          {artifacts?.pdf_path ? (
+            <a href={api.reportAssetUrl(report.out, "report.pdf")} rel="noreferrer" target="_blank">
+              <Download size={13} /> PDF
+            </a>
+          ) : null}
+        </div>
+        <div className="report-preview-context">
+          This report is attached as plain prompt context only when you send a chat request with it selected.
+        </div>
+        <div className="report-preview-body">
+          {reportQuery.isLoading ? <div className="status-box">Loading report...</div> : null}
+          {reportQuery.error ? <div className="status-box">{String(reportQuery.error)}</div> : null}
+          {reportQuery.data?.markdown ? (
+            <MarkdownReport markdown={reportQuery.data.markdown} out={report.out} />
+          ) : (
+            <div className="status-box">
+              {artifacts?.ready ? "Report markdown is empty." : "Report job is still preparing artifacts."}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ChatPanel({
+  sessionReports,
+  onOpenRuns,
+  onOpenReports,
+}: {
+  sessionReports: SessionReport[];
+  onOpenRuns: () => void;
+  onOpenReports: () => void;
+}) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
@@ -1048,11 +1600,12 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
   const resetChat = useExplorerStore((state) => state.resetChat);
   const roles = useExplorerStore((state) => state.roles);
   const [question, setQuestion] = useState("");
-  const [agentMode, setAgentMode] = useState<"focused" | "graph_rag">("graph_rag");
+  const [agentMode, setAgentMode] = useState<ChatContextMode>("none");
   const [contextQuery, setContextQuery] = useState("");
   const [contextNodes, setContextNodes] = useState(220);
   const [selectedReportOut, setSelectedReportOut] = useState("");
   const [reportMenuOpen, setReportMenuOpen] = useState(false);
+  const [reportPreviewOpen, setReportPreviewOpen] = useState(false);
   const [reportMaxChars, setReportMaxChars] = useState(14000);
   const [lastRagNodes, setLastRagNodes] = useState<GraphAskContextNode[]>([]);
   const [followups, setFollowups] = useState<string[]>([
@@ -1073,8 +1626,9 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
   const commandItems = [
     { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
     { command: "/followups", label: "Generate follow-ups", detail: "Ask the active graph model for next query ideas.", action: () => void suggestFollowups() },
-    { command: "/rag", label: "Graph-RAG mode", detail: "Retrieve broader semantic neighborhoods and path connectors.", action: () => setAgentMode("graph_rag") },
-    { command: "/focus", label: "Focused mode", detail: "Use only selected nodes, focus query, and compact neighborhoods.", action: () => setAgentMode("focused") },
+    { command: "/none", label: "No retrieval", detail: "Use only selected nodes; with no selection this is regular chat.", action: () => setAgentMode("none") },
+    { command: "/rag", label: "Graph-RAG retrieval", detail: "Retrieve broader semantic neighborhoods and path connectors.", action: () => setAgentMode("graph_rag") },
+    { command: "/focus", label: "Focused selection", detail: "Use selected nodes, an optional focus query, and compact neighborhoods.", action: () => setAgentMode("focused") },
     { command: "/nodes 160", label: "Context nodes", detail: "Set the graph context size to 160 nodes.", action: () => setContextNodes(160) },
     { command: "/help", label: "Show help", detail: "Insert a compact command reference.", action: () => addCommandHelp() },
   ].filter((item) => !commandQuery || item.command.toLowerCase().includes(commandQuery) || item.label.toLowerCase().includes(commandQuery));
@@ -1102,6 +1656,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
   useEffect(() => {
     if (selectedReportOut && !sessionReports.some((report) => report.out === selectedReportOut)) {
       setSelectedReportOut("");
+      setReportPreviewOpen(false);
     }
   }, [selectedReportOut, sessionReports]);
 
@@ -1117,7 +1672,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
       role: "system",
       meta: "commands",
       content:
-        "/clear resets the chat.\n/rag switches to graph-RAG retrieval.\n/focus switches to selected/focused context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\nUse Model Settings to change the chat model role.",
+        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\nUse Model Settings to change the chat model role.",
     });
   }
 
@@ -1138,6 +1693,12 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
     if (command === "rag") {
       setAgentMode("graph_rag");
       addChatMessage({ role: "system", content: "Switched to Graph-RAG agent mode.", meta: "command" });
+      setQuestion("");
+      return true;
+    }
+    if (command === "none") {
+      setAgentMode("none");
+      addChatMessage({ role: "system", content: "Switched to no retrieval. Selected nodes are included if present; otherwise this is regular chat.", meta: "command" });
       setQuestion("");
       return true;
     }
@@ -1162,20 +1723,25 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
   }
 
   async function ask() {
-    if (!question.trim() || !graph) return;
+    if (!question.trim()) return;
     if (executeCommand(question)) return;
+    if (!graph && agentMode !== "none") {
+      addChatMessage({ role: "assistant", content: "Load a graph before using Focused selection or Graph-RAG retrieval. Use Context: None for regular chat without graph context.", meta: "context" });
+      return;
+    }
     const role = activeChatRole;
     if (!role?.model) {
       addChatMessage({ role: "assistant", content: "Configure the chat model under Model Settings before asking the graph.", meta: "configuration" });
       return;
     }
+    const priorResponseId = previousResponseId(messages, role);
     addChatMessage({ role: "user", content: question, meta: contextSummary(graph, selectedNodes) });
     const pending = addChatMessage({ role: "assistant", content: "Thinking...", meta: chatRoleName });
     setBusy(true);
     try {
       const res = await api.ask({
         question,
-        selected_nodes: selectedNodes,
+        selected_nodes: graph ? selectedNodes : [],
         query: contextQuery,
         depth: 1,
         max_nodes: contextNodes,
@@ -1184,6 +1750,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
         report_context: selectedReport ? { out: selectedReport.out, max_chars: reportMaxChars } : null,
         model_config: role,
         history: recentHistory(),
+        previous_response_id: priorResponseId || undefined,
       });
       const retrievedNodes = res.context.nodes || [];
       setLastRagNodes(agentMode === "graph_rag" ? retrievedNodes : []);
@@ -1192,7 +1759,8 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
       }
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `${res.context.mode === "graph_rag" ? "graph-RAG" : "focused"} ${res.context.node_count}n/${res.context.edge_count}e${res.context.report_context ? ` | report ${res.context.report_context.title}` : ""}`,
+        meta: `${chatContextLabel((res.context.mode || agentMode) as ChatContextMode)} ${res.context.node_count}n/${res.context.edge_count}e${res.stateful ? " | stateful" : ""}${res.context.report_context ? ` | report ${res.context.report_context.title}` : ""}`,
+        ...responseStateMeta(role, res.response_id),
       });
       setQuestion("");
     } catch (error) {
@@ -1203,7 +1771,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
   }
 
   async function suggestFollowups() {
-    if (!graph) return;
+    if (!graph && agentMode !== "none") return;
     const role = activeChatRole;
     if (!role?.model) {
       addChatMessage({ role: "assistant", content: "Configure the chat model under Model Settings before generating follow-ups.", meta: "configuration" });
@@ -1215,7 +1783,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
     try {
       const res = await api.ask({
         question: prompt,
-        selected_nodes: selectedNodes,
+        selected_nodes: graph ? selectedNodes : [],
         query: contextQuery,
         depth: 1,
         max_nodes: Math.min(contextNodes, 120),
@@ -1239,7 +1807,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
       <div className="chat-head">
         <div>
           <h2>Assistant</h2>
-          <span>{contextLabel} | {agentMode === "graph_rag" ? "Graph-RAG" : "Focused"} | chat model: {activeChatRole?.model || "not configured"}</span>
+          <span>{contextLabel} | {chatContextLabel(agentMode)} | chat model: {activeChatRole?.model || "not configured"}</span>
         </div>
         <div className="chat-actions">
           <span className="model-badge" title="Change this under Model Settings.">chat</span>
@@ -1256,15 +1824,23 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
                   {message.role}
                   {message.meta ? ` | ${message.meta}` : ""}
                 </div>
-                <div className="chat-bubble">{message.content}</div>
+                <div className="chat-bubble">
+                  <MarkdownMessage content={message.content} />
+                </div>
               </div>
             </div>
           ))
         ) : (
           <div className="empty-chat">
-            {graph
-              ? "Ask about selected nodes, graph structure, gaps, mechanisms, bridge paths, or the current run."
-              : "Load a run, upload GraphML, or start a run to begin."}
+            {graph ? (
+              "Ask normally, select nodes for selected-only context, or switch to Focused / Graph-RAG when you want retrieval."
+            ) : (
+              <>
+                <strong>No graph context loaded.</strong>
+                <span>Context: None works as regular chat. Open Runs when you want graph-aware context from a run folder, GraphML snapshot, upload, or new ideation run.</span>
+                <button onClick={onOpenRuns} type="button">Open Runs</button>
+              </>
+            )}
           </div>
         )}
         <div ref={chatEndRef} />
@@ -1282,7 +1858,15 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
           </button>
         </div>
         <div className="report-context-bar">
-          <div>
+          <button
+            className="report-context-chip"
+            disabled={!selectedReport}
+            onClick={() => {
+              if (selectedReport) setReportPreviewOpen(true);
+            }}
+            title={selectedReport ? "Preview the attached report context before sending." : "Attach a report to preview it here."}
+            type="button"
+          >
             <FileText size={13} />
             <span>
               {selectedReport
@@ -1291,7 +1875,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
                   ? "No report context attached"
                   : "No reports generated or opened in this session"}
             </span>
-          </div>
+          </button>
           <button
             disabled={!sessionReports.length}
             onClick={() => setReportMenuOpen((value) => !value)}
@@ -1350,6 +1934,13 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
             </label>
           </div>
         ) : null}
+        {selectedReport && reportPreviewOpen ? (
+          <ReportPreviewModal
+            onClose={() => setReportPreviewOpen(false)}
+            onOpenReports={onOpenReports}
+            report={selectedReport}
+          />
+        ) : null}
         {lastRagNodes.length ? (
           <div className="rag-context-strip">
             <div>
@@ -1392,19 +1983,20 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void ask();
           }}
-          placeholder={graph ? "Message the graph, or type / for commands..." : "Load a graph to chat..."}
+          placeholder={graph ? "Message the graph, or type / for commands..." : "Regular chat, or load a graph in Runs for graph context..."}
           rows={4}
           value={question}
         />
         <div className="composer-tools">
           <label className="agent-mode">
             <span>
-              Agent
-              <HelpTip text="Focused sends selected nodes plus a compact neighborhood. Graph-RAG retrieves broader semantic/text matches, neighborhoods, bridge paths, and central nodes before answering." />
+              Context
+              <HelpTip text="None is the default: it sends only explicitly selected nodes; with no selected nodes it is regular chat. Focused adds compact neighborhoods and an optional focus query. Graph-RAG retrieves semantic/text matches, neighborhoods, bridge paths, and central nodes." />
             </span>
-            <select value={agentMode} onChange={(event) => setAgentMode(event.target.value as "focused" | "graph_rag")}>
-              <option value="graph_rag">Graph-RAG</option>
-              <option value="focused">Focused</option>
+            <select value={agentMode} onChange={(event) => setAgentMode(event.target.value as ChatContextMode)}>
+              <option value="none">None</option>
+              <option value="graph_rag">Graph-RAG retrieval</option>
+              <option value="focused">Focused selection</option>
             </select>
           </label>
           <label className="context-query">
@@ -1413,8 +2005,9 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
               <HelpTip text="Optional search term used to pull matching nodes into the graph context packet. In Graph-RAG mode it is combined with your question for broader retrieval." />
             </span>
             <input
+              disabled={agentMode === "none"}
               onChange={(event) => setContextQuery(event.target.value)}
-              placeholder="optional concept filter"
+              placeholder={agentMode === "none" ? "disabled in None mode" : "optional concept filter"}
               value={contextQuery}
             />
           </label>
@@ -1424,6 +2017,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
               <HelpTip text="Maximum retrieved nodes sent with each chat request. Graph-RAG can use a larger budget; the backend still caps it to protect the browser and model context." />
             </span>
             <input
+              disabled={agentMode === "none"}
               min={20}
               max={900}
               onChange={(event) => setContextNodes(Number(event.target.value))}
@@ -1432,7 +2026,7 @@ function ChatPanel({ sessionReports }: { sessionReports: SessionReport[] }) {
             />
           </label>
           <IconButton
-            disabled={busy || !graph}
+            disabled={busy || (!graph && agentMode !== "none")}
             icon={busy ? <Loader2 className="spin" size={14} /> : <Send size={14} />}
             label="Send"
             onClick={ask}
@@ -1512,6 +2106,7 @@ function GraphRagExplorerTool({ defaultOpen = false }: { defaultOpen?: boolean }
       return;
     }
     const prompt = promptText();
+    const priorResponseId = previousResponseId(messages, role);
     addChatMessage({ role: "user", content: prompt, meta: "Graph-RAG Explorer" });
     const pending = addChatMessage({ role: "assistant", content: "Retrieving graph context...", meta: "graph-RAG" });
     setAgentBusy(true);
@@ -1527,11 +2122,13 @@ function GraphRagExplorerTool({ defaultOpen = false }: { defaultOpen?: boolean }
         context_mode: "graph_rag",
         model_config: role,
         history: recentHistory(),
+        previous_response_id: priorResponseId || undefined,
       });
       applyContext(res.context.nodes || []);
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `graph-RAG ${res.context.node_count}n/${res.context.edge_count}e`,
+        meta: `graph-RAG ${res.context.node_count}n/${res.context.edge_count}e${res.stateful ? " | stateful" : ""}`,
+        ...responseStateMeta(role, res.response_id),
       });
       setStatus(`Agent used ${formatNumber(res.context.node_count)} nodes and ${formatNumber(res.context.edge_count)} edges.`);
     } catch (error) {
@@ -1705,6 +2302,12 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
           </select>
         </label>
         <label>
+          API mode
+          <select value={role.backend || "responses"} onChange={(event) => patchRole({ backend: event.target.value })}>
+            <option value="responses">OpenAI Responses</option>
+          </select>
+        </label>
+        <label>
           Model
           <input value={role.model || ""} onChange={(event) => patchRole({ model: event.target.value })} />
         </label>
@@ -1782,6 +2385,7 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
   const roles = useExplorerStore((state) => state.roles);
   const chatRole = useExplorerStore((state) => state.chatRole);
+  const messages = useExplorerStore((state) => state.chatMessages);
   const addChatMessage = useExplorerStore((state) => state.addChatMessage);
   const updateChatMessage = useExplorerStore((state) => state.updateChatMessage);
   const [depth, setDepth] = useState(1);
@@ -1897,6 +2501,7 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
     const pendingQuestion = hasPaths
       ? `Analyze the highlighted bridge paths. Identify the key connector concepts, explain why the route matters, and suggest the next graph queries. Connectors: ${connectorText || "none ranked"}.`
       : `Suggest high-value bridge searches for this graph before path highlighting. Use the current concept query if useful: ${concepts || "(none)"}. Candidate seeds:\n${ideaText || "(none generated yet)"}. Return concise bridge queries and why they are worth testing.`;
+    const priorResponseId = previousResponseId(messages, role);
     addChatMessage({ role: "user", content: pendingQuestion, meta: hasPaths ? `${highlightedPaths.length} highlighted paths` : "bridge planning" });
     const pending = addChatMessage({ role: "assistant", content: hasPaths ? "Inspecting highlighted paths..." : "Planning bridge searches...", meta: "graph_qa" });
     setAgentBusy(true);
@@ -1909,10 +2514,12 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
         max_nodes: 120,
         max_edges: 220,
         model_config: role,
+        previous_response_id: priorResponseId || undefined,
       });
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `path agent | ${res.context.node_count}n/${res.context.edge_count}e`,
+        meta: `path agent | ${res.context.node_count}n/${res.context.edge_count}e${res.stateful ? " | stateful" : ""}`,
+        ...responseStateMeta(role, res.response_id),
       });
       setStatus("Agent response added to chat.");
     } catch (error) {
@@ -2137,21 +2744,23 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
 }
 
 function ChatSidebar({
-  onLoadRun,
-  onRunGraphReady,
-  onRunStart,
-  onReportReady,
+  onOpenGraph,
+  onOpenSearch,
+  onOpenRuns,
+  onOpenReports,
+  onOpenModels,
 }: {
-  onLoadRun: (run: string) => Promise<void>;
-  onRunGraphReady: (run: string) => Promise<void>;
-  onRunStart: () => Promise<void>;
-  onReportReady: (out: string) => void;
+  onOpenGraph: () => void;
+  onOpenSearch: () => void;
+  onOpenRuns: () => void;
+  onOpenReports: () => void;
+  onOpenModels: () => void;
 }) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   return (
     <>
-      <SidebarHeader title="Workspace" subtitle="left rail switches tools; assistant stays fixed" />
+      <SidebarHeader title="Home" subtitle="session status; tools live in the left rail" />
       <section className="panel-card">
         <div className="artifact-card">
           <div>
@@ -2161,10 +2770,45 @@ function ChatSidebar({
           <Network size={16} />
         </div>
       </section>
-      <SearchPanel />
-      <RunExplorer onLoadRun={onLoadRun} />
-      <RunMonitor onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
-      <ReportStudio onReportReady={onReportReady} />
+      <section className="panel-card">
+        <div className="home-actions">
+          <button onClick={onOpenRuns} type="button">
+            <FolderOpen size={14} />
+            <div>
+              <strong>Load or launch runs</strong>
+              <span>Run folders, GraphML files, snapshots, and live jobs.</span>
+            </div>
+          </button>
+          <button disabled={!graph} onClick={onOpenGraph} type="button">
+            <Network size={14} />
+            <div>
+              <strong>Open graph display</strong>
+              <span>Visual layout, color, size, and graph statistics.</span>
+            </div>
+          </button>
+          <button disabled={!graph} onClick={onOpenSearch} type="button">
+            <Search size={14} />
+            <div>
+              <strong>Search and focus</strong>
+              <span>Find nodes, select concepts, and compute bridge paths.</span>
+            </div>
+          </button>
+          <button onClick={onOpenReports} type="button">
+            <FileText size={14} />
+            <div>
+              <strong>Report Studio</strong>
+              <span>Generate, view, and attach graph reports to chat.</span>
+            </div>
+          </button>
+          <button onClick={onOpenModels} type="button">
+            <Settings2 size={14} />
+            <div>
+              <strong>Model Settings</strong>
+              <span>Configure chat, questioner, local, and OpenAI roles.</span>
+            </div>
+          </button>
+        </div>
+      </section>
     </>
   );
 }
@@ -2175,17 +2819,25 @@ function SideRail({
   onRunGraphReady,
   onRunStart,
   onReportReady,
+  onModeChange,
 }: {
   activeMode: WorkspaceMode;
   onLoadRun: (run: string) => Promise<void>;
   onRunGraphReady: (run: string) => Promise<void>;
   onRunStart: () => Promise<void>;
   onReportReady: (out: string) => void;
+  onModeChange: (mode: WorkspaceMode) => void;
 }) {
   return (
     <aside className="side-panel">
       {activeMode === "chat" ? (
-        <ChatSidebar onLoadRun={onLoadRun} onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} onReportReady={onReportReady} />
+        <ChatSidebar
+          onOpenGraph={() => onModeChange("graph")}
+          onOpenModels={() => onModeChange("models")}
+          onOpenReports={() => onModeChange("reports")}
+          onOpenRuns={() => onModeChange("runs")}
+          onOpenSearch={() => onModeChange("search")}
+        />
       ) : null}
       {activeMode === "graph" ? (
         <>
@@ -2205,7 +2857,7 @@ function SideRail({
       {activeMode === "runs" ? (
         <>
           <SidebarHeader title="Runs" subtitle="load previous folders or launch new runs" />
-          <RunExplorer defaultOpen onLoadRun={onLoadRun} />
+          <RunExplorer defaultOpen onGraphLoaded={(next) => useExplorerStore.getState().setGraph(next)} onLoadRun={onLoadRun} />
           <RunMonitor defaultOpen onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
         </>
       ) : null}
@@ -2241,7 +2893,7 @@ function ActivityRail({
   const [addedTools, setAddedTools] = useState<OptionalToolMode[]>(readToolRailStorage);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const coreModes: Array<{ id: CoreWorkspaceMode; label: string; icon: React.ReactNode }> = [
-    { id: "chat", label: "Chat", icon: <BrainCircuit size={17} /> },
+    { id: "chat", label: "Home", icon: <BrainCircuit size={17} /> },
     { id: "graph", label: "Graph", icon: <Network size={17} /> },
     { id: "search", label: "Search", icon: <Search size={17} /> },
     { id: "runs", label: "Runs", icon: <Play size={17} /> },
@@ -2357,8 +3009,8 @@ function ThreadStage({
       <div className="thread-inner">
         <div className="thread-titlebar">
           <div>
-            <strong>Current graph workspace</strong>
-            <span>{graph?.topic || "Ask questions, inspect runs, and open graph artifacts as needed."}</span>
+            <strong>Session overview</strong>
+            <span>{graph?.topic || "Load a run or GraphML file, inspect the graph, and keep the assistant fixed on the right."}</span>
           </div>
           <button type="button" onClick={onOpenRuns}>
             Runs
@@ -2394,7 +3046,7 @@ function ThreadStage({
           </div>
         </div>
 
-        <div className="thread-context-strip" title="Compact status for the current graph workspace. These are indicators, not controls.">
+        <div className="thread-context-strip" title="Compact status for the current session. These are indicators, not controls.">
           <div>
             <span>Selection</span>
             <strong>{selectedNodes.length ? `${formatNumber(selectedNodes.length)} nodes` : "None"}</strong>
@@ -2423,24 +3075,23 @@ function App() {
   const [activeReportOut, setActiveReportOut] = useState(() => readReportStudioStorage().activeReportOut || "");
   const [sessionReports, setSessionReports] = useState<SessionReport[]>(readSessionReports);
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
+  const initialPanelWidths = useMemo(readPanelWidths, []);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(initialPanelWidths.left);
+  const [rightPanelWidth, setRightPanelWidth] = useState(initialPanelWidths.right);
   const { data: initialGraph } = useQuery({ queryKey: ["graph"], queryFn: api.graph, retry: false });
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.config });
 
-  const showGraph = React.useCallback(
-    (next: GraphPayload) => {
-      setGraph(next);
-      setActiveMode("graph");
-    },
-    [setGraph],
-  );
-
   useEffect(() => {
-    if (initialGraph) showGraph(initialGraph);
-  }, [initialGraph, showGraph]);
+    if (initialGraph) setGraph(initialGraph);
+  }, [initialGraph, setGraph]);
 
   useEffect(() => {
     if (config?.roles) setRoles(config.roles);
   }, [config, setRoles]);
+
+  useEffect(() => {
+    writePanelWidths({ left: leftPanelWidth, right: rightPanelWidth });
+  }, [leftPanelWidth, rightPanelWidth]);
 
   const startEmbeddingIndex = React.useCallback(async (force = false) => {
     try {
@@ -2527,9 +3178,9 @@ function App() {
   const loadRun = React.useCallback(
     async (run: string) => {
       if (!run.trim()) return;
-      showGraph(await api.loadRun(run));
+      setGraph(await api.loadRun(run));
     },
-    [showGraph],
+    [setGraph],
   );
 
   const refreshRunGraph = React.useCallback(
@@ -2573,19 +3224,46 @@ function App() {
 
   const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
   const reportArtifactOpen = activeMode === "reports";
+  const workspaceStyle = {
+    "--left-panel-width": `${leftPanelWidth}px`,
+    "--right-panel-width": `${rightPanelWidth}px`,
+  } as React.CSSProperties;
+
+  function startPanelResize(side: "left" | "right") {
+    return (event: React.PointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      const onMove = (moveEvent: PointerEvent) => {
+        if (side === "left") {
+          setLeftPanelWidth(clampNumber(moveEvent.clientX - 44, 220, 560));
+        } else {
+          setRightPanelWidth(clampNumber(window.innerWidth - moveEvent.clientX, 300, 680));
+        }
+      };
+      const onUp = () => {
+        document.body.classList.remove("resizing-panels");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      document.body.classList.add("resizing-panels");
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    };
+  }
 
   return (
     <div className="app">
-      <Header onGraphLoaded={showGraph} onLoadRun={loadRun} />
-      <main className="workspace">
+      <Header />
+      <main className="workspace" style={workspaceStyle}>
         <ActivityRail activeMode={activeMode} onModeChange={setActiveMode} />
         <SideRail
           activeMode={activeMode}
+          onModeChange={setActiveMode}
           onLoadRun={loadRun}
           onRunGraphReady={refreshRunGraph}
           onRunStart={clearGraphForRun}
           onReportReady={handleReportReady}
         />
+        <button aria-label="Resize tool panel" className="panel-resizer left" onPointerDown={startPanelResize("left")} title="Resize tool panel" type="button" />
         {reportArtifactOpen ? (
           <ReportStage out={activeReportOut} onOpenReports={() => setActiveMode("reports")} />
         ) : graphArtifactOpen ? (
@@ -2620,8 +3298,13 @@ function App() {
             onOpenSearch={() => setActiveMode("search")}
           />
         )}
+        <button aria-label="Resize assistant panel" className="panel-resizer right" onPointerDown={startPanelResize("right")} title="Resize assistant panel" type="button" />
         <aside className="assistant-panel">
-          <ChatPanel sessionReports={sessionReports} />
+          <ChatPanel
+            onOpenReports={() => setActiveMode("reports")}
+            onOpenRuns={() => setActiveMode("runs")}
+            sessionReports={sessionReports}
+          />
         </aside>
       </main>
     </div>

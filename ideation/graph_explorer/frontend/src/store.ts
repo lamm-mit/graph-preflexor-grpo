@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import type { ChatMessage, GraphPayload, ModelRole, SearchResult, VisualState } from "./types";
 
-const GEMMA_CHAT_MODEL = "google/gemma-4-E4B";
+const GEMMA_CHAT_MODEL = "google/gemma-4-E4B-it";
 
 const defaultRole: ModelRole = {
   provider: "openai",
   model: GEMMA_CHAT_MODEL,
   base_url: "http://localhost:1234/v1",
+  backend: "responses",
   api_key_env: "",
   temperature: 0.3,
   max_tokens: 1800,

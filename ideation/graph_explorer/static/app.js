@@ -80,7 +80,7 @@ const modelPresets = {
   },
   gemma1234: {
     provider: "openai",
-    model: "google/gemma-4-E4B",
+    model: "google/gemma-4-E4B-it",
     base_url: "http://localhost:1234/v1",
     api_key_env: "",
     temperature: 0.3,

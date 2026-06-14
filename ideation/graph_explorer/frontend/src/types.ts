@@ -83,6 +83,7 @@ export type ModelRole = {
   provider: string;
   model: string;
   base_url: string;
+  backend?: "responses" | string;
   api_key_env?: string;
   temperature?: number | string;
   max_tokens?: number | string;
@@ -223,7 +224,7 @@ export type ProfileOptions = {
   profile_preset?: "full" | "light";
   llm: boolean;
   llm_modules?: number;
-  backend: "responses" | "openai" | "chat" | "hf";
+  backend: "responses";
   model: string;
   base_url?: string;
   temperature?: number;
@@ -303,7 +304,7 @@ export type GraphAskContextNode = {
 };
 
 export type GraphAskContext = {
-  mode?: "focused" | "graph_rag";
+  mode?: "none" | "focused" | "graph_rag";
   query?: string;
   node_count: number;
   edge_count: number;
@@ -323,6 +324,10 @@ export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
   meta?: string;
+  response_id?: string;
+  response_model?: string;
+  response_backend?: string;
+  response_base_url?: string;
 };
 
 export type VisualState = {

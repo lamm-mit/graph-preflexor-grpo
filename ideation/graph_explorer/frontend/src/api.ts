@@ -56,11 +56,12 @@ export const api = {
     depth: number;
     max_nodes: number;
     max_edges: number;
-    context_mode?: "focused" | "graph_rag";
+    context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number } | null;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
-  }) => request<{ answer: string; context: GraphAskContext }>("/api/ask", body),
+    previous_response_id?: string;
+  }) => request<{ answer: string; context: GraphAskContext; response_id?: string; stateful?: boolean }>("/api/ask", body),
   graphRagContext: (body: {
     question: string;
     selected_nodes: string[];
