@@ -165,8 +165,8 @@ Clean concept-pair bridge benchmark. This is the most direct test of whether the
 usable information to the same small model:
 
 - baseline: Llama sees the run topic plus Concept A and Concept B only
-- graph: Llama sees the same topic and concepts, plus the true mined path/neighborhood connecting
-  them
+- graph: Llama sees the same topic and concepts, plus filtered mechanism cues retrieved from the
+  true mined path/neighborhood connecting them
 
 The script samples 10 concrete endpoint pairs from `graph.graphml`, writes both prompts and answer
 sets, then calls the same blind pairwise GPT judge/plotter used by `compare.py`.
@@ -174,10 +174,11 @@ sets, then calls the same blind pairwise GPT judge/plotter used by `compare.py`.
 ```bash
 python path_pair_benchmark.py \
   --run runs/exp_leap \
-  --out runs/exp_leap/benchmark/path_pairs \
+  --out runs/exp_leap/benchmark/path_pairs_v3 \
   --n 10 \
   --force-pairs \
   --force \
+  --graph-prompt-mode cues \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
   --judge-model gpt-5.5 \
@@ -186,10 +187,12 @@ python path_pair_benchmark.py \
 
 By default this uses strict pair selection: it rejects meta/method nodes such as `NovelIdea` and
 `UntestedIdea`, speculative-physics labels such as quantum/topological/entanglement terms, topic-name
-hubs, and mostly generic bridges. The graph prompt still shows the true path, but also extracts the
-mechanistically useful bridge concepts so the small model is not forced to follow noisy edge verbs.
-Use `--force-pairs` when rerunning an existing output directory; otherwise the runner intentionally
-reuses the existing `pairs.json`.
+hubs, endpoints without material/mechanism anchor words, and mostly generic bridges. The default
+`--graph-prompt-mode cues` does not force the small model to literalize noisy path edge verbs; it
+shows a filtered cue packet mined from the true path/neighborhood. Use `--graph-prompt-mode path` to
+also show the true path, or `--graph-prompt-mode full` to show the path plus local neighborhood. Use
+`--force-pairs` when rerunning an existing output directory; otherwise the runner intentionally reuses
+the existing `pairs.json`.
 
 Useful controls:
 
@@ -201,6 +204,7 @@ python path_pair_benchmark.py \
   --n 10 \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
+  --graph-prompt-mode cues \
   --force-pairs \
   --dry-run \
   --no-judge
@@ -213,6 +217,7 @@ python path_pair_benchmark.py \
   --min-hops 3 \
   --max-hops 6 \
   --neighbors 6 \
+  --graph-prompt-mode cues \
   --force-pairs \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
@@ -228,6 +233,8 @@ python path_pair_benchmark.py \
   --allow-meta \
   --allow-speculative \
   --allow-topic-hubs \
+  --min-endpoint-anchors 0 \
+  --graph-prompt-mode full \
   --force-pairs \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
@@ -1445,6 +1452,55 @@ to skip PDF generation.
 PDF rendering requires **Pandoc** plus a LaTeX engine (`xelatex`, `lualatex`, or `pdflatex`). If a run
 prints `PDF not written: pandoc not found`, the Markdown report and JSON were still written; install the
 PDF dependencies and rerun the same command.
+
+### `profile_graph.py` algorithm schematic
+
+```mermaid
+flowchart TD
+    A["Inputs: --run or --graph, --out, optional --embed-model, optional --llm"] --> B["Resolve graph source"]
+    B --> C["Load GraphML into NetworkX"]
+    C --> D["Read run transcript and topic when a run directory is supplied"]
+    D --> E["Compute deterministic graph audit"]
+    E --> E1["Centrality: degree, PageRank, betweenness, eigenvector, k-core"]
+    E --> E2["Structure: components, communities/modules, modularity, relation audit"]
+    E --> E3["Critical connectors: articulation points, bridges, cross-module edges, representative paths"]
+    E --> E4["Provenance: iteration, depth, question, response/source metadata when present"]
+    E --> E5["Quality flags: generic labels, duplicates, isolated nodes, sparse modules"]
+    E5 --> F{"--embed-model supplied?"}
+    F -- "yes" --> G["Semantic audit: embed labels, semantic map, outliers, distant connected paths"]
+    F -- "no" --> H["Lexical fallback for semantic distance"]
+    G --> I["Deep deterministic graph mining"]
+    H --> I
+    I --> I1["Long-range transitive paths across diverse modules"]
+    I --> I2["Short cross-module bridges and non-hub brokerage nodes"]
+    I --> I3["Recurring relation motifs and path templates"]
+    I --> I4["Structural analogies and role-equivalence candidates"]
+    I --> I5["Bounded isomorphism analysis: WL orbit candidates, exact ego-net/module classes, small-graph automorphisms"]
+    I5 --> J["Write figures: degree/rank plots, modules, semantic map, relation/module diagnostics"]
+    J --> K{"--llm enabled?"}
+    K -- "no" --> P["Render final Markdown report from deterministic evidence"]
+    K -- "yes" --> L["Stage 1 LLM calls: module summaries and executive synthesis"]
+    L --> M["Stage 2 LLM calls: multiple deep evidence passes over paths, motifs, analogies, provenance, reliability"]
+    M --> N["Stage 3 LLM call: paper-level graph interpretation"]
+    N --> O["Write draft report with deterministic evidence plus LLM analysis"]
+    O --> Q{"Final report review enabled?"}
+    Q -- "yes" --> R["Stage 4 LLM calls: review completed report sections"]
+    R --> S["Stage 5 LLM call: integrated final synthesis"]
+    S --> T["Rewrite report with Final LLM Report Review section added"]
+    Q -- "no" --> P
+    T --> U{"PDF enabled and tools available?"}
+    P --> U
+    U -- "yes" --> V["Render report.pdf with Pandoc and LaTeX"]
+    U -- "no" --> W["Keep report.md and note PDF skip/failure"]
+    V --> X["Write profile.json with all raw evidence, figures, LLM outputs, diagnostics"]
+    W --> X
+    X --> Y["Outputs: report.md, profile.json, figures/*, optional report.pdf"]
+```
+
+The final synthesis is additive: deterministic sections and earlier LLM outputs remain in the report and
+`profile.json`; the completed report is rewritten only to insert the final integrated review before PDF
+rendering. Reusing the same `--out` directory for a later run overwrites that directory's generated
+artifacts, so use separate output folders for GPT versus local-model comparisons.
 
 ```bash
 # Ubuntu / Debian

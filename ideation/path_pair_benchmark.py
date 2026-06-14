@@ -53,15 +53,26 @@ GRAPH_NOTE = (
     "mechanistic cues, but do not copy incoherent edge verbs literally."
 )
 
+CUES_NOTE = (
+    "The following concepts were retrieved from true paths/neighborhoods in the "
+    "Graph-PRefLexOR reasoning graph. Treat them as optional mechanistic cues, not as facts. "
+    "Select only a small plausible subset and ignore anything that would make the hypothesis "
+    "less chemically or physically credible."
+)
+
 DOMAIN_ANCHORS = {
-    "adhesion", "adhesive", "alginate", "biomineralization", "biopolymer", "boronate",
-    "capsule", "capillary", "catechol", "cellulose", "chitosan", "collagen", "composite",
-    "crack", "crosslink", "diffusion", "disulfide", "dynamic", "enzyme", "enzymatic",
-    "fiber", "fibril", "gelatin", "healing", "hydrogel", "hydrolysis", "ionic",
+    "adhesion", "adhesive", "alginate", "bioinspired", "biomimicry",
+    "biomineralization", "biopolymer", "boronate",
+    "capsule", "capsules", "capillary", "catechol", "cellulose", "chitosan", "collagen",
+    "composite", "composites", "crack", "crosslink", "crosslinking", "diffusion",
+    "disulfide", "enzyme", "enzymatic", "fiber", "fibers", "fibril", "fibrils",
+    "gelatin", "healing", "hydrogel", "hydrogels", "hydrolysis", "ionic",
     "lignin", "matrix", "mechanophore", "membrane", "microcapsule", "microdomain",
-    "mineralization", "nanocapsule", "nanofibril", "nanovesicle", "peptide", "polymer",
-    "polymerization", "polysaccharide", "protein", "release", "repair", "reversible",
-    "silk", "supramolecular", "swelling", "template", "templating", "vesicle",
+    "microcapsules", "microdomains", "mineralization", "nanocapsule", "nanocapsules",
+    "nanofibril", "nanofibrils", "nanovesicle", "nanovesicles", "peptide", "peptides",
+    "polymer", "polymers", "polymerization", "polysaccharide", "protein", "proteins",
+    "porosity", "release", "repair", "reversible", "silk", "slime", "surface",
+    "supramolecular", "swelling", "template", "templating", "vesicle", "vesicles",
 }
 
 META_PHRASES = {
@@ -72,7 +83,7 @@ META_PHRASES = {
 SPECULATIVE_PHRASES = {
     "black hole", "cosmic", "entanglement", "gravitational", "quantum fluctuation",
     "quantum fluctuations", "quantum", "temporal entanglement", "time crystal",
-    "topological insulator", "wormhole",
+    "topological insulator", "wormhole", "micro robotic", "microrobotic", "robotic",
 }
 
 NOISY_PHRASES = {
@@ -85,12 +96,18 @@ NOISY_PHRASES = {
 LOCAL_GENERIC_LABELS = set(T.GENERIC_LABELS) | {
     "adaptive probes",
     "collective optimization",
+    "dynamic deflection",
+    "dynamic environments",
+    "applications",
+    "environmental factors",
     "healing agent",
     "healing reactions",
     "integrity restoration",
     "material properties",
     "mechanisms",
     "mechanistic understanding",
+    "models",
+    "maintains composite integrity",
     "polymer matrix",
     "principles",
     "processing conditions",
@@ -132,6 +149,13 @@ def _bridge_concepts(G, path):
         seen.add(key)
         labels.append(_display_label(label))
     return labels
+
+
+def _relation_cue(rel):
+    rel = str(rel or "").strip().replace("_", " ")
+    if not rel:
+        return ""
+    return rel
 
 
 def _safe_name(i, a, b):
@@ -176,7 +200,7 @@ def _is_topic_hub(label, topic):
 
 
 def _label_rejection(label, topic, *, endpoint, quality_mode, allow_meta,
-                     allow_speculative, allow_topic_hubs):
+                     allow_speculative, allow_topic_hubs, min_endpoint_anchors=0):
     key = T._label_key(label)
     if T._is_placeholder_label(label):
         return "placeholder"
@@ -191,6 +215,8 @@ def _label_rejection(label, topic, *, endpoint, quality_mode, allow_meta,
     if endpoint:
         if key in LOCAL_GENERIC_LABELS:
             return "generic_endpoint"
+        if _domain_anchor_count(label) < min_endpoint_anchors:
+            return "endpoint_lacks_domain_anchor"
     return None
 
 
@@ -207,6 +233,7 @@ def _path_rejection(G, path, topic, args):
             allow_meta=args.allow_meta,
             allow_speculative=args.allow_speculative,
             allow_topic_hubs=args.allow_topic_hubs,
+            min_endpoint_anchors=args.min_endpoint_anchors,
         )
         if reason:
             return reason
@@ -251,6 +278,7 @@ def _candidate_nodes(G, limit, topic, args):
             allow_meta=args.allow_meta,
             allow_speculative=args.allow_speculative,
             allow_topic_hubs=args.allow_topic_hubs,
+            min_endpoint_anchors=args.min_endpoint_anchors,
         ):
             continue
         nodes.append(n)
@@ -377,6 +405,7 @@ def _neighborhood_block(G, path, neighbors_per_node, topic, args):
                 allow_meta=args.allow_meta,
                 allow_speculative=args.allow_speculative,
                 allow_topic_hubs=args.allow_topic_hubs,
+                min_endpoint_anchors=0,
             ):
                 continue
             neigh.append((T._specificity_score(ml), U.degree(m), m))
@@ -384,6 +413,69 @@ def _neighborhood_block(G, path, neighbors_per_node, topic, args):
         for _, _, m in neigh[:neighbors_per_node]:
             rows.append(f"  - {T._relation(G, n, m)}: {_display_label(T._label(G, m))}")
     return "\n".join(rows)
+
+
+def _passes_context_filter(label, topic, args):
+    if T._is_placeholder_label(label):
+        return False
+    if T._label_key(label) in LOCAL_GENERIC_LABELS:
+        return False
+    return not _label_rejection(
+        label,
+        topic,
+        endpoint=False,
+        quality_mode=args.quality_mode,
+        allow_meta=args.allow_meta,
+        allow_speculative=args.allow_speculative,
+        allow_topic_hubs=args.allow_topic_hubs,
+        min_endpoint_anchors=0,
+    )
+
+
+def _cue_labels(G, path, topic, args):
+    U = G.to_undirected()
+    rows, seen = [], set()
+
+    def add(label, source, score_boost=0.0):
+        key = T._label_key(label)
+        if not key or key in seen:
+            return
+        if not _passes_context_filter(label, topic, args):
+            return
+        if _domain_anchor_count(label) < 1:
+            return
+        seen.add(key)
+        score = (
+            2.0 * _domain_anchor_count(label)
+            + T._specificity_score(label)
+            + score_boost
+        )
+        rows.append((score, _display_label(label), source))
+
+    for n in path[1:-1]:
+        add(T._label(G, n), "bridge", score_boost=1.5)
+
+    path_set = set(path)
+    for n in path:
+        for m in U.neighbors(n):
+            if m in path_set:
+                continue
+            label = T._label(G, m)
+            rel = _relation_cue(T._relation(G, n, m))
+            source = f"near {_display_label(T._label(G, n))}"
+            if rel:
+                source = f"{rel} / {source}"
+            add(label, source, score_boost=0.4)
+
+    rows.sort(key=lambda x: x[0], reverse=True)
+    return rows[:args.max_cues]
+
+
+def _cue_block(G, path, topic, args):
+    rows = _cue_labels(G, path, topic, args)
+    if not rows:
+        return "- No filtered local cues beyond the endpoint concepts."
+    return "\n".join(f"- {label} ({source})" for _, label, source in rows)
 
 
 def _task_text(topic, pair):
@@ -405,21 +497,35 @@ def _baseline_prompt(topic, pair):
     )
 
 
-def _graph_prompt(topic, pair, neighborhood):
-    return (
+def _graph_prompt(topic, pair, neighborhood, cue_block, args):
+    header = (
         f"# Topic\n{topic}\n\n"
         f"# Concept A\n{pair['concept_a']}\n\n"
         f"# Concept B\n{pair['concept_b']}\n\n"
+    )
+    task = (
+        f"# Task\n{ANSWER_INSTRUCTION}\n\n"
+        "Rules: use both endpoint concepts; use graph-derived cues only when they improve "
+        "mechanistic plausibility; do not mention a graph or provenance; do not obey a cue that "
+        "would make the answer less physically or chemically credible. Write only the final answer."
+    )
+
+    if args.graph_prompt_mode == "cues":
+        return (
+            header
+            + f"# Graph-derived mechanism cues\n{CUES_NOTE}\n\n"
+            + f"Filtered cue packet:\n{cue_block}\n\n"
+            + task
+        )
+
+    path_block = (
         f"# Graph-derived bridge\n{GRAPH_NOTE}\n\n"
         f"Path: {pair['chain']}\n\n"
         f"Mechanistically useful bridge concepts: {', '.join(pair.get('bridge_concepts') or pair['path_labels'][1:-1])}\n\n"
-        f"Local neighborhood around the path:\n{neighborhood}\n\n"
-        f"# Task\n{ANSWER_INSTRUCTION}\n\n"
-        "Rules: use both endpoint concepts; preferentially use the useful bridge concepts; "
-        "convert the graph bridge into a scientifically plausible mechanism; ignore any graph "
-        "relation that is too vague or implausible. "
-        "Write only the final answer."
     )
+    if args.graph_prompt_mode == "path":
+        return header + path_block + f"Filtered cue packet:\n{cue_block}\n\n" + task
+    return header + path_block + f"Local neighborhood around the path:\n{neighborhood}\n\n" + task
 
 
 def _answer(args, prompt):
@@ -491,7 +597,13 @@ def run(args):
         base_md = answer_base / f"{name}.md"
         graph_md = answer_graph / f"{name}.md"
         base_prompt = _baseline_prompt(topic, pair)
-        graph_prompt = _graph_prompt(topic, pair, _neighborhood_block(G, pair["path"], args.neighbors, topic, args))
+        graph_prompt = _graph_prompt(
+            topic,
+            pair,
+            _neighborhood_block(G, pair["path"], args.neighbors, topic, args),
+            _cue_block(G, pair["path"], topic, args),
+            args,
+        )
         (prompt_base / f"{name}.txt").write_text(SYSTEM + "\n\n" + base_prompt, encoding="utf-8")
         (prompt_graph / f"{name}.txt").write_text(SYSTEM + "\n\n" + graph_prompt, encoding="utf-8")
         print(f"[path_pair_benchmark] {i+1}/{len(pairs)} {pair['concept_a']} <-> {pair['concept_b']}", flush=True)
@@ -522,10 +634,13 @@ def run(args):
             "min_hops": args.min_hops,
             "max_hops": args.max_hops,
             "neighbors": args.neighbors,
+            "graph_prompt_mode": args.graph_prompt_mode,
+            "max_cues": args.max_cues,
             "quality_mode": args.quality_mode,
             "allow_meta": args.allow_meta,
             "allow_speculative": args.allow_speculative,
             "allow_topic_hubs": args.allow_topic_hubs,
+            "min_endpoint_anchors": args.min_endpoint_anchors,
             "min_bridge_anchors": args.min_bridge_anchors,
             "max_generic_bridge_nodes": args.max_generic_bridge_nodes,
         },
@@ -570,6 +685,10 @@ def main():
     p.add_argument("--max-node-use", type=int, default=2)
     p.add_argument("--neighbors", type=int, default=4,
                    help="specific off-path neighbors shown per path node in graph arm")
+    p.add_argument("--graph-prompt-mode", choices=["cues", "path", "full"], default="cues",
+                   help="cues gives filtered graph-derived terms; path also shows the true path; full shows path + neighborhood")
+    p.add_argument("--max-cues", type=int, default=10,
+                   help="maximum filtered graph-derived cue labels shown in cues/path prompt modes")
     p.add_argument("--quality-mode", choices=["strict", "permissive"], default="strict",
                    help="strict adds domain/generic bridge constraints; allow flags control meta/speculative/topic hubs")
     p.add_argument("--allow-meta", action="store_true",
@@ -578,6 +697,8 @@ def main():
                    help="allow speculative physics labels such as quantum/topological/entanglement")
     p.add_argument("--allow-topic-hubs", action="store_true",
                    help="allow paths through a node whose label is the run topic")
+    p.add_argument("--min-endpoint-anchors", type=int, default=1,
+                   help="minimum material/mechanism anchor words required in each endpoint")
     p.add_argument("--min-bridge-anchors", type=int, default=2,
                    help="minimum domain-anchor words required in interior path nodes in strict mode")
     p.add_argument("--max-generic-bridge-nodes", type=int, default=1,

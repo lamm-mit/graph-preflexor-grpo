@@ -1,4 +1,4 @@
-import type { BridgeIdea, ConfigPayload, GraphPayload, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
+import type { BridgeIdea, ConfigPayload, GraphPayload, JobStatus, ModelRole, PathConnector, RunSummary, SearchResult } from "./types";
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const init =
@@ -19,8 +19,10 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
 
 export const api = {
   graph: () => request<GraphPayload>("/api/graph"),
+  runs: () => request<{ root: string; runs: RunSummary[] }>("/api/runs"),
   config: () => request<ConfigPayload>("/api/config"),
   loadRun: (run: string) => request<GraphPayload>("/api/load_run", { run }),
+  clearGraph: () => request<{ ok: boolean }>("/api/clear_graph", {}),
   uploadGraphml: (name: string, graphml: string) =>
     request<GraphPayload>("/api/load_graphml", { name, graphml }),
   search: (query: string, limit = 40) =>

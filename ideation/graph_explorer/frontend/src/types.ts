@@ -134,6 +134,24 @@ export type JobStatus = {
   progress?: JobProgress;
 };
 
+export type RunSummary = {
+  name: string;
+  path: string;
+  absolute_path?: string;
+  topic: string;
+  strategy: string;
+  updated_at: number;
+  graph_ready: boolean;
+  graph_path: string;
+  snapshot_count: number;
+  snapshot_iter: number | null;
+  nodes: number;
+  edges: number;
+  calls: number;
+  iters: number;
+  status: string;
+};
+
 export type ChatMessage = {
   id: string;
   role: "system" | "user" | "assistant";

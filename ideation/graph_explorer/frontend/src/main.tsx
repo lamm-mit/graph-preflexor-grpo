@@ -43,7 +43,7 @@ import {
   pathNodeSet,
 } from "./graph-utils";
 import { useExplorerStore } from "./store";
-import type { BridgeIdea, GraphNode, GraphPayload, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
+import type { BridgeIdea, GraphNode, GraphPayload, JobStatus, ModelRole, PathConnector, RunSummary, SearchResult } from "./types";
 import "./styles.css";
 
 type WorkspaceMode = "chat" | "graph" | "search" | "runs" | "models";
@@ -95,6 +95,16 @@ function writeRunMonitorStorage(value: StoredRunMonitor) {
 
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
+}
+
+function formatRunTime(seconds: number) {
+  if (!seconds) return "unknown";
+  return new Date(seconds * 1000).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function IconButton({
@@ -730,10 +740,16 @@ function ChatPanel() {
   const [contextQuery, setContextQuery] = useState("");
   const [contextNodes, setContextNodes] = useState(90);
   const [busy, setBusy] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const contextLabel = contextSummary(graph, selectedNodes);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages]);
 
   async function ask() {
     if (!question.trim() || !graph) return;
-    const role = roles[chatRole];
+    const role = roles[chatRole] || graphAgentRole(roles, chatRole);
     addChatMessage({ role: "user", content: question, meta: contextSummary(graph, selectedNodes) });
     const pending = addChatMessage({ role: "assistant", content: "Thinking...", meta: chatRole });
     setBusy(true);
@@ -763,8 +779,8 @@ function ChatPanel() {
     <section className="chat-panel">
       <div className="chat-head">
         <div>
-          <h2>Graph Chat</h2>
-          <span>{contextSummary(graph, selectedNodes)}</span>
+          <h2>Assistant</h2>
+          <span>{contextLabel}</span>
         </div>
         <div className="chat-actions">
           <select value={chatRole} onChange={(event) => setChatRole(event.target.value)}>
@@ -781,57 +797,71 @@ function ChatPanel() {
         {messages.length ? (
           messages.map((message) => (
             <div className={cx("chat-message", message.role)} key={message.id}>
-              <div className="chat-meta">
-                {message.role}
-                {message.meta ? ` | ${message.meta}` : ""}
+              <div className="chat-avatar">{message.role === "user" ? "You" : "AI"}</div>
+              <div className="chat-message-body">
+                <div className="chat-meta">
+                  {message.role}
+                  {message.meta ? ` | ${message.meta}` : ""}
+                </div>
+                <div className="chat-bubble">{message.content}</div>
               </div>
-              <div className="chat-bubble">{message.content}</div>
             </div>
           ))
         ) : (
           <div className="empty-chat">
-            Ask about selected nodes, visible graph structure, gaps, mechanisms, or the current run.
+            {graph
+              ? "Ask about selected nodes, graph structure, gaps, mechanisms, bridge paths, or the current run."
+              : "Load a run, upload GraphML, or start a run to begin."}
           </div>
         )}
+        <div ref={chatEndRef} />
       </div>
-      <div className="prompt-row">
-        {[
-          "Summarize this graph focus.",
-          "Find gaps and weak links.",
-          "Suggest bridge experiments.",
-          "Rank the strongest hubs.",
-        ].map((prompt) => (
-          <button key={prompt} onClick={() => setQuestion(prompt)} type="button">
-            {prompt.split(" ")[0]}
-          </button>
-        ))}
-      </div>
-      <input
-        onChange={(event) => setContextQuery(event.target.value)}
-        placeholder="optional extra context search"
-        value={contextQuery}
-      />
-      <textarea
-        onChange={(event) => setQuestion(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void ask();
-        }}
-        placeholder="Ask about the graph..."
-        rows={4}
-        value={question}
-      />
-      <div className="composer-row">
-        <label>
-          Context nodes
-          <input min={20} max={400} onChange={(event) => setContextNodes(Number(event.target.value))} type="number" value={contextNodes} />
-        </label>
-        <IconButton
-          disabled={busy || !graph}
-          icon={busy ? <Loader2 className="spin" size={14} /> : <Send size={14} />}
-          label="Send"
-          onClick={ask}
-          tone="primary"
+      <div className="chat-composer">
+        <div className="prompt-row">
+          {[
+            ["Summary", "Summarize this graph focus."],
+            ["Gaps", "Find gaps and weak links."],
+            ["Bridges", "Suggest bridge experiments."],
+            ["Hubs", "Rank the strongest hubs."],
+          ].map(([label, prompt]) => (
+            <button key={prompt} onClick={() => setQuestion(prompt)} type="button">
+              {label}
+            </button>
+          ))}
+        </div>
+        <textarea
+          onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void ask();
+          }}
+          placeholder={graph ? "Message the graph..." : "Load a graph to chat..."}
+          rows={4}
+          value={question}
         />
+        <div className="composer-tools">
+          <input
+            onChange={(event) => setContextQuery(event.target.value)}
+            placeholder="context search"
+            value={contextQuery}
+          />
+          <label className="context-count">
+            <span>Nodes</span>
+            <input
+              min={20}
+              max={400}
+              onChange={(event) => setContextNodes(Number(event.target.value))}
+              type="number"
+              value={contextNodes}
+            />
+          </label>
+          <IconButton
+            disabled={busy || !graph}
+            icon={busy ? <Loader2 className="spin" size={14} /> : <Send size={14} />}
+            label="Send"
+            onClick={ask}
+            tone="primary"
+          />
+        </div>
       </div>
     </section>
   );
@@ -916,7 +946,106 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
   );
 }
 
-function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady: (run: string) => Promise<void>; defaultOpen?: boolean }) {
+function RunExplorer({
+  onLoadRun,
+  defaultOpen = false,
+}: {
+  onLoadRun: (run: string) => Promise<void>;
+  defaultOpen?: boolean;
+}) {
+  const graph = useExplorerStore((state) => state.graph);
+  const [filter, setFilter] = useState("");
+  const [status, setStatus] = useState("");
+  const [loadingRun, setLoadingRun] = useState("");
+  const runsQuery = useQuery({
+    queryKey: ["runs"],
+    queryFn: api.runs,
+    refetchInterval: 5000,
+  });
+  const runs = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    const items = runsQuery.data?.runs || [];
+    if (!query) return items;
+    return items.filter((run) =>
+      [run.name, run.path, run.topic, run.strategy].some((value) => String(value || "").toLowerCase().includes(query)),
+    );
+  }, [filter, runsQuery.data?.runs]);
+
+  async function loadRun(run: RunSummary) {
+    setLoadingRun(run.path);
+    setStatus("");
+    try {
+      await onLoadRun(run.path);
+      setStatus(`Loaded ${run.name}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingRun("");
+    }
+  }
+
+  return (
+    <Drawer
+      defaultOpen={defaultOpen}
+      icon={<FolderOpen size={14} />}
+      note={`${runsQuery.data?.runs.length || 0} folders`}
+      title="Run Explorer"
+    >
+      <div className="row run-filter-row">
+        <input
+          onChange={(event) => setFilter(event.target.value)}
+          placeholder="filter runs, topics, strategies"
+          value={filter}
+        />
+        <IconButton
+          disabled={runsQuery.isFetching}
+          icon={runsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
+          label="Refresh"
+          onClick={() => void runsQuery.refetch()}
+        />
+      </div>
+      <div className="run-list">
+        {runs.map((run) => {
+          const isCurrent = Boolean(graph?.path && (graph.path.includes(`/${run.name}/`) || graph.path.endsWith(`${run.name}/graph.graphml`)));
+          return (
+            <button
+              className={cx("run-item", isCurrent && "active")}
+              disabled={!run.graph_ready || loadingRun === run.path}
+              key={run.path}
+              onClick={() => loadRun(run)}
+              title={run.graph_ready ? `Load ${run.path}` : "No graph snapshot is available yet"}
+              type="button"
+            >
+              <div className="run-row">
+                <strong>{run.name}</strong>
+                <span>{formatRunTime(run.updated_at)}</span>
+              </div>
+              <span className="run-topic">{run.topic || run.path}</span>
+              <div className="run-metrics">
+                <span>{formatNumber(run.nodes)} nodes</span>
+                <span>{formatNumber(run.edges)} edges</span>
+                <span>{run.strategy || "strategy?"}</span>
+                <span>{run.graph_ready ? "ready" : "pending"}</span>
+              </div>
+            </button>
+          );
+        })}
+        {!runs.length ? <div className="status-box">{runsQuery.error ? String(runsQuery.error) : "No runs found."}</div> : null}
+      </div>
+      {status ? <div className="status-box">{status}</div> : null}
+    </Drawer>
+  );
+}
+
+function RunMonitor({
+  onRunGraphReady,
+  onRunStart,
+  defaultOpen = false,
+}: {
+  onRunGraphReady: (run: string) => Promise<void>;
+  onRunStart?: () => Promise<void> | void;
+  defaultOpen?: boolean;
+}) {
   const storedRunRef = useRef<StoredRunMonitor | null>(null);
   if (!storedRunRef.current) storedRunRef.current = readRunMonitorStorage();
   const storedRun = storedRunRef.current;
@@ -979,7 +1108,14 @@ function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady:
     if (!topic.trim()) return;
     setBusy(true);
     try {
+      setJob(null);
+      setMonitorStatus("Clearing current graph and starting run...");
       lastSnapshotRef.current = "";
+      try {
+        await onRunStart?.();
+      } catch (error) {
+        setMonitorStatus(error instanceof Error ? error.message : String(error));
+      }
       const next = await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out });
       setJob(next);
       setMonitorStatus(`Started run ${next.id}.`);
@@ -1327,7 +1463,15 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   );
 }
 
-function ChatSidebar({ onRunGraphReady }: { onRunGraphReady: (run: string) => Promise<void> }) {
+function ChatSidebar({
+  onLoadRun,
+  onRunGraphReady,
+  onRunStart,
+}: {
+  onLoadRun: (run: string) => Promise<void>;
+  onRunGraphReady: (run: string) => Promise<void>;
+  onRunStart: () => Promise<void>;
+}) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   return (
@@ -1343,15 +1487,28 @@ function ChatSidebar({ onRunGraphReady }: { onRunGraphReady: (run: string) => Pr
         </div>
       </section>
       <SearchPanel />
-      <RunMonitor onRunGraphReady={onRunGraphReady} />
+      <RunExplorer onLoadRun={onLoadRun} />
+      <RunMonitor onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
     </>
   );
 }
 
-function SideRail({ activeMode, onRunGraphReady }: { activeMode: WorkspaceMode; onRunGraphReady: (run: string) => Promise<void> }) {
+function SideRail({
+  activeMode,
+  onLoadRun,
+  onRunGraphReady,
+  onRunStart,
+}: {
+  activeMode: WorkspaceMode;
+  onLoadRun: (run: string) => Promise<void>;
+  onRunGraphReady: (run: string) => Promise<void>;
+  onRunStart: () => Promise<void>;
+}) {
   return (
     <aside className="side-panel">
-      {activeMode === "chat" ? <ChatSidebar onRunGraphReady={onRunGraphReady} /> : null}
+      {activeMode === "chat" ? (
+        <ChatSidebar onLoadRun={onLoadRun} onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
+      ) : null}
       {activeMode === "graph" ? (
         <>
           <SidebarHeader title="Graph" subtitle="artifact controls and inspection" />
@@ -1370,8 +1527,9 @@ function SideRail({ activeMode, onRunGraphReady }: { activeMode: WorkspaceMode; 
       ) : null}
       {activeMode === "runs" ? (
         <>
-          <SidebarHeader title="Runs" subtitle="launch, monitor, and refresh" />
-          <RunMonitor defaultOpen onRunGraphReady={onRunGraphReady} />
+          <SidebarHeader title="Runs" subtitle="sessions, launch, and monitor" />
+          <RunExplorer defaultOpen onLoadRun={onLoadRun} />
+          <RunMonitor defaultOpen onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
         </>
       ) : null}
       {activeMode === "models" ? (
@@ -1428,9 +1586,7 @@ function ThreadStage({
 }) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
-  const messages = useExplorerStore((state) => state.chatMessages);
   const stats = graph?.stats;
-  const latest = messages.slice(-4);
 
   return (
     <section className="thread-stage">
@@ -1468,26 +1624,19 @@ function ThreadStage({
           </div>
         </div>
 
-        <div className="thread-feed">
-          {latest.length ? (
-            latest.map((message) => (
-              <div className={cx("thread-message", message.role)} key={message.id}>
-                <div className="thread-meta">
-                  {message.role}
-                  {message.meta ? ` | ${message.meta}` : ""}
-                </div>
-                <div>{message.content}</div>
-              </div>
-            ))
-          ) : (
-            <div className="thread-message assistant">
-              <div className="thread-meta">system | workspace</div>
-              <div>
-                Load or start a run, then ask for summaries, gaps, bridges, central nodes, or paths. Open the graph only
-                when you need spatial inspection.
-              </div>
-            </div>
-          )}
+        <div className="thread-session-grid">
+          <div className="session-card">
+            <span>Selection</span>
+            <strong>{selectedNodes.length ? `${formatNumber(selectedNodes.length)} nodes` : "None"}</strong>
+          </div>
+          <div className="session-card">
+            <span>Graph</span>
+            <strong>{graph ? `${formatNumber(stats?.nodes || 0)} / ${formatNumber(stats?.edges || 0)}` : "Not loaded"}</strong>
+          </div>
+          <div className="session-card">
+            <span>Run</span>
+            <strong>{graph?.path ? graph.path.split("/runs/").pop()?.split("/")[0] || graph.name : "No session"}</strong>
+          </div>
         </div>
       </div>
     </section>
@@ -1535,6 +1684,11 @@ function App() {
     [setGraph],
   );
 
+  const clearGraphForRun = React.useCallback(async () => {
+    setGraph(null);
+    await api.clearGraph();
+  }, [setGraph]);
+
   const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
 
   return (
@@ -1542,7 +1696,12 @@ function App() {
       <Header onGraphLoaded={showGraph} onLoadRun={loadRun} />
       <main className="workspace">
         <ActivityRail activeMode={activeMode} onModeChange={setActiveMode} />
-        <SideRail activeMode={activeMode} onRunGraphReady={refreshRunGraph} />
+        <SideRail
+          activeMode={activeMode}
+          onLoadRun={loadRun}
+          onRunGraphReady={refreshRunGraph}
+          onRunStart={clearGraphForRun}
+        />
         {graphArtifactOpen ? (
           <section className="artifact-stage">
             <div className="artifact-toolbar">
@@ -1573,12 +1732,6 @@ function App() {
         )}
         <aside className="assistant-panel">
           <ChatPanel />
-          {!graph ? (
-            <div className="empty-state">
-              <BrainCircuit size={18} />
-              Load a run, upload GraphML, or start a CLI run to begin.
-            </div>
-          ) : null}
         </aside>
       </main>
     </div>

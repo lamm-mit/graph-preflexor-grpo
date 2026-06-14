@@ -342,6 +342,83 @@ def _available_runs_message(limit=20):
     return f"available runs: {shown}"
 
 
+def _latest_existing_mtime(paths, fallback):
+    mtimes = []
+    for path in paths:
+        try:
+            if path and Path(path).exists():
+                mtimes.append(Path(path).stat().st_mtime)
+        except OSError:
+            pass
+    return max(mtimes) if mtimes else fallback
+
+
+def _read_summary(run_dir):
+    path = run_dir / "summary.json"
+    if not path.exists():
+        return {}
+    try:
+        with path.open(errors="replace") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _run_summary(run_dir):
+    summary = _read_summary(run_dir)
+    metrics = dict(summary.get("metrics") or {})
+    stats = dict(summary.get("stats") or {})
+    config = dict(summary.get("config") or {})
+    snapshot = _snapshot_meta(run_dir)
+    progress = _progress_payload(run_dir)
+    rel_path = str(run_dir)
+    try:
+        rel_path = str(run_dir.relative_to(IDEATION_DIR))
+    except ValueError:
+        pass
+    updated_at = _latest_existing_mtime(
+        [
+            run_dir,
+            run_dir / "summary.json",
+            run_dir / "growth.csv",
+            snapshot.get("graph_path") or "",
+        ],
+        time.time(),
+    )
+    nodes = progress.get("nodes") or _safe_int(metrics.get("nodes"))
+    edges = progress.get("edges") or _safe_int(metrics.get("edges"))
+    calls = progress.get("calls") or _safe_int(stats.get("calls"))
+    iters = progress.get("iter")
+    if iters is None or iters < 0:
+        iters = _safe_int(stats.get("iters"))
+    return {
+        "name": run_dir.name,
+        "path": rel_path,
+        "absolute_path": str(run_dir),
+        "topic": str(summary.get("topic") or ""),
+        "strategy": str(config.get("strategy") or ""),
+        "updated_at": updated_at,
+        "graph_ready": bool(snapshot.get("graph_ready")),
+        "graph_path": snapshot.get("graph_path") or "",
+        "snapshot_count": snapshot.get("snapshot_count") or 0,
+        "snapshot_iter": snapshot.get("snapshot_iter"),
+        "nodes": nodes,
+        "edges": edges,
+        "calls": calls,
+        "iters": iters,
+        "status": "graph ready" if snapshot.get("graph_ready") else "waiting for graph",
+    }
+
+
+def _runs_payload():
+    runs_dir = IDEATION_DIR / "runs"
+    if not runs_dir.exists():
+        return {"root": str(runs_dir), "runs": []}
+    runs = [_run_summary(path) for path in runs_dir.iterdir() if path.is_dir()]
+    runs.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
+    return {"root": str(runs_dir), "runs": runs}
+
+
 def _resolve_run_path(run_value):
     raw = str(run_value or "").strip()
     if not raw:
@@ -675,6 +752,16 @@ def _set_graph(G, *, name, path="", topic=""):
         STATE["graph_path"] = path
         STATE["topic"] = topic
         return graph_payload(G, name=name, path=path, topic=topic, include_attrs=True)
+
+
+def _clear_graph():
+    with LOCK:
+        STATE["graph"] = None
+        STATE["graph_id"] = None
+        STATE["graph_name"] = ""
+        STATE["graph_path"] = ""
+        STATE["topic"] = ""
+    return {"ok": True}
 
 
 def _require_graph():
@@ -1282,6 +1369,8 @@ class Handler(SimpleHTTPRequestHandler):
                         path=STATE.get("graph_path", ""),
                         topic=STATE.get("topic", ""),
                     ))
+            elif parsed.path == "/api/runs":
+                self._json(_runs_payload())
             elif parsed.path == "/api/job":
                 self._json(_job_status((qs.get("id") or [""])[0]))
             elif parsed.path == "/api/config":
@@ -1331,6 +1420,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_answer_question(body))
             elif parsed.path == "/api/ideate":
                 self._json(_start_ideate_job(body))
+            elif parsed.path == "/api/clear_graph":
+                self._json(_clear_graph())
             elif parsed.path == "/api/stop_job":
                 self._json(_stop_job(body))
             elif parsed.path == "/api/model_status":
