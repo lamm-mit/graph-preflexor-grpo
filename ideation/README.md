@@ -1442,6 +1442,30 @@ the provenance section can explain where concepts entered the graph; arbitrary G
 structural/module audit. `report.pdf` is rendered by default with Pandoc when available; add `--no-pdf`
 to skip PDF generation.
 
+PDF rendering requires **Pandoc** plus a LaTeX engine (`xelatex`, `lualatex`, or `pdflatex`). If a run
+prints `PDF not written: pandoc not found`, the Markdown report and JSON were still written; install the
+PDF dependencies and rerun the same command.
+
+```bash
+# Ubuntu / Debian
+sudo apt update
+sudo apt install pandoc texlive-xetex texlive-latex-recommended texlive-latex-extra
+
+# Fedora
+sudo dnf install pandoc texlive-xetex
+
+# Arch
+sudo pacman -S pandoc texlive-binextra texlive-latexrecommended texlive-latexextra
+
+# macOS / Homebrew
+brew install pandoc
+brew install --cask mactex-no-gui
+
+# Verify that profile_graph.py can find the PDF tools
+pandoc --version
+xelatex --version
+```
+
 ```bash
 # Completed run; writes runs/exp_leap/profile/{report.md,profile.json,figures/*}
 python profile_graph.py --run runs/exp_leap --out runs/exp_leap/profile
@@ -1466,7 +1490,8 @@ python profile_graph.py \
     --llm-deep-passes 4 \
     --max-summary-tokens 1600 \
     --deep-pass-tokens 5000 \
-    --deep-dive-tokens 12000
+    --deep-dive-tokens 12000 \
+    --report-review-tokens 10000
 
 # Local Llama comparison on an OpenAI-compatible server at localhost:8000.
 # Most local servers expose chat-completions, not Responses API, so use --backend chat.
@@ -1482,7 +1507,8 @@ python profile_graph.py \
     --llm-deep-passes 4 \
     --max-summary-tokens 1600 \
     --deep-pass-tokens 5000 \
-    --deep-dive-tokens 12000
+    --deep-dive-tokens 12000 \
+    --report-review-tokens 8000
 
 # If your local server implements the Responses API, you can compare that path directly.
 python profile_graph.py \
@@ -1498,7 +1524,8 @@ python profile_graph.py \
     --llm-deep-passes 4 \
     --max-summary-tokens 1600 \
     --deep-pass-tokens 5000 \
-    --deep-dive-tokens 12000
+    --deep-dive-tokens 12000 \
+    --report-review-tokens 8000
 ```
 
 For OpenAI models, `--backend responses` (also accepted as `--backend openai`) uses the Responses API
@@ -1506,11 +1533,21 @@ with `reasoning={"effort": "high"}` by default; adjust with `--reasoning-effort`
 Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files do not
 always contain the original embedding model context. The deterministic mining layer still runs without
 embeddings, using lexical distance instead of embedding distance, but `--embed-model auto` usually gives
-better long-range and analogy candidates. The report includes a **Mined Graph Insights** section with
-long transitive paths, compact cross-module bridges, recurring two-step motifs, local role-equivalence
-analogies, exact rooted ego-net isomorphism classes, exact small-module isomorphism classes, WL orbit
-candidate classes, bounded whole-graph automorphism checks, and non-hub brokerage nodes; the LLM receives
-the same evidence for its paper-level analysis.
+better long-range and analogy candidates. The report includes near-top **Mined Graph Insights -
+Executive Discoveries** and **Deep Mining Evidence - Executive Audit** summaries plus a full
+**Mined Graph Insights** evidence section with long transitive paths, compact cross-module bridges,
+recurring two-step motifs, local role-equivalence analogies, exact rooted ego-net isomorphism classes,
+exact small-module isomorphism classes, WL orbit candidate classes, bounded whole-graph automorphism
+checks, non-hub brokerage nodes, non-hub centrality, hub-free paths, late-emerging concepts, semantic
+outliers, provenance/search dynamics, and quality flags; the LLM receives the same evidence for its
+paper-level analysis. With `--llm`, the profiler also writes a draft report, sends prioritized sections
+of that completed draft back through the LLM, and rewrites the report with **Final LLM Report Review -
+Comprehensive Insight Synthesis** before rendering the PDF. Disable that last pass with
+`--no-llm-report-review`. By default, the report-review stage does **not** artificially clip sections or
+section-review memos: `--report-review-max-chunks 0`, `--report-review-chunk-chars 0`, and
+`--report-review-memo-chars 0` mean all major sections and full memos are sent. For small local-context
+servers, explicitly set those caps if the server rejects the request for exceeding context length.
+Tune the final synthesis length with `--report-review-tokens`.
 The CLI prints stage-by-stage progress while it runs, including per-module summaries, extra evidence-pass
 calls (`--llm-deep-passes`, default 4), PDF rendering, and the final paper-level synthesis; add `--quiet`
 to suppress progress output. The deep-dive

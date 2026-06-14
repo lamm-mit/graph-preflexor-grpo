@@ -21,7 +21,8 @@ Examples
     # Use the Responses API with high reasoning effort for summaries and deep dive.
     # Writes report.md, report.pdf, profile.json, and figures/ by default.
     python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 \
-        --reasoning-effort high --deep-pass-tokens 5000 --deep-dive-tokens 12000
+        --reasoning-effort high --deep-pass-tokens 5000 --deep-dive-tokens 12000 \
+        --report-review-tokens 10000
 
     # Local servers without Responses API can use the chat backend.
     python profile_graph.py --graph graph.graphml --llm --backend chat \
@@ -80,6 +81,11 @@ class LLMOptions:
     deep_tokens: int = 10000
     reasoning_effort: str = "high"
     deep_passes: int = 4
+    report_review: bool = True
+    report_review_tokens: int = 8000
+    report_review_max_chunks: int = 0
+    report_review_chunk_chars: int = 0
+    report_review_memo_chars: int = 0
     device: Optional[str] = None
     dtype: str = "auto"
 
@@ -2195,6 +2201,217 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
     return out
 
 
+def _split_markdown_major_sections(markdown: str) -> List[Dict[str, str]]:
+    sections = []
+    title = "Preamble"
+    buf: List[str] = []
+    for line in markdown.splitlines():
+        if line.startswith("## "):
+            if buf:
+                sections.append({"title": title, "text": "\n".join(buf).strip()})
+            title = line.lstrip("#").strip()
+            buf = [line]
+        else:
+            buf.append(line)
+    if buf:
+        sections.append({"title": title, "text": "\n".join(buf).strip()})
+    return [s for s in sections if s["text"]]
+
+
+def _clip_for_report_review(text: str, max_chars: int) -> str:
+    if max_chars <= 0:
+        return text
+    if len(text) <= max_chars:
+        return text
+    head = max(1000, int(max_chars * 0.68))
+    tail = max(1000, max_chars - head - 300)
+    return (
+        text[:head].rstrip()
+        + "\n\n[...section clipped for final LLM review...]\n\n"
+        + text[-tail:].lstrip()
+    )
+
+
+def _report_review_packets(report_text: str, opts: LLMOptions) -> List[Dict[str, Any]]:
+    sections = _split_markdown_major_sections(report_text)
+    limit = opts.report_review_max_chunks if opts.report_review_max_chunks > 0 else len(sections)
+    priority = [
+        "Executive Summary",
+        "Mined Graph Insights - Executive Discoveries",
+        "Deep Mining Evidence - Executive Audit",
+        "Paper-Level Graph Interpretation",
+        "Mined Graph Insights",
+        "Critical Connectors And Paths",
+        "Semantic Audit",
+        "Provenance",
+        "Data Quality Flags",
+        "Module Atlas",
+        "Inter-Module Edges",
+        "LLM Supporting Evidence Passes",
+        "Global Statistics",
+    ]
+    by_title = {s["title"].lower(): s for s in sections}
+    selected: List[Dict[str, str]] = []
+    seen = set()
+    for title in priority:
+        if len(selected) >= limit:
+            break
+        section = by_title.get(title.lower())
+        if section and section["title"] not in seen:
+            selected.append(section)
+            seen.add(section["title"])
+    for section in sections:
+        if len(selected) >= limit:
+            break
+        if section["title"] not in seen:
+            selected.append(section)
+            seen.add(section["title"])
+    packets = []
+    for section in selected[:limit]:
+        clipped = _clip_for_report_review(section["text"], opts.report_review_chunk_chars)
+        packets.append({
+            "title": section["title"],
+            "chars_original": len(section["text"]),
+            "chars_sent": len(clipped),
+            "text": clipped,
+        })
+    return packets
+
+
+def _report_section_review_prompt(profile: Dict[str, Any], packet: Dict[str, Any],
+                                  index: int, total: int) -> str:
+    payload = {
+        "original_topic": profile.get("topic"),
+        "section_index": index,
+        "section_count": total,
+        "section_title": packet["title"],
+        "chars_original": packet["chars_original"],
+        "graph_scope": {
+            "nodes": profile["global_stats"]["nodes"],
+            "edges": profile["global_stats"]["edges"],
+            "modularity": profile["global_stats"].get("modularity"),
+            "largest_component_fraction": profile["global_stats"]["largest_component_frac"],
+        },
+        "section_text": packet["text"],
+    }
+    return (
+        "You are doing a final report-review pass for a deep graph profile. Read this report section "
+        "as evidence, not as ground truth. Extract the most important insight-bearing claims, "
+        "cross-section implications, contradictions, noise risks, and follow-up questions. "
+        "Prefer concrete node labels, relation verbs, paths, motifs, modules, and provenance clues. "
+        "Do not repeat boilerplate. Mark speculative implications as hypotheses.\n\n"
+        "Return a dense Markdown memo with these headings: Key Evidence, Deep Insights, Risks, "
+        "Follow-Up Questions.\n\n"
+        + json.dumps(payload, indent=2)
+    )
+
+
+def _final_report_synthesis_prompt(profile: Dict[str, Any], section_reviews: Sequence[Dict[str, Any]],
+                                   opts: LLMOptions) -> str:
+    review_payloads = []
+    for review in section_reviews:
+        review_payloads.append({
+            "title": review.get("title"),
+            "chars_original": review.get("chars_original"),
+            "chars_sent": review.get("chars_sent"),
+            "memo": _clip_for_report_review(str(review.get("memo", "")), opts.report_review_memo_chars),
+        })
+    payload = {
+        "original_topic": profile.get("topic"),
+        "graph_scope": {
+            "nodes": profile["global_stats"]["nodes"],
+            "edges": profile["global_stats"]["edges"],
+            "density": profile["global_stats"]["density"],
+            "modularity": profile["global_stats"].get("modularity"),
+            "largest_component_fraction": profile["global_stats"]["largest_component_frac"],
+            "relations": profile["global_stats"]["relations"][:20],
+        },
+        "near_top_mined_discoveries": _compact_mined_insights(profile),
+        "near_top_deep_evidence": _compact_deep_evidence(profile),
+        "top_modules": [_slim_module(m, top_nodes=6) for m in profile["communities"][:10]],
+        "data_quality": {
+            "n_flagged_labels": profile["quality"]["n_flagged_labels"],
+            "flagged_examples": profile["quality"]["flagged_labels"][:20],
+            "duplicate_normalized_examples": profile["quality"]["duplicate_normalized_labels"][:15],
+        },
+        "section_review_memos": review_payloads,
+    }
+    return (
+        "You have now reviewed the completed graph profile report section by section. Write the final, "
+        "highest-level insight synthesis for the report. This should be more integrative than the earlier "
+        "paper-level deep dive: connect graph statistics, mined paths, motifs, analogies, isomorphism audit, "
+        "module structure, provenance, semantic audit, and quality risks into a coherent interpretation of "
+        "what the graph is telling us about the original topic.\n\n"
+        "Use only the report evidence and payload. Distinguish direct graph evidence from hypotheses. "
+        "Do not invent external domain facts. Be concrete and cite labels, relation verbs, modules, motifs, "
+        "paths, and caveats.\n\n"
+        "Return Markdown with these headings:\n"
+        "1. Final Integrated Thesis\n"
+        "2. Strongest Evidence-Backed Discoveries\n"
+        "3. Non-Obvious Cross-Section Connections\n"
+        "4. Long-Range, Analogical, Motif, And Isomorphism Signals\n"
+        "5. Highest-Value Hypotheses To Investigate\n"
+        "6. What To Distrust Or Clean Before Acting\n"
+        "7. Next Graph Queries And Human Review Tasks\n"
+        "8. One-Page Narrative Summary\n\n"
+        + json.dumps(payload, indent=2)
+    )
+
+
+def _llm_final_report_review(profile: Dict[str, Any], report_path: Path, opts: LLMOptions,
+                             progress: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+    if not opts.enabled or not opts.report_review:
+        return {}
+    report_text = report_path.read_text(encoding="utf-8")
+    packets = _report_review_packets(report_text, opts)
+    system = (
+        "You are a senior graph-mining analyst doing a final audit of an already-written graph profile. "
+        "Your job is to extract deep, evidence-grounded insights from the report, not to restate sections."
+    )
+    section_opts = replace(opts, max_tokens=max(opts.max_tokens, opts.deep_pass_tokens))
+    reviews = []
+    for i, packet in enumerate(packets, 1):
+        if progress:
+            progress(f"LLM final report review section {i}/{len(packets)}: {packet['title']}")
+        memo = _call_llm_checked(
+            system,
+            _report_section_review_prompt(profile, packet, i, len(packets)),
+            section_opts,
+            f"report_review_{i}_{_slug(packet['title'])}",
+            min_chars=180,
+        )
+        reviews.append({
+            "title": packet["title"],
+            "chars_original": packet["chars_original"],
+            "chars_sent": packet["chars_sent"],
+            "memo": memo,
+        })
+
+    if progress:
+        progress("LLM final integrated report synthesis")
+    final_opts = replace(opts, max_tokens=max(opts.max_tokens, opts.report_review_tokens))
+    synthesis = _call_llm_checked(
+        system,
+        _final_report_synthesis_prompt(profile, reviews, opts),
+        final_opts,
+        "final_report_review_synthesis",
+        min_chars=700,
+    )
+    return {
+        "enabled": True,
+        "model": opts.model,
+        "backend": opts.backend,
+        "reasoning_effort": opts.reasoning_effort,
+        "section_count": len(reviews),
+        "section_reviews": reviews,
+        "synthesis": synthesis,
+        "tokens_requested": final_opts.max_tokens,
+        "chunk_chars": opts.report_review_chunk_chars,
+        "memo_chars": opts.report_review_memo_chars,
+        "max_chunks": opts.report_review_max_chunks,
+    }
+
+
 def _save_figures(profile: Dict[str, Any], G: nx.Graph, vecs: Optional[Dict[Any, np.ndarray]],
                   module_of: Dict[Any, int], out_dir: Path) -> List[str]:
     mpl_cache = out_dir / ".mplconfig"
@@ -2335,6 +2552,232 @@ def _md_table(rows: Sequence[Sequence[Any]], headers: Sequence[str]) -> str:
     return "\n".join(out)
 
 
+def _mined_discovery_summary(profile: Dict[str, Any]) -> List[str]:
+    mined = profile.get("mined_insights") or {}
+    if not mined:
+        return []
+
+    long_paths = mined.get("long_range_transitive_paths", [])
+    short_bridges = mined.get("short_cross_module_bridges", [])
+    analogies = mined.get("structural_analogies", [])
+    motifs = mined.get("relational_motifs", [])
+    brokers = mined.get("brokerage_nodes", [])
+    iso = mined.get("isomorphism_analysis") or {}
+    wl = iso.get("wl_orbit_candidates") or {}
+    ego_iso = iso.get("rooted_ego_isomorphism_classes") or []
+    module_iso = iso.get("small_module_isomorphism_classes") or []
+    auto = iso.get("whole_graph_automorphism") or {}
+
+    if auto.get("attempted"):
+        auto_status = f"attempted; count={auto.get('automorphism_count', auto.get('count_lower_bound', 'unknown'))}"
+    else:
+        auto_status = auto.get("reason", "not attempted")
+
+    def analogy_text(row: Dict[str, Any]) -> str:
+        a = row.get("node_a", {}).get("label", "?")
+        b = row.get("node_b", {}).get("label", "?")
+        roles = "; ".join(x.get("role", "") for x in row.get("shared_relation_roles", [])[:4])
+        return f"{a} <-> {b}" + (f" ({roles})" if roles else "")
+
+    lines = [
+        "## Mined Graph Insights - Executive Discoveries",
+        "",
+        "This near-top section summarizes the deterministic graph-mining evidence. "
+        "The full evidence tables are repeated later under **Mined Graph Insights**.",
+        "",
+        _md_table([
+            ("long-range transitive paths", len(long_paths), long_paths[0]["text"] if long_paths else "(none)"),
+            ("short cross-module bridges", len(short_bridges), short_bridges[0]["text"] if short_bridges else "(none)"),
+            ("structural analogy candidates", len(analogies), analogy_text(analogies[0]) if analogies else "(none met threshold)"),
+            ("recurring relation motifs", len(motifs), motifs[0]["relation_chain"] if motifs else "(none)"),
+            ("non-hub brokerage nodes", len(brokers), brokers[0]["label"] if brokers else "(none)"),
+            ("WL orbit candidate classes", wl.get("candidate_class_count", 0), f"{wl.get('candidate_node_count', 0)} nodes covered"),
+            ("exact rooted ego-net isomorphism classes", len(ego_iso), ego_iso[0]["roots"][0]["label"] if ego_iso else "(none met threshold)"),
+            ("exact small-module isomorphism classes", len(module_iso), f"{module_iso[0]['class_size']} modules" if module_iso else "(none met threshold)"),
+            ("whole-graph automorphism", "status", auto_status),
+        ], ["mined evidence", "count/status", "top example"]),
+        "",
+    ]
+
+    if long_paths:
+        lines += ["### Top Long-Range Transitive Paths", ""]
+        lines.append(_md_table([
+            (r["score"], r["hops"], r["endpoint_topic_distance"], r["text"])
+            for r in long_paths[:5]
+        ], ["score", "hops", "topic distance", "path"]))
+        lines.append("")
+
+    if analogies:
+        lines += ["### Top Structural Analogies", ""]
+        lines.append(_md_table([
+            (r["score"], r["signature_similarity"], r["topic_distance"],
+             r["node_a"]["label"], r["node_b"]["label"],
+             "; ".join(x["role"] for x in r.get("shared_relation_roles", [])[:5]))
+            for r in analogies[:5]
+        ], ["score", "role sim", "topic distance", "node A", "node B", "shared roles"]))
+        lines.append("")
+
+    if motifs:
+        lines += ["### Top Recurring Relation Motifs", ""]
+        lines.append(_md_table([
+            (r["count"], r["relation_chain"], r["role_pattern"],
+             r.get("examples", [{}])[0].get("text", ""))
+            for r in motifs[:5]
+        ], ["count", "relation chain", "module role pattern", "example"]))
+        lines.append("")
+
+    if wl.get("candidate_classes") or ego_iso or module_iso:
+        lines += ["### Isomorphism Snapshot", ""]
+        if wl.get("candidate_classes"):
+            lines.append(_md_table([
+                (r["score"], r["class_size"], ", ".join(map(str, r["modules"])),
+                 "; ".join(n["label"] for n in r.get("nodes", [])[:6]))
+                for r in wl["candidate_classes"][:5]
+            ], ["WL score", "class size", "modules", "example nodes"]))
+            lines.append("")
+        if ego_iso:
+            lines.append(_md_table([
+                (r["score"], r["radius"], r["class_size"],
+                 "; ".join(n["label"] for n in r.get("roots", [])[:6]))
+                for r in ego_iso[:5]
+            ], ["ego score", "radius", "class size", "root examples"]))
+            lines.append("")
+        if module_iso:
+            lines.append(_md_table([
+                (r["score"], r["class_size"], r["module_nodes"], r["module_edges"])
+                for r in module_iso[:5]
+            ], ["module score", "class size", "nodes", "edges"]))
+            lines.append("")
+
+    return lines
+
+
+def _deep_mining_summary(profile: Dict[str, Any]) -> List[str]:
+    deep = profile.get("deep_evidence") or {}
+    sem = profile.get("semantic_audit") or {}
+    critical = profile.get("critical_connectors") or {}
+    prov = profile.get("provenance") or {}
+    quality = profile.get("quality") or {}
+    if not any((deep, sem, critical, prov, quality)):
+        return []
+
+    nonhub_pr = deep.get("non_hub_top_pagerank", [])
+    nonhub_bet = deep.get("non_hub_top_betweenness", [])
+    boundary = deep.get("non_hub_boundary_bridges", [])
+    hub_free_paths = deep.get("hub_free_cross_module_paths", [])
+    late_pr = deep.get("late_arriving_high_pagerank", [])
+    late_degree = deep.get("late_arriving_high_degree", [])
+    art = critical.get("articulation_points", [])
+    bridge_edges = critical.get("bridge_edges", [])
+    semantic_outliers = sem.get("semantic_outliers", [])
+    distant_paths = sem.get("distant_connected_paths", [])
+    source_questions = prov.get("source_questions_by_new_nodes", [])
+    high_token_zero = prov.get("high_token_zero_yield_iterations", [])
+
+    def labels(rows: Sequence[Dict[str, Any]], n: int = 5) -> str:
+        return "; ".join(str(r.get("label", r.get("source", ""))) for r in rows[:n]) or "(none)"
+
+    lines = [
+        "## Deep Mining Evidence - Executive Audit",
+        "",
+        "This near-top section summarizes the broader deterministic audit beyond the path/motif/"
+        "isomorphism miners. It surfaces the evidence the LLM uses for the paper-level interpretation.",
+        "",
+        _md_table([
+            ("non-hub PageRank leaders", len(nonhub_pr), labels(nonhub_pr)),
+            ("non-hub betweenness leaders", len(nonhub_bet), labels(nonhub_bet)),
+            ("non-hub boundary bridges", len(boundary), labels(boundary)),
+            ("hub-free cross-module paths", len(hub_free_paths), hub_free_paths[0]["text"] if hub_free_paths else "(none)"),
+            ("late-arriving high-PageRank concepts", len(late_pr), labels(late_pr)),
+            ("late-arriving high-degree concepts", len(late_degree), labels(late_degree)),
+            ("articulation points", len(art), labels(art)),
+            ("bridge edges", len(bridge_edges), f"{bridge_edges[0]['source']} - {bridge_edges[0]['target']}" if bridge_edges else "(none)"),
+            ("semantic outliers", len(semantic_outliers), labels(semantic_outliers)),
+            ("distant semantic paths", len(distant_paths), distant_paths[0]["text"] if distant_paths else "(none)"),
+            ("top source questions", len(source_questions), source_questions[0][0] if source_questions else "(none)"),
+            ("high-token zero-yield iterations", len(high_token_zero), high_token_zero[0].get("question", "(none)") if high_token_zero else "(none)"),
+            ("flagged labels", quality.get("n_flagged_labels", 0), labels(quality.get("flagged_labels", []))),
+        ], ["deep evidence", "count", "top example"]),
+        "",
+    ]
+
+    central_rows = []
+    for row in nonhub_pr[:5]:
+        central_rows.append(("PageRank", row["label"], row.get("module"), row.get("pagerank"), row.get("degree"), row.get("iter")))
+    for row in nonhub_bet[:5]:
+        central_rows.append(("betweenness", row["label"], row.get("module"), row.get("betweenness"), row.get("degree"), row.get("iter")))
+    if central_rows:
+        lines += ["### Non-Hub Central Concepts", ""]
+        lines.append(_md_table(central_rows, ["view", "label", "module", "score", "degree", "iter"]))
+        lines.append("")
+
+    if boundary:
+        lines += ["### Boundary Bridges After Removing Global Hubs", ""]
+        lines.append(_md_table([
+            (r["label"], r.get("module"), r.get("external_neighbors"), r.get("betweenness"), r.get("pagerank"), r.get("iter"))
+            for r in boundary[:8]
+        ], ["label", "module", "external neighbors", "betweenness", "pagerank", "iter"]))
+        lines.append("")
+
+    if hub_free_paths:
+        lines += ["### Hub-Free Cross-Module Paths", ""]
+        for i, path in enumerate(hub_free_paths[:6], 1):
+            lines.append(f"{i}. score={path.get('score', 0):.4g}: {path.get('text', '')}")
+        lines.append("")
+
+    late_rows = []
+    for row in late_pr[:5]:
+        late_rows.append(("late PageRank", row["label"], row.get("module"), row.get("pagerank"), row.get("degree"), row.get("iter")))
+    for row in late_degree[:5]:
+        late_rows.append(("late degree", row["label"], row.get("module"), row.get("pagerank"), row.get("degree"), row.get("iter")))
+    if late_rows:
+        lines += ["### Late-Emerging Important Concepts", ""]
+        lines.append(_md_table(late_rows, ["view", "label", "module", "pagerank", "degree", "iter"]))
+        lines.append("")
+
+    if art or bridge_edges:
+        lines += ["### Critical Connector Snapshot", ""]
+        if art:
+            lines.append(_md_table([
+                (r["label"], r.get("extra_fragments"), r.get("degree"), r.get("betweenness"), r.get("iter"))
+                for r in art[:8]
+            ], ["articulation point", "extra fragments", "degree", "betweenness", "iter"]))
+            lines.append("")
+        if bridge_edges:
+            lines.append(_md_table([
+                (r["source"], r["target"], r.get("source_degree"), r.get("target_degree"))
+                for r in bridge_edges[:8]
+            ], ["bridge source", "bridge target", "source degree", "target degree"]))
+            lines.append("")
+
+    if semantic_outliers or distant_paths:
+        lines += ["### Semantic Mining Snapshot", ""]
+        if semantic_outliers:
+            lines.append(_md_table([
+                (r["label"], r.get("distance_from_centroid"), r.get("module"), r.get("iter"))
+                for r in semantic_outliers[:8]
+            ], ["semantic outlier", "distance", "module", "iter"]))
+            lines.append("")
+        if distant_paths:
+            for i, path in enumerate(distant_paths[:5], 1):
+                lines.append(f"{i}. distance={path.get('distance', 0):.4g}: {path.get('text', '')}")
+            lines.append("")
+
+    if source_questions or high_token_zero:
+        lines += ["### Provenance And Search-Dynamics Snapshot", ""]
+        if source_questions:
+            lines.append(_md_table(source_questions[:8], ["source question", "node count"]))
+            lines.append("")
+        if high_token_zero:
+            lines.append(_md_table([
+                (r.get("iter"), r.get("tokens"), r.get("question"), r.get("answer_excerpt"))
+                for r in high_token_zero[:5]
+            ], ["iter", "tokens", "question", "answer excerpt"]))
+            lines.append("")
+
+    return lines
+
+
 def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
     path = out_dir / "report.md"
     gs = profile["global_stats"]
@@ -2360,6 +2803,9 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
             "",
         ]
 
+    lines += _mined_discovery_summary(profile)
+    lines += _deep_mining_summary(profile)
+
     if llm:
         lines += ["## Paper-Level Graph Interpretation", ""]
         if llm.get("deep_dive"):
@@ -2378,6 +2824,14 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
                 "LLM summaries were requested, but no paper-level deep-dive text was returned. "
                 "Check `profile.json` under `llm_summaries` and rerun with a larger "
                 "`--deep-dive-tokens` value if the model truncated or returned an empty answer.",
+                "",
+            ]
+        final_review = llm.get("final_report_review") or {}
+        if final_review.get("synthesis"):
+            lines += [
+                "## Final LLM Report Review - Comprehensive Insight Synthesis",
+                "",
+                final_review["synthesis"],
                 "",
             ]
         if llm.get("deep_dive_passes"):
@@ -2735,6 +3189,8 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
         total_steps += 1
     if llm_options and llm_options.enabled:
         total_steps += 1
+        if llm_options.report_review:
+            total_steps += 1
     if pdf:
         total_steps += 1
     progress = _Progress(verbose, total_steps)
@@ -2841,6 +3297,14 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
     report = _write_markdown(profile, out_dir)
     profile["report_path"] = str(report)
 
+    if llm_options and llm_options.enabled and llm_options.report_review:
+        progress.step("Running final LLM report review")
+        profile.setdefault("llm_summaries", {})
+        profile["llm_summaries"]["final_report_review"] = _llm_final_report_review(
+            profile, report, llm_options, progress=progress.detail)
+        report = _write_markdown(profile, out_dir)
+        profile["report_path"] = str(report)
+
     if pdf:
         progress.step("Rendering PDF report")
         pdf_path, pdf_error = _write_pdf(report, out_dir)
@@ -2886,6 +3350,18 @@ def main() -> None:
                    help="[responses/openai] reasoning effort for the LLM analysis calls")
     p.add_argument("--llm-deep-passes", type=int, default=4,
                    help="number of extra LLM evidence passes before the final deep dive; 0 disables")
+    p.add_argument("--llm-report-review", dest="llm_report_review", action="store_true", default=True,
+                   help="after writing the draft report, run a final LLM review/synthesis pass (default with --llm)")
+    p.add_argument("--no-llm-report-review", dest="llm_report_review", action="store_false",
+                   help="skip the final report-level LLM review pass")
+    p.add_argument("--report-review-tokens", type=int, default=8000,
+                   help="output-token budget for the final report-level synthesis")
+    p.add_argument("--report-review-max-chunks", type=int, default=0,
+                   help="maximum report sections to review before final synthesis; 0 means all major sections")
+    p.add_argument("--report-review-chunk-chars", type=int, default=0,
+                   help="maximum characters per report section sent to the final review pass; 0 means no clipping")
+    p.add_argument("--report-review-memo-chars", type=int, default=0,
+                   help="maximum characters per section-review memo sent to final synthesis; 0 means no clipping")
     p.add_argument("--device", help="[hf] device_map")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16", "float32"])
     p.add_argument("--pdf", dest="pdf", action="store_true", default=True,
@@ -2900,6 +3376,11 @@ def main() -> None:
                       deep_pass_tokens=args.deep_pass_tokens, deep_tokens=args.deep_dive_tokens,
                       reasoning_effort=args.reasoning_effort,
                       deep_passes=args.llm_deep_passes,
+                      report_review=args.llm_report_review,
+                      report_review_tokens=args.report_review_tokens,
+                      report_review_max_chunks=args.report_review_max_chunks,
+                      report_review_chunk_chars=args.report_review_chunk_chars,
+                      report_review_memo_chars=args.report_review_memo_chars,
                       device=args.device, dtype=args.dtype)
     prof = profile_graph(graph_path=args.graph, run_dir=args.run, out=args.out,
                          embed_model=args.embed_model, top_nodes=args.top_nodes,

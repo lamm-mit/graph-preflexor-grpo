@@ -569,12 +569,14 @@ label {
     overflow-y: auto;
   }
 
-  .connector-list {
+  .connector-list,
+  .bridge-ideas {
     display: grid;
     gap: 7px;
   }
 
-  .connector-list button {
+  .connector-list button,
+  .bridge-ideas button {
     display: grid;
     gap: 3px;
     width: 100%;
@@ -586,11 +588,18 @@ label {
     cursor: pointer;
   }
 
-  .connector-list button:hover {
+  .bridge-ideas button {
+    border-color: #d9ddcf;
+    background: #fbfcf5;
+  }
+
+  .connector-list button:hover,
+  .bridge-ideas button:hover {
     background: #f4f1ea;
   }
 
-  .connector-list span {
+  .connector-list span,
+  .bridge-ideas span {
     color: var(--muted);
   }
 

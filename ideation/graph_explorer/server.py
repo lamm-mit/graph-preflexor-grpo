@@ -859,6 +859,82 @@ def _multipath_payload(body):
     return payload
 
 
+def _bridge_suggestions_payload(body):
+    G = _require_graph()
+    U = G.to_undirected()
+    degree = dict(U.degree())
+    metrics = _centrality(G)
+    raw_selected = body.get("selected_nodes") or []
+    if isinstance(raw_selected, str):
+        raw_selected = [raw_selected]
+    selected = [str(n) for n in raw_selected if n in G]
+
+    def score(n):
+        return float(metrics.get("pagerank", {}).get(n, 0.0)) * 100000.0 + float(degree.get(n, 0))
+
+    def label(n):
+        d = G.nodes[n]
+        return str(d.get("label") or n)
+
+    ranked = [n for n in sorted(U.nodes, key=score, reverse=True) if degree.get(n, 0) > 0]
+    anchors = []
+    seen_groups = set()
+    for n in selected + ranked:
+        group = (G.nodes[n].get("component", 0), G.nodes[n].get("community", 0))
+        if selected and n in selected:
+            anchors.append(n)
+        elif group not in seen_groups:
+            anchors.append(n)
+            seen_groups.add(group)
+        if len(anchors) >= 10:
+            break
+    if len(anchors) < 4:
+        anchors = list(dict.fromkeys(anchors + ranked[:10]))
+
+    ideas = []
+    seen_pairs = set()
+    for i, a in enumerate(anchors):
+        for b in anchors[i + 1:]:
+            if a == b:
+                continue
+            key = tuple(sorted((a, b)))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            try:
+                path = nx.shortest_path(U, a, b)
+            except nx.NetworkXNoPath:
+                continue
+            hops = len(path) - 1
+            if hops < 2 or hops > 8:
+                continue
+            interior = [n for n in path[1:-1] if n in G]
+            connectors = sorted(interior, key=score, reverse=True)[:3]
+            connector_text = ", ".join(label(n) for n in connectors) or "direct neighborhood"
+            ideas.append({
+                "title": f"{label(a)} to {label(b)}",
+                "concepts": [label(a), label(b)],
+                "query": f"{label(a)}, {label(b)}",
+                "rationale": f"{hops} hops; likely connector: {connector_text}",
+                "connectors": [label(n) for n in connectors],
+            })
+            if len(ideas) >= _safe_int(body.get("limit"), 5):
+                return {"ideas": ideas}
+
+    if not ideas:
+        for a, b in zip(ranked[::2], ranked[1::2]):
+            ideas.append({
+                "title": f"{label(a)} to {label(b)}",
+                "concepts": [label(a), label(b)],
+                "query": f"{label(a)}, {label(b)}",
+                "rationale": "High-centrality seed pair; run Find Bridges to test whether a route exists.",
+                "connectors": [],
+            })
+            if len(ideas) >= _safe_int(body.get("limit"), 5):
+                break
+    return {"ideas": ideas}
+
+
 def _format_node(G, n):
     d = dict(G.nodes[n])
     label = str(d.get("label") or n)
@@ -1249,6 +1325,8 @@ class Handler(SimpleHTTPRequestHandler):
                 ))
             elif parsed.path == "/api/multipath":
                 self._json(_multipath_payload(body))
+            elif parsed.path == "/api/bridge_suggestions":
+                self._json(_bridge_suggestions_payload(body))
             elif parsed.path == "/api/ask":
                 self._json(_answer_question(body))
             elif parsed.path == "/api/ideate":

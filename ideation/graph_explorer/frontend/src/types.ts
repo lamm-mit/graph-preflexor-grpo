@@ -59,6 +59,14 @@ export type PathConnector = {
   core: number;
 };
 
+export type BridgeIdea = {
+  title: string;
+  concepts: string[];
+  query: string;
+  rationale: string;
+  connectors: string[];
+};
+
 export type SearchResult = {
   id: string;
   label: string;

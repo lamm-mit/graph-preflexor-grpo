@@ -43,7 +43,7 @@ import {
   pathNodeSet,
 } from "./graph-utils";
 import { useExplorerStore } from "./store";
-import type { GraphNode, GraphPayload, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
+import type { BridgeIdea, GraphNode, GraphPayload, JobStatus, ModelRole, PathConnector, SearchResult } from "./types";
 import "./styles.css";
 
 type WorkspaceMode = "chat" | "graph" | "search" | "runs" | "models";
@@ -56,6 +56,42 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function graphAgentRole(roles: Record<string, ModelRole>, chatRole: string) {
+  return roles.graph_qa?.model ? roles.graph_qa : roles.questioner?.model ? roles.questioner : roles[chatRole];
+}
+
+const RUN_MONITOR_STORAGE_KEY = "graph-preflexor-explorer.run-monitor.v1";
+const IDEATION_STRATEGIES = ["frontier", "node", "answer", "edge", "novelty", "leap", "converse", "mixed"] as const;
+type IdeationStrategy = (typeof IDEATION_STRATEGIES)[number];
+
+function normalizeStrategy(value: string | undefined): IdeationStrategy {
+  return IDEATION_STRATEGIES.includes(value as IdeationStrategy) ? (value as IdeationStrategy) : "frontier";
+}
+
+type StoredRunMonitor = {
+  topic?: string;
+  strategy?: string;
+  calls?: number;
+  iters?: number;
+  out?: string;
+  job?: JobStatus | null;
+  jobId?: string;
+};
+
+function readRunMonitorStorage(): StoredRunMonitor {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(RUN_MONITOR_STORAGE_KEY) || "{}") as StoredRunMonitor;
+  } catch {
+    return {};
+  }
+}
+
+function writeRunMonitorStorage(value: StoredRunMonitor) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(RUN_MONITOR_STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() }));
+}
 
 function cx(...classes: Array<string | false | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -881,24 +917,59 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
 }
 
 function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady: (run: string) => Promise<void>; defaultOpen?: boolean }) {
-  const [topic, setTopic] = useState("");
-  const [strategy, setStrategy] = useState("frontier");
-  const [calls, setCalls] = useState(50);
-  const [iters, setIters] = useState(50);
-  const [out, setOut] = useState("runs/explorer_run");
-  const [job, setJob] = useState<JobStatus | null>(null);
+  const storedRunRef = useRef<StoredRunMonitor | null>(null);
+  if (!storedRunRef.current) storedRunRef.current = readRunMonitorStorage();
+  const storedRun = storedRunRef.current;
+  const [topic, setTopic] = useState(storedRun.topic || "");
+  const [strategy, setStrategy] = useState<IdeationStrategy>(normalizeStrategy(storedRun.strategy));
+  const [calls, setCalls] = useState(storedRun.calls || 50);
+  const [iters, setIters] = useState(storedRun.iters || 50);
+  const [out, setOut] = useState(storedRun.out || "runs/explorer_run");
+  const [job, setJob] = useState<JobStatus | null>(storedRun.job || null);
+  const [monitorStatus, setMonitorStatus] = useState(storedRun.job ? "Restored saved run monitor." : "");
   const [busy, setBusy] = useState(false);
   const lastSnapshotRef = useRef<string>("");
 
   useEffect(() => {
+    writeRunMonitorStorage({ topic, strategy, calls, iters, out, job, jobId: job?.id });
+  }, [calls, iters, job, out, strategy, topic]);
+
+  useEffect(() => {
+    const restoredJobId = storedRun.jobId || storedRun.job?.id;
+    if (!restoredJobId) return undefined;
+    let cancelled = false;
+    api.job(restoredJobId)
+      .then((next) => {
+        if (!cancelled) {
+          setJob(next);
+          setMonitorStatus(`Reconnected to run ${restoredJobId}.`);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setJob(null);
+          setMonitorStatus(`Saved run ${restoredJobId} is not active on this server: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!job || !["running", "stopping"].includes(job.status)) return undefined;
     const timer = window.setInterval(async () => {
-      const next = await api.job(job.id);
-      setJob(next);
-      const snapshot = next.snapshot_id || (next.graph_ready ? `${next.graph_path || next.out}:ready` : "");
-      if (next.graph_ready && next.out && snapshot && snapshot !== lastSnapshotRef.current) {
-        lastSnapshotRef.current = snapshot;
-        void onRunGraphReady(next.out);
+      try {
+        const next = await api.job(job.id);
+        setJob(next);
+        setMonitorStatus("");
+        const snapshot = next.snapshot_id || (next.graph_ready ? `${next.graph_path || next.out}:ready` : "");
+        if (next.graph_ready && next.out && snapshot && snapshot !== lastSnapshotRef.current) {
+          lastSnapshotRef.current = snapshot;
+          void onRunGraphReady(next.out);
+        }
+      } catch (error) {
+        setMonitorStatus(error instanceof Error ? error.message : String(error));
       }
     }, 2200);
     return () => window.clearInterval(timer);
@@ -909,7 +980,9 @@ function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady:
     setBusy(true);
     try {
       lastSnapshotRef.current = "";
-      setJob(await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out }));
+      const next = await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out });
+      setJob(next);
+      setMonitorStatus(`Started run ${next.id}.`);
     } finally {
       setBusy(false);
     }
@@ -917,7 +990,9 @@ function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady:
 
   async function stop() {
     if (!job) return;
-    setJob(await api.stopJob(job.id));
+    const next = await api.stopJob(job.id);
+    setJob(next);
+    setMonitorStatus(`Stop requested for run ${next.id}.`);
   }
 
   const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);
@@ -928,7 +1003,13 @@ function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady:
       <div className="control-grid">
         <label>
           Strategy
-          <input onChange={(event) => setStrategy(event.target.value)} value={strategy} />
+          <select onChange={(event) => setStrategy(event.target.value as IdeationStrategy)} value={strategy}>
+            {IDEATION_STRATEGIES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           Calls
@@ -968,6 +1049,7 @@ function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady:
           tone="danger"
         />
       </div>
+      {monitorStatus ? <div className="status-box">{monitorStatus}</div> : null}
       {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
     </Drawer>
   );
@@ -1019,14 +1101,24 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [pathMode, setPathMode] = useState<"pairwise" | "sequence">("pairwise");
   const [pathCutoff, setPathCutoff] = useState(8);
   const [connectors, setConnectors] = useState<PathConnector[]>([]);
+  const [ideas, setIdeas] = useState<BridgeIdea[]>([]);
   const [status, setStatus] = useState("");
   const [pathBusy, setPathBusy] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
+  const [ideaBusy, setIdeaBusy] = useState(false);
+  const ideaGraphRef = useRef("");
   const seed = selectedNodes.length ? selectedNodes : selectedNode ? [selectedNode] : [];
 
   useEffect(() => {
     if (selectedNode && !source) setSource(selectedNode);
   }, [selectedNode, source]);
+
+  useEffect(() => {
+    const key = graph?.graph_id || graph?.path || graph?.name || "";
+    if (!graph || !key || ideaGraphRef.current === key || concepts.trim()) return;
+    ideaGraphRef.current = key;
+    void suggestBridgeIdeas(true);
+  }, [graph]);
 
   async function focusNeighborhood() {
     if (!seed.length) return;
@@ -1066,29 +1158,58 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
     }
   }
 
+  async function suggestBridgeIdeas(auto = false) {
+    if (!graph) return;
+    setIdeaBusy(true);
+    try {
+      const res = await api.bridgeSuggestions({ selected_nodes: seed, limit: 5 });
+      setIdeas(res.ideas || []);
+      if (res.ideas?.[0]?.query && (auto || !concepts.trim())) {
+        setConcepts(res.ideas[0].query);
+        setPathMode("pairwise");
+      }
+      setStatus(res.ideas?.length ? `${res.ideas.length} bridge ideas loaded` : "No bridge ideas found for this graph.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIdeaBusy(false);
+    }
+  }
+
   async function askPathAgent() {
-    if (!graph || !highlightedPaths.length) return;
+    if (!graph) return;
+    const role = graphAgentRole(roles, chatRole);
+    if (!role?.model) {
+      setStatus("Configure graph_qa or questioner before asking the graph agent.");
+      return;
+    }
     const connectorText = connectors.map((item) => `${item.label} (degree ${item.degree}, seen ${item.count}x)`).join(", ");
-    const pendingQuestion = `Analyze the highlighted bridge paths. Identify the key connector concepts, explain why the route matters, and suggest the next graph queries. Connectors: ${connectorText || "none ranked"}.`;
-    addChatMessage({ role: "user", content: pendingQuestion, meta: `${highlightedPaths.length} highlighted paths` });
-    const pending = addChatMessage({ role: "assistant", content: "Inspecting highlighted paths...", meta: chatRole });
+    const ideaText = ideas.map((idea) => `${idea.title}: ${idea.query} (${idea.rationale})`).join("\n");
+    const hasPaths = highlightedPaths.length > 0;
+    const pendingQuestion = hasPaths
+      ? `Analyze the highlighted bridge paths. Identify the key connector concepts, explain why the route matters, and suggest the next graph queries. Connectors: ${connectorText || "none ranked"}.`
+      : `Suggest high-value bridge searches for this graph before path highlighting. Use the current concept query if useful: ${concepts || "(none)"}. Candidate seeds:\n${ideaText || "(none generated yet)"}. Return concise bridge queries and why they are worth testing.`;
+    addChatMessage({ role: "user", content: pendingQuestion, meta: hasPaths ? `${highlightedPaths.length} highlighted paths` : "bridge planning" });
+    const pending = addChatMessage({ role: "assistant", content: hasPaths ? "Inspecting highlighted paths..." : "Planning bridge searches...", meta: "graph_qa" });
     setAgentBusy(true);
     try {
       const res = await api.ask({
         question: pendingQuestion,
-        selected_nodes: Array.from(new Set(highlightedPaths.flat())),
+        selected_nodes: hasPaths ? Array.from(new Set(highlightedPaths.flat())) : seed,
         query: concepts,
         depth: 1,
         max_nodes: 120,
         max_edges: 220,
-        model_config: roles[chatRole],
+        model_config: role,
       });
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
         meta: `path agent | ${res.context.node_count}n/${res.context.edge_count}e`,
       });
+      setStatus("Agent response added to chat.");
     } catch (error) {
       updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "error" });
+      setStatus(error instanceof Error ? error.message : String(error));
     } finally {
       setAgentBusy(false);
     }
@@ -1139,6 +1260,24 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
           value={concepts}
         />
       </label>
+      {ideas.length ? (
+        <div className="bridge-ideas">
+          {ideas.map((idea) => (
+            <button
+              key={`${idea.title}-${idea.query}`}
+              onClick={() => {
+                setConcepts(idea.query);
+                setPathMode("pairwise");
+                setStatus(idea.rationale);
+              }}
+              type="button"
+            >
+              <strong>{idea.title}</strong>
+              <span>{idea.rationale}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="control-grid">
         <label>
           Mode
@@ -1161,7 +1300,13 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
           tone="primary"
         />
         <IconButton
-          disabled={!graph || agentBusy || !highlightedPaths.length}
+          disabled={!graph || ideaBusy}
+          icon={ideaBusy ? <Loader2 className="spin" size={14} /> : <BrainCircuit size={14} />}
+          label="Suggest Ideas"
+          onClick={() => suggestBridgeIdeas(false)}
+        />
+        <IconButton
+          disabled={!graph || agentBusy}
           icon={agentBusy ? <Loader2 className="spin" size={14} /> : <BrainCircuit size={14} />}
           label="Ask Agent"
           onClick={askPathAgent}
@@ -1382,6 +1527,14 @@ function App() {
     [showGraph],
   );
 
+  const refreshRunGraph = React.useCallback(
+    async (run: string) => {
+      if (!run.trim()) return;
+      setGraph(await api.loadRun(run));
+    },
+    [setGraph],
+  );
+
   const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
 
   return (
@@ -1389,7 +1542,7 @@ function App() {
       <Header onGraphLoaded={showGraph} onLoadRun={loadRun} />
       <main className="workspace">
         <ActivityRail activeMode={activeMode} onModeChange={setActiveMode} />
-        <SideRail activeMode={activeMode} onRunGraphReady={loadRun} />
+        <SideRail activeMode={activeMode} onRunGraphReady={refreshRunGraph} />
         {graphArtifactOpen ? (
           <section className="artifact-stage">
             <div className="artifact-toolbar">
