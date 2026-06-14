@@ -8,9 +8,11 @@ queries, optionally starts ideate.py jobs, and calls a user-selected LLM backend
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -110,6 +112,20 @@ def _load_topic(run_dir, G=None):
         if topics:
             return max(set(topics), key=topics.count)
     return ""
+
+
+def _safe_float(value, default=0.0):
+    try:
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_int(value, default=0):
+    try:
+        return int(float(value))
+    except Exception:
+        return default
 
 
 def _component_map(G):
@@ -355,6 +371,96 @@ def _graphml_candidates(run_dir):
             if p.is_file() and p.stat().st_size > 0
         )
     return candidates
+
+
+def _iter_from_snapshot(path):
+    match = re.search(r"iter_(\d+)\.graphml$", path.name)
+    return int(match.group(1)) if match else None
+
+
+def _snapshot_meta(run_dir):
+    candidates = _graphml_candidates(run_dir) if run_dir.exists() and run_dir.is_dir() else []
+    latest = candidates[0] if candidates else run_dir / "graph.graphml"
+    snapshot_count = 0
+    if run_dir.exists() and run_dir.is_dir():
+        snapshot_dir = run_dir / "graphml"
+        if snapshot_dir.exists():
+            snapshot_count = len([p for p in snapshot_dir.glob("iter_*.graphml") if p.is_file()])
+    try:
+        stat = latest.stat()
+        signature = f"{latest}:{stat.st_mtime_ns}:{stat.st_size}"
+        mtime = stat.st_mtime
+        size = stat.st_size
+    except OSError:
+        signature = ""
+        mtime = None
+        size = 0
+    return {
+        "graph_ready": bool(candidates),
+        "graph_path": str(latest),
+        "snapshot_id": signature,
+        "snapshot_count": snapshot_count,
+        "snapshot_iter": _iter_from_snapshot(latest),
+        "snapshot_mtime": mtime,
+        "snapshot_size": size,
+    }
+
+
+def _read_growth(run_dir, limit=80):
+    path = run_dir / "growth.csv"
+    if not path.exists() or path.stat().st_size <= 0:
+        return []
+    try:
+        with path.open(newline="", errors="replace") as f:
+            rows = list(csv.DictReader(f))
+    except Exception:
+        return []
+    out = []
+    for row in rows[-limit:]:
+        out.append({
+            "iter": _safe_int(row.get("iter")),
+            "depth": _safe_int(row.get("depth")),
+            "nodes": _safe_int(row.get("n_nodes")),
+            "edges": _safe_int(row.get("n_edges")),
+            "new_nodes": _safe_int(row.get("new_nodes")),
+            "tokens": _safe_int(row.get("tokens")),
+            "cum_tokens": _safe_int(row.get("cum_tokens")),
+            "diversity": _safe_float(row.get("diversity")),
+        })
+    return out
+
+
+def _progress_payload(run_dir, *, budget_calls=None, max_iters=None, max_tokens=None):
+    rows = _read_growth(run_dir)
+    last = rows[-1] if rows else {}
+    calls = len(rows)
+    current_iter = last.get("iter", -1)
+    total_calls = _safe_int(budget_calls, 0)
+    total_iters = _safe_int(max_iters, 0)
+    token_budget = _safe_int(max_tokens, 0)
+    ratios = []
+    if total_calls > 0:
+        ratios.append(calls / total_calls)
+    if total_iters > 0 and current_iter >= 0:
+        ratios.append((current_iter + 1) / total_iters)
+    if token_budget > 0:
+        ratios.append(_safe_int(last.get("cum_tokens"), 0) / token_budget)
+    percent = max(ratios) if ratios else (1.0 if rows else 0.0)
+    return {
+        "percent": max(0.0, min(1.0, percent)),
+        "calls": calls,
+        "total_calls": total_calls,
+        "iter": current_iter,
+        "total_iters": total_iters,
+        "nodes": _safe_int(last.get("nodes"), 0),
+        "edges": _safe_int(last.get("edges"), 0),
+        "new_nodes": _safe_int(last.get("new_nodes"), 0),
+        "tokens": _safe_int(last.get("tokens"), 0),
+        "cum_tokens": _safe_int(last.get("cum_tokens"), 0),
+        "max_tokens": token_budget,
+        "diversity": _safe_float(last.get("diversity"), 0.0),
+        "growth_tail": rows,
+    }
 
 
 def _load_run_graph(run_value):
@@ -726,7 +832,8 @@ def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_no
 def _call_openai_compatible(cfg, messages):
     from openai import OpenAI
 
-    api_key = cfg.get("api_key") or os.environ.get("OPENAI_API_KEY") or "x"
+    api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
+    api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
     base_url = cfg.get("base_url") or None
     client = OpenAI(base_url=base_url, api_key=api_key)
     kwargs = {
@@ -860,7 +967,14 @@ def _start_ideate_job(body):
     job_id = uuid.uuid4().hex[:10]
     log_path = ROOT / f"job_{job_id}.log"
     log = open(log_path, "w")
-    proc = subprocess.Popen(cmd, cwd=IDEATION_DIR, stdout=log, stderr=subprocess.STDOUT, text=True)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=IDEATION_DIR,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
     job = {
         "id": job_id,
         "cmd": cmd,
@@ -871,6 +985,11 @@ def _start_ideate_job(body):
         "returncode": None,
         "started_at": time.time(),
         "ended_at": None,
+        "budget_calls": body.get("budget_calls"),
+        "max_iters": body.get("max_iters"),
+        "budget_tokens": body.get("budget_tokens"),
+        "stop_requested": False,
+        "proc": proc,
     }
     with LOCK:
         STATE["jobs"][job_id] = job
@@ -879,12 +998,19 @@ def _start_ideate_job(body):
         rc = proc.wait()
         log.close()
         with LOCK:
-            job["status"] = "done" if rc == 0 else "failed"
+            if job.get("stop_requested"):
+                job["status"] = "stopped"
+            else:
+                job["status"] = "done" if rc == 0 else "failed"
             job["returncode"] = rc
             job["ended_at"] = time.time()
 
     threading.Thread(target=wait, daemon=True).start()
-    return job
+    return _job_public(job)
+
+
+def _job_public(job):
+    return {k: v for k, v in dict(job).items() if k != "proc"}
 
 
 def _job_status(job_id):
@@ -892,17 +1018,41 @@ def _job_status(job_id):
         job = STATE["jobs"].get(job_id)
         if not job:
             raise ValueError("Unknown job id.")
-        out = dict(job)
+        out = _job_public(job)
     try:
         out["log_tail"] = Path(out["log_path"]).read_text(errors="replace")[-8000:]
     except Exception:
         out["log_tail"] = ""
     run_dir = _resolve_run_path(out["out"])
-    candidates = _graphml_candidates(run_dir) if run_dir.exists() and run_dir.is_dir() else []
-    graph_path = candidates[0] if candidates else run_dir / "graph.graphml"
-    out["graph_ready"] = bool(candidates)
-    out["graph_path"] = str(graph_path)
+    out.update(_snapshot_meta(run_dir))
+    out["progress"] = _progress_payload(
+        run_dir,
+        budget_calls=out.get("budget_calls"),
+        max_iters=out.get("max_iters"),
+        max_tokens=out.get("budget_tokens"),
+    )
     return out
+
+
+def _stop_job(body):
+    job_id = str(body.get("id") or "").strip()
+    if not job_id:
+        raise ValueError("Job id is required.")
+    with LOCK:
+        job = STATE["jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown job id.")
+        proc = job.get("proc")
+        if job.get("status") not in ("running", "stopping"):
+            return _job_status(job_id)
+        job["stop_requested"] = True
+        job["status"] = "stopping"
+    if proc and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, 15)
+        except Exception:
+            proc.terminate()
+    return _job_status(job_id)
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -1001,6 +1151,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_answer_question(body))
             elif parsed.path == "/api/ideate":
                 self._json(_start_ideate_job(body))
+            elif parsed.path == "/api/stop_job":
+                self._json(_stop_job(body))
             elif parsed.path == "/api/model_status":
                 self._json(_model_status(body))
             elif parsed.path == "/api/config_preview":

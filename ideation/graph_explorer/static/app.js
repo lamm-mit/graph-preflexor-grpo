@@ -4,8 +4,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 const $ = (id) => document.getElementById(id);
 
 const palette = [
-  0x4fb477, 0xe1a13a, 0x64a7d9, 0xd96868, 0xb58ad7, 0x6fc7bd,
-  0xc0c46a, 0xe58f6e, 0x8fa8ff, 0x78a65a, 0xcf79a5, 0x9bb0bd
+  0x37d49a, 0xf4b24f, 0x35c2ff, 0xef6c73, 0xa98bff, 0x5ed4c6,
+  0xd4d46a, 0xff966b, 0x6c8cff, 0x6bd16f, 0xe574b2, 0xb7c4d3
 ];
 
 const metricLabels = {
@@ -52,16 +52,20 @@ const state = {
   boxDrag: null,
   timelineTimer: null,
   modelRoles: {},
+  chatMessages: [],
   source: null,
   target: null,
   hover: null,
   mode: "whole graph",
   currentJob: null,
+  currentJobSnapshot: "",
 };
 
 let scene, camera, renderer, controls, raycaster, pointer;
 let nodeMesh = null;
+let nodePoints = null;
 let edgeLines = null;
+let highlightGroup = null;
 let animationStarted = false;
 
 const modelPresets = {
@@ -232,6 +236,7 @@ async function importConfigRoles() {
       state.modelRoles = { ...state.modelRoles, ...data.roles };
       saveModelRoles();
       syncRoleFields();
+      syncFeaturedChatRole();
       $("modelStatus").textContent = data.exists
         ? `Imported roles from ${data.path}`
         : `No config.yaml found at ${data.path}; using defaults.`;
@@ -258,6 +263,7 @@ function readRoleFields() {
     reasoning_effort: $("roleEffortInput").value.trim(),
   };
   saveModelRoles();
+  if ($("chatRoleInput")?.value === role) syncFeaturedChatRole();
   return state.modelRoles[role];
 }
 
@@ -281,11 +287,17 @@ function applyPresetToRole() {
   state.modelRoles[role] = { ...preset, role };
   saveModelRoles();
   syncRoleFields();
+  if ($("chatRoleInput")?.value === role) syncFeaturedChatRole();
   $("modelPresetInput").value = "";
 }
 
 function applyRoleToAsk() {
   const cfg = readRoleFields();
+  if ($("chatRoleInput")) $("chatRoleInput").value = cfg.role || currentRoleName();
+  writeAskFieldsFromRole(cfg);
+}
+
+function writeAskFieldsFromRole(cfg) {
   $("providerInput").value = cfg.provider === "hf" ? "hf" : "openai";
   $("modelInput").value = cfg.model || "";
   $("baseUrlInput").value = cfg.base_url || "";
@@ -293,6 +305,13 @@ function applyRoleToAsk() {
   if (cfg.temperature !== "") $("temperatureInput").value = cfg.temperature;
   if (cfg.max_tokens !== "") $("maxTokensInput").value = cfg.max_tokens;
   saveModelPrefs();
+}
+
+function syncFeaturedChatRole() {
+  const role = $("chatRoleInput")?.value || "graph_qa";
+  const cfg = state.modelRoles[role] || defaultModelRoles[role] || {};
+  writeAskFieldsFromRole({ ...cfg, role });
+  updateChatContext();
 }
 
 async function checkModelServer() {
@@ -484,7 +503,7 @@ function renderVisualLegend(graph) {
   `;
 }
 
-function setGraph(payload, mode = "whole graph", isFull = false) {
+function setGraph(payload, mode = "whole graph", isFull = false, options = {}) {
   if (isFull) state.fullGraph = payload;
   state.activeGraph = payload;
   state.mode = mode;
@@ -497,8 +516,9 @@ function setGraph(payload, mode = "whole graph", isFull = false) {
   renderStats(payload.stats);
   if (isFull) updateTimelineBounds(payload);
   buildLayout(payload);
-  rebuildScene(true);
+  rebuildScene(options.frame !== false);
   updateSelectionHud();
+  updateChatContext();
 }
 
 function renderStats(stats) {
@@ -514,6 +534,56 @@ function renderStats(stats) {
     ["Density", fmt(stats.density, 5)],
   ];
   $("stats").innerHTML = rows.map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+}
+
+function graphContextSummary() {
+  if (!state.activeGraph && !state.fullGraph) return "No graph loaded.";
+  const graph = state.activeGraph || state.fullGraph;
+  const full = state.fullGraph;
+  const bits = [
+    state.mode || "whole graph",
+    `${fmt(graph.stats.nodes)} nodes`,
+    `${fmt(graph.stats.edges)} edges`,
+  ];
+  if (full && graph !== full) bits.push(`from ${fmt(full.stats.nodes)} total`);
+  if (state.selectedNodes.size) bits.push(`${state.selectedNodes.size} selected`);
+  if (state.source) bits.push(`source: ${nodeLabel(findNode(state.source))}`);
+  if (state.target) bits.push(`target: ${nodeLabel(findNode(state.target))}`);
+  return bits.join(" | ");
+}
+
+function updateChatContext() {
+  const text = graphContextSummary();
+  if ($("chatContextBar")) $("chatContextBar").textContent = text;
+  if ($("viewerContext")) $("viewerContext").textContent = text;
+  if ($("selectionChips")) {
+    const selected = [...state.selectedNodes].slice(0, 4).map((id) => nodeLabel(findNode(id)) || id);
+    const suffix = state.selectedNodes.size > selected.length ? ` +${state.selectedNodes.size - selected.length}` : "";
+    $("selectionChips").textContent = selected.length ? `Selected: ${selected.join(" | ")}${suffix}` : "No selection";
+  }
+}
+
+function renderChat() {
+  const box = $("chatMessages");
+  if (!box) return;
+  box.innerHTML = state.chatMessages.map((msg) => `
+    <div class="chat-message ${escapeAttr(msg.role)}">
+      <div class="chat-role">${escapeHtml(msg.role)}${msg.meta ? ` | ${escapeHtml(msg.meta)}` : ""}</div>
+      <div class="chat-bubble">${escapeHtml(msg.content)}</div>
+    </div>
+  `).join("");
+  box.scrollTop = box.scrollHeight;
+}
+
+function addChatMessage(role, content, meta = "") {
+  state.chatMessages.push({ role, content, meta, at: Date.now() });
+  renderChat();
+}
+
+function resetChat() {
+  state.chatMessages = [];
+  renderChat();
+  addChatMessage("system", "Chat reset. The next answer will use the current graph context.", graphContextSummary());
 }
 
 function inducedGraph(nodeIds, name = "filtered graph") {
@@ -592,6 +662,7 @@ function setDerivedGraph(payload, mode) {
   buildLayout(payload);
   rebuildScene(true);
   updateSelectionHud();
+  updateChatContext();
 }
 
 function updateTimelineBounds(payload) {
@@ -754,14 +825,22 @@ function relaxLayout(graph, ticks) {
 }
 
 function clearObjects() {
-  for (const obj of [nodeMesh, edgeLines]) {
+  for (const obj of [nodeMesh, nodePoints, edgeLines, highlightGroup]) {
     if (!obj) continue;
     scene.remove(obj);
     if (obj.geometry) obj.geometry.dispose();
     if (obj.material) obj.material.dispose();
+    if (obj.children) {
+      for (const child of obj.children) {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      }
+    }
   }
   nodeMesh = null;
+  nodePoints = null;
   edgeLines = null;
+  highlightGroup = null;
 }
 
 function rebuildScene(shouldFrame = true) {
@@ -803,10 +882,9 @@ function rebuildScene(shouldFrame = true) {
   scene.add(edgeLines);
 
   const geom = new THREE.SphereGeometry(1, 12, 8);
-  const mat = new THREE.MeshStandardMaterial({
+  const mat = new THREE.MeshBasicMaterial({
     vertexColors: true,
-    roughness: 0.65,
-    metalness: 0.05,
+    toneMapped: false,
   });
   nodeMesh = new THREE.InstancedMesh(geom, mat, graph.nodes.length);
   nodeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -814,6 +892,8 @@ function rebuildScene(shouldFrame = true) {
 
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  const pointPositions = new Float32Array(graph.nodes.length * 3);
+  const pointColors = new Float32Array(graph.nodes.length * 3);
   graph.nodes.forEach((node, i) => {
     const p = state.layout.get(node.id);
     const size = sizeForNode(node, sizeRange);
@@ -823,13 +903,69 @@ function rebuildScene(shouldFrame = true) {
     nodeMesh.setMatrixAt(i, dummy.matrix);
     color.setHex(colorForNode(node, colorRange));
     nodeMesh.setColorAt(i, color);
+    pointPositions[i * 3] = p.x;
+    pointPositions[i * 3 + 1] = p.y;
+    pointPositions[i * 3 + 2] = p.z;
+    pointColors[i * 3] = color.r;
+    pointColors[i * 3 + 1] = color.g;
+    pointColors[i * 3 + 2] = color.b;
   });
   nodeMesh.instanceMatrix.needsUpdate = true;
   if (nodeMesh.instanceColor) nodeMesh.instanceColor.needsUpdate = true;
   scene.add(nodeMesh);
 
+  const pointGeom = new THREE.BufferGeometry();
+  pointGeom.setAttribute("position", new THREE.BufferAttribute(pointPositions, 3));
+  pointGeom.setAttribute("color", new THREE.BufferAttribute(pointColors, 3));
+  nodePoints = new THREE.Points(pointGeom, new THREE.PointsMaterial({
+    vertexColors: true,
+    size: Math.max(3.5, 4.8 * state.visual.nodeScale),
+    sizeAttenuation: false,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    toneMapped: false,
+  }));
+  scene.add(nodePoints);
+  renderSelectionHighlights(graph, sizeRange);
+
   if (shouldFrame) frameGraph(graph);
   renderVisualLegend(graph);
+}
+
+function renderSelectionHighlights(graph, sizeRange) {
+  if (highlightGroup) {
+    scene.remove(highlightGroup);
+    for (const child of highlightGroup.children) {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    }
+  }
+  highlightGroup = new THREE.Group();
+  const selected = new Set([...state.selectedNodes, state.source, state.target].filter(Boolean));
+  let count = 0;
+  for (const id of selected) {
+    if (count >= 240) break;
+    const node = graph.nodes.find((n) => n.id === id);
+    const p = state.layout.get(id);
+    if (!node || !p) continue;
+    const color = id === state.source ? 0x37d49a : id === state.target ? 0xf4b24f : 0x6c8cff;
+    const multiplier = id === state.source || id === state.target ? 1.45 : 1.2;
+    const radius = Math.max(2.4, Math.min(8.5, sizeForNode(node, sizeRange) * multiplier));
+    const geom = new THREE.SphereGeometry(radius, 18, 10);
+    const mat = new THREE.MeshBasicMaterial({
+      color,
+      wireframe: true,
+      transparent: true,
+      opacity: id === state.source || id === state.target ? 0.95 : 0.62,
+      toneMapped: false,
+    });
+    const halo = new THREE.Mesh(geom, mat);
+    halo.position.set(p.x, p.y, p.z);
+    highlightGroup.add(halo);
+    count++;
+  }
+  scene.add(highlightGroup);
 }
 
 function frameGraph(graph) {
@@ -936,6 +1072,7 @@ function updateSelectionHud() {
   const source = state.source ? nodeLabel(findNode(state.source)) : "none";
   const target = state.target ? nodeLabel(findNode(state.target)) : "none";
   $("selectionHud").textContent = `source: ${source} | target: ${target} | selected: ${state.selectedNodes.size} | pinned: ${state.pinnedNodes.size}`;
+  updateChatContext();
 }
 
 function findNode(id) {
@@ -1035,21 +1172,26 @@ function renderSelectionDetails() {
   ].join("\n");
 }
 
-async function loadRun() {
+async function loadRun(options = {}) {
   const run = $("runPath").value.trim();
   if (!run) return;
+  const preserve = Boolean(options.preserve);
+  const silent = Boolean(options.silent);
   setBusy("loadRunBtn", true);
   try {
     const data = await api("/api/load_run", { run });
-    state.source = null;
-    state.target = null;
-    state.selectedNodes.clear();
-    state.pinnedNodes.clear();
-    state.pinnedPositions.clear();
-    setGraph(data, "whole graph", true);
-    $("pathDetails").textContent = "No path loaded.";
+    if (!preserve) {
+      state.source = null;
+      state.target = null;
+      state.selectedNodes.clear();
+      state.pinnedNodes.clear();
+      state.pinnedPositions.clear();
+      $("pathDetails").textContent = "No path loaded.";
+    }
+    setGraph(data, "whole graph", true, { frame: !preserve });
+    if (!silent) addChatMessage("system", `Loaded ${data.name || "graph"} with ${fmt(data.stats.nodes)} nodes and ${fmt(data.stats.edges)} edges.`, "graph");
   } catch (err) {
-    alert(err.message);
+    if (!silent) alert(err.message);
   } finally {
     setBusy("loadRunBtn", false);
   }
@@ -1065,6 +1207,7 @@ async function uploadGraph(file) {
   state.pinnedNodes.clear();
   state.pinnedPositions.clear();
   setGraph(data, "whole graph", true);
+  addChatMessage("system", `Uploaded ${file.name} with ${fmt(data.stats.nodes)} nodes and ${fmt(data.stats.edges)} edges.`, "graph");
 }
 
 async function search() {
@@ -1075,6 +1218,7 @@ async function search() {
 }
 
 function renderSearchResults(results) {
+  if ($("searchCount")) $("searchCount").textContent = `${fmt(results.length)} result${results.length === 1 ? "" : "s"}`;
   $("searchResults").innerHTML = results.map((r) => `
     <div class="result-item" data-node="${escapeAttr(r.id)}">
       <strong>${escapeHtml(r.label)}</strong>
@@ -1088,6 +1232,11 @@ function renderSearchResults(results) {
       flyToNode(id);
     });
   }
+}
+
+function clearSearchResults() {
+  $("searchResults").innerHTML = "";
+  if ($("searchCount")) $("searchCount").textContent = "0 results";
 }
 
 function showHubs() {
@@ -1459,15 +1608,18 @@ function flyToNode(id) {
   if (!p) return;
   const target = new THREE.Vector3(p.x, p.y, p.z);
   controls.target.copy(target);
-  camera.position.copy(target).add(new THREE.Vector3(0, 0, 80));
+  camera.position.copy(target).add(new THREE.Vector3(0, 0, 135));
 }
 
 async function askGraph() {
   if (!state.fullGraph && !state.activeGraph) return;
   const question = $("questionInput").value.trim();
   if (!question) return;
+  syncFeaturedChatRole();
   saveModelPrefs();
-  $("answerBox").textContent = "Thinking...";
+  addChatMessage("user", question, graphContextSummary());
+  const pendingIndex = state.chatMessages.length;
+  addChatMessage("assistant", "Thinking...", $("chatRoleInput")?.value || "graph_qa");
   setBusy("askBtn", true);
   try {
     const selected = [...new Set([...state.selectedNodes, state.source, state.target].filter(Boolean))];
@@ -1476,6 +1628,7 @@ async function askGraph() {
       model: $("modelInput").value.trim(),
       base_url: $("baseUrlInput").value.trim(),
       api_key: $("apiKeyInput").value,
+      api_key_env: state.modelRoles[$("chatRoleInput")?.value || "graph_qa"]?.api_key_env || "",
       reasoning_effort: $("effortInput").value.trim(),
       temperature: Number($("temperatureInput").value || 0.3),
       max_tokens: Number($("maxTokensInput").value || 1800),
@@ -1489,9 +1642,22 @@ async function askGraph() {
       max_edges: 160,
       model_config: modelConfig,
     });
-    $("answerBox").textContent = `${data.answer}\n\nContext: ${data.context.node_count} nodes, ${data.context.edge_count} edges`;
+    state.chatMessages[pendingIndex] = {
+      role: "assistant",
+      content: data.answer || "(empty response)",
+      meta: `context ${data.context.node_count}n/${data.context.edge_count}e`,
+      at: Date.now(),
+    };
+    renderChat();
+    $("questionInput").value = "";
   } catch (err) {
-    $("answerBox").textContent = err.message;
+    state.chatMessages[pendingIndex] = {
+      role: "assistant",
+      content: err.message,
+      meta: "error",
+      at: Date.now(),
+    };
+    renderChat();
   } finally {
     setBusy("askBtn", false);
   }
@@ -1501,7 +1667,10 @@ async function startRun() {
   const topic = $("topicInput").value.trim();
   if (!topic) return;
   setBusy("startRunBtn", true);
+  setBusy("stopRunBtn", false);
   $("jobLog").textContent = "Starting...";
+  state.currentJobSnapshot = "";
+  updateJobUi({ status: "starting", progress: {} });
   try {
     const body = {
       topic,
@@ -1512,10 +1681,13 @@ async function startRun() {
     };
     const job = await api("/api/ideate", body);
     state.currentJob = job.id;
+    addChatMessage("system", `Started CLI run ${job.id}.\n${job.cmd.join(" ")}`, "run");
     pollJob(job.id);
   } catch (err) {
     $("jobLog").textContent = err.message;
     setBusy("startRunBtn", false);
+    setBusy("stopRunBtn", true);
+    updateJobUi({ status: "failed", progress: {} });
   }
 }
 
@@ -1523,25 +1695,105 @@ async function pollJob(jobId) {
   if (!jobId || state.currentJob !== jobId) return;
   try {
     const job = await api(`/api/job?id=${encodeURIComponent(jobId)}`);
+    updateJobUi(job);
     $("jobLog").textContent = [
       `${job.status} | ${job.cmd.join(" ")}`,
       "",
       job.log_tail || "",
     ].join("\n");
     $("jobLog").scrollTop = $("jobLog").scrollHeight;
-    if (job.status === "running") {
-      setTimeout(() => pollJob(jobId), 2200);
+    if (job.graph_ready && $("autoRefreshRunInput")?.checked && job.snapshot_id && job.snapshot_id !== state.currentJobSnapshot) {
+      state.currentJobSnapshot = job.snapshot_id;
+      $("runPath").value = job.out;
+      await loadRun({ preserve: true, silent: true });
+      $("jobSnapshotText").textContent = `Loaded latest snapshot: ${job.graph_path}`;
+    }
+    if (job.status === "running" || job.status === "stopping" || job.status === "starting") {
+      setTimeout(() => pollJob(jobId), 1800);
       return;
     }
     setBusy("startRunBtn", false);
+    setBusy("stopRunBtn", true);
     if (job.graph_ready) {
       $("runPath").value = job.out;
-      await loadRun();
+      await loadRun({ preserve: true, silent: false });
     }
+    addChatMessage("system", `Run ${job.status}. ${job.progress?.nodes || 0} nodes, ${job.progress?.edges || 0} edges.`, "run");
   } catch (err) {
     $("jobLog").textContent = err.message;
     setBusy("startRunBtn", false);
+    setBusy("stopRunBtn", true);
+    updateJobUi({ status: "failed", progress: {} });
   }
+}
+
+async function stopRun() {
+  if (!state.currentJob) return;
+  setBusy("stopRunBtn", true);
+  updateJobUi({ status: "stopping", progress: {} });
+  try {
+    const job = await api("/api/stop_job", { id: state.currentJob });
+    updateJobUi(job);
+    setTimeout(() => pollJob(state.currentJob), 600);
+  } catch (err) {
+    $("jobLog").textContent = err.message;
+    setBusy("stopRunBtn", false);
+  }
+}
+
+function updateJobUi(job) {
+  const status = job.status || "idle";
+  const pill = $("jobStatusPill");
+  if (pill) {
+    pill.textContent = status;
+    pill.className = `status-pill ${status}`;
+  }
+  const p = job.progress || {};
+  const pct = status === "done" ? 100 : Math.round(Number(p.percent || 0) * 100);
+  if ($("jobProgress")) $("jobProgress").value = pct;
+  const iterText = p.total_iters ? `${fmt(p.iter + 1)}/${fmt(p.total_iters)} iters` : p.iter >= 0 ? `${fmt(p.iter + 1)} iters` : "no iterations yet";
+  const callText = p.total_calls ? `${fmt(p.calls)}/${fmt(p.total_calls)} calls` : `${fmt(p.calls || 0)} calls`;
+  if ($("jobProgressText")) $("jobProgressText").textContent = status === "idle" ? "No active run" : `${pct}% | ${callText} | ${iterText}`;
+  if ($("jobMetrics")) {
+    const metrics = [
+      ["Nodes", p.nodes || 0],
+      ["Edges", p.edges || 0],
+      ["New", p.new_nodes || 0],
+      ["Tokens", p.cum_tokens || 0],
+      ["Diversity", fmt(p.diversity || 0, 3)],
+      ["Snapshots", job.snapshot_count || 0],
+    ];
+    $("jobMetrics").innerHTML = metrics.map(([k, v]) => `<div class="run-metric"><b>${fmt(v, 3)}</b><span>${k}</span></div>`).join("");
+  }
+  renderGrowthSparkline(p.growth_tail || []);
+  if ($("jobSnapshotText")) {
+    $("jobSnapshotText").textContent = job.graph_ready
+      ? `Latest graph: ${job.snapshot_iter ?? "live"} | ${job.graph_path}`
+      : "No graph snapshots detected yet.";
+  }
+}
+
+function renderGrowthSparkline(rows) {
+  const svg = $("growthSparkline");
+  if (!svg) return;
+  if (!rows.length) {
+    svg.innerHTML = `<text x="12" y="32" fill="#97a6b8" font-size="11">Growth curve appears after the first iteration.</text>`;
+    return;
+  }
+  const w = 280, h = 58, pad = 8;
+  const maxNodes = Math.max(1, ...rows.map((r) => Number(r.nodes || 0)));
+  const maxEdges = Math.max(1, ...rows.map((r) => Number(r.edges || 0)));
+  const pathFor = (key, maxVal) => rows.map((row, i) => {
+    const x = pad + (rows.length === 1 ? 0 : (i / (rows.length - 1)) * (w - pad * 2));
+    const y = h - pad - (Number(row[key] || 0) / maxVal) * (h - pad * 2);
+    return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  svg.innerHTML = `
+    <path d="${pathFor("edges", maxEdges)}" fill="none" stroke="#a98bff" stroke-width="1.5" opacity="0.85"/>
+    <path d="${pathFor("nodes", maxNodes)}" fill="none" stroke="#37d49a" stroke-width="2"/>
+    <text x="10" y="14" fill="#97a6b8" font-size="10">nodes</text>
+    <text x="230" y="14" fill="#a98bff" font-size="10">edges</text>
+  `;
 }
 
 function setBusy(id, busy) {
@@ -1568,6 +1820,7 @@ function wireEvents() {
   $("runPath").addEventListener("keydown", (e) => { if (e.key === "Enter") loadRun(); });
   $("searchBtn").addEventListener("click", search);
   $("searchInput").addEventListener("keydown", (e) => { if (e.key === "Enter") search(); });
+  $("clearSearchBtn").addEventListener("click", clearSearchResults);
   $("neighborhoodBtn").addEventListener("click", focusNeighborhood);
   $("pathBtn").addEventListener("click", focusPath);
   $("hubsBtn").addEventListener("click", showHubs);
@@ -1598,7 +1851,19 @@ function wireEvents() {
   $("exportJsonBtn").addEventListener("click", () => exportJson(false));
   $("resetViewBtn").addEventListener("click", () => state.activeGraph && frameGraph(state.activeGraph));
   $("askBtn").addEventListener("click", askGraph);
+  $("questionInput").addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") askGraph();
+  });
+  $("resetChatBtn").addEventListener("click", resetChat);
+  $("chatRoleInput").addEventListener("change", syncFeaturedChatRole);
+  for (const el of document.querySelectorAll(".prompt-chip")) {
+    el.addEventListener("click", () => {
+      $("questionInput").value = el.getAttribute("data-prompt") || "";
+      $("questionInput").focus();
+    });
+  }
   $("startRunBtn").addEventListener("click", startRun);
+  $("stopRunBtn").addEventListener("click", stopRun);
   $("modelRoleInput").addEventListener("change", syncRoleFields);
   $("modelPresetInput").addEventListener("change", applyPresetToRole);
   for (const id of ["roleProviderInput", "roleModelInput", "roleBaseUrlInput", "roleApiKeyEnvInput", "roleTempInput", "roleTokensInput", "roleEffortInput"]) {
@@ -1628,6 +1893,7 @@ async function loadExistingGraphIfAny() {
     setGraph(data, "whole graph", true);
   } catch (_) {
     renderStats({ nodes: 0, edges: 0, components: 0, communities: 0, largest_component: 0, avg_degree: 0, max_degree: 0, max_iter: 0, density: 0 });
+    updateChatContext();
   }
 }
 
@@ -1635,7 +1901,10 @@ initScene();
 wireEvents();
 loadModelPrefs();
 loadModelRoles();
+syncFeaturedChatRole();
 renderSavedViews();
+renderChat();
+updateJobUi({ status: "idle", progress: {} });
 loadVisualPrefs();
 loadExistingGraphIfAny();
 importConfigRoles();

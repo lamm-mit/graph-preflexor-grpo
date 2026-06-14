@@ -5,13 +5,13 @@ This benchmark tests the expensive test-time-compute claim directly:
 
   A. Llama single-shot: answer each benchmark task directly, with no graph.
   C. Graph-PRefLexOR short run: for each task, build a small ideation graph with
-     ideate.py, mine insights, synthesize an answer from a rich graph context
+     ideate.py, mine insights, synthesize an answer from a curated graph context
      packet, then judge graph answer vs baseline answer pairwise.
 
-The graph arm now feeds more than insight titles by default: mined leads with
-details, relation paths/chains, hub neighborhoods, and a compact graph table.
-Both arms use the same strict answer format so the judge compares substance
-rather than prose shape.
+The graph arm feeds mined concepts by default and uses a two-call
+candidate-generation/refinement step. Cleaner graph-relation modes can also feed
+quality-filtered leads, paths, and edges. Both arms use the same strict final
+answer format so the judge compares substance rather than prose shape.
 
 The runner is resumable. Existing task graphs / insights / answers are reused
 unless --force is passed.
@@ -19,6 +19,7 @@ unless --force is passed.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -47,10 +48,30 @@ ANSWER_SYSTEM = (
 
 GRAPH_CONTEXT_NOTE = (
     "The following are exploratory background notes mined from a graph built by extended reasoning "
-    "about this exact task. They are not verified facts. Use them only where they help produce a "
-    "more original, more mechanistic, or more testable answer. Do not cite the notes, do not mention "
-    "a graph, and do not add provenance language to the final answer."
+    "about this exact task. They are noisy leads, not verified facts. Use them to spark concrete "
+    "mechanisms, but do not copy an edge or path literally if it is vague, circular, generic, or "
+    "chemically implausible. Reject placeholder labels and generic hub words. Do not cite the notes, "
+    "do not mention a graph, and do not add provenance language to the final answer."
 )
+
+GENERIC_LABELS = {
+    "a", "b", "c", "d", "e", "f", "g", "h",
+    "healing", "repair", "damage", "autonomy", "biopolymer", "composite",
+    "biopolymer composite", "biopolymercomposite", "mechanism", "mechanistic pathway",
+    "self healing", "selfhealing", "autonomous healing", "underwater environment",
+    "underwaterenvironment", "water", "trigger", "release", "regeneration",
+    "microcapsules", "hydrogels", "enzymes", "mechanical stress", "mechanicalstress",
+    "polymer matrix", "polymermatrix", "polymer chains", "polymerchains",
+    "mechanical properties", "mechanicalproperties", "cross linking", "cross_linking",
+    "stability", "biocompatibility", "no toxicity", "integration with biological systems",
+    "continuous healing", "initiators", "repair pathways", "domain size", "domainsize",
+    "tissue repair", "tissuerepair", "cell mediated healing", "cell-mediated healing",
+}
+
+GENERIC_RELATIONS = {
+    "related_to", "provides", "enables", "causes", "contains", "influences",
+    "mediated_by", "facilitates", "controls", "drives", "requires",
+}
 
 
 def _read_tasks(path, limit=None):
@@ -95,6 +116,56 @@ def _label(G, n):
     return str(G.nodes[n].get("label", n))
 
 
+def _words(text):
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(text))
+    text = text.replace("_", " ").replace("-", " ")
+    return [w.lower() for w in re.findall(r"[A-Za-z][A-Za-z0-9]+", text)]
+
+
+def _label_key(label):
+    return " ".join(_words(label))
+
+
+def _is_placeholder_label(label):
+    s = str(label).strip()
+    if re.fullmatch(r"[A-Z]", s):
+        return True
+    if re.fullmatch(r"[A-Z][0-9]+", s):
+        return True
+    if re.fullmatch(r"(node|concept|idea|thing|entity)[ _-]?\d*", s, re.I):
+        return True
+    return False
+
+
+def _specificity_score(label):
+    if _is_placeholder_label(label):
+        return -3.0
+    key = _label_key(label)
+    if key in GENERIC_LABELS:
+        return -1.5
+    ws = _words(label)
+    if not ws:
+        return -2.0
+    score = 0.35 * len(ws)
+    score += sum(0.25 for w in ws if len(w) >= 7)
+    score += sum(0.35 for w in ws if w in {
+        "catechol", "alginate", "chitosan", "collagen", "cellulose", "gelatin",
+        "hydrophobic", "hydrophilic", "ionic", "redox", "boronate", "disulfide",
+        "supramolecular", "sacrificial", "interfacial", "nanofibril", "silica",
+        "polydopamine", "calcium", "zinc", "iron", "enzyme", "photothermal",
+        "mechanophore", "hydrolysis", "diffusion", "crosslink", "micelle",
+    })
+    score -= sum(0.25 for w in ws if w in {
+        "healing", "repair", "damage", "composite", "material", "mechanism",
+        "autonomy", "properties", "system", "response", "process",
+    })
+    return score
+
+
+def _is_specific_label(label):
+    return _specificity_score(label) >= 0.55
+
+
 def _relation(G, u, v):
     data = G.get_edge_data(u, v) or G.get_edge_data(v, u) or {}
     if isinstance(data, dict) and "relation" in data:
@@ -104,6 +175,13 @@ def _relation(G, u, v):
         if isinstance(first, dict):
             return str(first.get("relation") or "related_to")
     return "related_to"
+
+
+def _relation_quality(rel):
+    key = str(rel or "").strip().lower().replace("_", " ")
+    if not key:
+        return 0.0
+    return 0.25 if key in GENERIC_RELATIONS else 0.75
 
 
 def _chain_text(G, path):
@@ -128,6 +206,86 @@ def _flatten_insights(insights_json):
             flat.append(x)
     flat.sort(key=lambda x: (float(x.get("actionability", 0.0)), -x.get("_rank", 0)), reverse=True)
     return flat
+
+
+def _insight_nodes(ins):
+    nodes = []
+    for key in ("path", "chain", "cycle", "pair", "endpoints"):
+        value = ins.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, list):
+                    nodes.extend(item)
+                else:
+                    nodes.append(item)
+    if ins.get("node") is not None:
+        nodes.append(ins["node"])
+    for key in ("instances", "routes"):
+        for route in ins.get(key) or []:
+            if isinstance(route, list):
+                nodes.extend(route)
+    return [n for n in nodes if n is not None]
+
+
+def _insight_quality(G, ins):
+    nodes = [n for n in _insight_nodes(ins) if n in G]
+    labels = [_label(G, n) for n in nodes]
+    if any(_is_placeholder_label(x) for x in labels):
+        return -10.0
+    if labels and not any(_is_specific_label(x) for x in labels):
+        return -2.0
+    spec = sum(_specificity_score(x) for x in labels) / max(1, len(labels))
+    path = ins.get("path") or ins.get("chain") or ins.get("cycle")
+    path_bonus = 0.0
+    if isinstance(path, list) and len(path) >= 2 and all(n in G for n in path):
+        if not _clean_path(G, path):
+            return -2.0
+        rels = [_relation(G, u, v) for u, v in zip(path, path[1:])]
+        path_bonus += 0.25 * min(4, len(path) - 1)
+        path_bonus += sum(_relation_quality(r) for r in rels) / max(1, len(rels))
+    kind_bonus = {
+        "conceptual_bridge": 0.5,
+        "open_triad": 0.35,
+        "latent_link": 0.25,
+        "relational_analogy": 0.35,
+        "feedback_loop": -0.2,
+        "broker_idea": -0.4,
+    }.get(ins.get("kind"), 0.0)
+    return float(ins.get("actionability", 0.0)) + spec + path_bonus + kind_bonus
+
+
+def _clean_path(G, path):
+    labels = [_label(G, n) for n in path if n in G]
+    if len(labels) < 2:
+        return False
+    keys = [_label_key(x) for x in labels]
+    if any(_is_placeholder_label(x) for x in labels):
+        return False
+    generic = sum(1 for k in keys if k in GENERIC_LABELS)
+    specific = sum(1 for x in labels if _is_specific_label(x))
+    return specific >= 2 and generic <= 1
+
+
+def _select_insights(G, insights, max_leads):
+    scored = []
+    seen = set()
+    for ins in insights:
+        path = ins.get("path") or ins.get("chain") or ins.get("cycle")
+        if isinstance(path, list):
+            key = tuple(str(x) for x in path)
+        else:
+            key = re.sub(r"\s+", " ", S._humanize(ins.get("title", "")).lower()).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        q = _insight_quality(G, ins)
+        if q > -1.0:
+            scored.append((q, ins))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    picked = [ins for _, ins in scored[:max_leads]]
+    if picked:
+        return picked
+    return insights[:max_leads]
 
 
 def _format_insight(G, ins, i):
@@ -192,6 +350,8 @@ def _paths_block(G, insights, max_paths):
         path = ins.get("path") or ins.get("chain") or ins.get("cycle")
         if not isinstance(path, list) or len(path) < 2 or not all(n in G for n in path):
             continue
+        if not _clean_path(G, path):
+            continue
         key = tuple(path)
         if key in used:
             continue
@@ -202,22 +362,57 @@ def _paths_block(G, insights, max_paths):
     return "\n".join(rows)
 
 
+def _specific_concepts_block(G, max_nodes):
+    U = G.to_undirected()
+    candidates = [n for n in G.nodes if _is_specific_label(_label(G, n))]
+    candidates.sort(key=lambda n: (_specificity_score(_label(G, n)), U.degree(n)), reverse=True)
+    rows = []
+    for n in candidates[:max_nodes]:
+        rows.append(f"- {_label(G, n)} | degree={U.degree(n)} | iter={G.nodes[n].get('iter', '')}")
+    return "\n".join(rows)
+
+
+def _specific_edges_block(G, max_edges):
+    U = G.to_undirected()
+    rows = []
+    for u, v, d in G.edges(data=True):
+        lu, lv = _label(G, u), _label(G, v)
+        if not (_is_specific_label(lu) or _is_specific_label(lv)):
+            continue
+        rel = str(d.get("relation", "related_to"))
+        score = (_specificity_score(lu) + _specificity_score(lv) +
+                 _relation_quality(rel) + 0.04 * (U.degree(u) + U.degree(v)))
+        rows.append((score, lu, rel, lv))
+    rows.sort(reverse=True)
+    return "\n".join(f"- {u} --{rel}--> {v}" for _, u, rel, v in rows[:max_edges])
+
+
 def _build_graph_context(task_run, insights_json, args):
     G = nx.read_graphml(task_run / "graph.graphml")
-    insights = _flatten_insights(insights_json)
+    raw_insights = _flatten_insights(insights_json)
+    insights = _select_insights(G, raw_insights, args.max_leads)
     parts = [
         f"Graph summary: {G.number_of_nodes()} concepts, {G.number_of_edges()} relations.",
     ]
 
-    if args.graph_context_mode in ("rich", "insights", "paths"):
+    if args.graph_context_mode in ("curated", "rich", "insights", "paths"):
         lead_rows = [_format_insight(G, x, i + 1) for i, x in enumerate(insights[:args.max_leads])]
         if lead_rows:
-            parts.append("Mined structural leads:\n" + "\n\n".join(lead_rows))
+            parts.append("Curated structural leads:\n" + "\n\n".join(lead_rows))
 
-    if args.graph_context_mode in ("rich", "paths"):
+    if args.graph_context_mode in ("curated", "rich", "paths"):
         paths = _paths_block(G, insights, args.path_leads)
         if paths:
             parts.append("Relation paths to consider:\n" + paths)
+
+    if args.graph_context_mode in ("curated", "concepts"):
+        concepts = _specific_concepts_block(G, args.max_context_nodes)
+        if concepts:
+            parts.append("Specific graph concepts worth considering:\n" + concepts)
+    if args.graph_context_mode == "curated":
+        edges = _specific_edges_block(G, args.max_context_edges)
+        if edges:
+            parts.append("Specific relation edges worth considering:\n" + edges)
 
     if args.graph_context_mode == "rich":
         hubs = _top_hubs_block(G, args.hub_nodes, args.neighbor_edges)
@@ -241,12 +436,20 @@ def _build_graph_context(task_run, insights_json, args):
         "nodes": G.number_of_nodes(),
         "edges": G.number_of_edges(),
         "insights_used": min(len(insights), args.max_leads),
+        "raw_insights": len(raw_insights),
     }
 
 
 def _build_answer_prompt(task, args, graph_context=None):
     if graph_context:
-        background = f"\n# Background notes\n{GRAPH_CONTEXT_NOTE}\n\n{graph_context}\n"
+        background = (
+            f"\n# Background notes\n{GRAPH_CONTEXT_NOTE}\n\n{graph_context}\n\n"
+            "# How to use the background\n"
+            "- Do not summarize the notes.\n"
+            "- Do not output generic graph words such as healing, autonomy, or composite as mechanisms.\n"
+            "- Convert one or more leads into a concrete material chemistry, interface design, or experiment.\n"
+            "- Prefer a chemically plausible answer over literal obedience to a noisy relation path.\n"
+        )
     else:
         background = ""
     return (
@@ -267,6 +470,15 @@ def _call_answer_model(args, prompt):
                        max_tokens=args.max_tokens, device=args.device, dtype=args.dtype or "auto")
 
 
+def _call_answer_model_temp(args, prompt, temperature):
+    old = args.temperature
+    args.temperature = temperature
+    try:
+        return _call_answer_model(args, prompt)
+    finally:
+        args.temperature = old
+
+
 def _write_answer(args, *, task, out, prompt_path, graph_context=None, dry_run=False):
     prompt = _build_answer_prompt(task, args, graph_context=graph_context)
     Path(prompt_path).parent.mkdir(parents=True, exist_ok=True)
@@ -281,6 +493,63 @@ def _write_answer(args, *, task, out, prompt_path, graph_context=None, dry_run=F
     print(f"[task_graph_benchmark] wrote {out}", flush=True)
 
 
+def _candidate_prompt(task, args, graph_context):
+    return (
+        f"# Benchmark task\n{task}\n\n"
+        f"# Curated graph context\n{GRAPH_CONTEXT_NOTE}\n\n{graph_context}\n\n"
+        "# Candidate generation task\n"
+        f"Generate {args.graph_candidates} distinct candidate answers inspired by different parts of "
+        "the context. Each candidate must be concrete enough to test. For each candidate include:\n"
+        "ID; hypothesis/design claim; exact material chemistry or interface/process; mechanism; "
+        "why it is non-obvious; falsifying experiment; expected discriminating result; main risk.\n\n"
+        "Rules: reject noisy literal paths, placeholders, and generic hub words. Do not use a candidate "
+        "unless you can name a plausible chemistry, phase transition, transport process, interfacial "
+        "mechanism, or measurement. Be bold but scientifically coherent."
+    )
+
+
+def _refine_prompt(task, args, graph_context, candidates):
+    return (
+        f"# Benchmark task\n{task}\n\n"
+        "# Curated graph context summary\n"
+        f"{graph_context[:5000]}\n\n"
+        "# Candidate hypotheses generated from graph context\n"
+        f"{candidates}\n\n"
+        "# Selection and final-answer task\n"
+        "Choose the single best candidate, or recombine candidates if that yields a stronger answer. "
+        "Optimize for novelty, mechanism, specificity, testability, and plausibility. Discard candidates "
+        "that are generic, chemically incoherent, or just paraphrase the context.\n\n"
+        f"# Required answer behavior\n{args.answer_task}\n\n"
+        "Write only the final answer in the required structure. Do not mention candidates, background "
+        "notes, graph context, or this selection process."
+    )
+
+
+def _write_graph_answer(args, *, task, out, prompt_path, candidate_path, graph_context, dry_run=False):
+    Path(prompt_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(candidate_path).parent.mkdir(parents=True, exist_ok=True)
+    if args.graph_synthesis_mode == "direct":
+        return _write_answer(args, task=task, out=out, prompt_path=prompt_path,
+                             graph_context=graph_context, dry_run=dry_run)
+
+    cand_prompt = _candidate_prompt(task, args, graph_context)
+    Path(str(prompt_path).replace(".txt", ".candidates_prompt.txt")).write_text(
+        ANSWER_SYSTEM + "\n\n" + cand_prompt, encoding="utf-8")
+    if dry_run:
+        print(f"+ generate graph candidates -> {candidate_path}", flush=True)
+        print(f"+ refine graph answer -> {out}", flush=True)
+        return
+    candidates = _call_answer_model_temp(args, cand_prompt, args.candidate_temperature).strip()
+    Path(candidate_path).write_text(candidates + "\n", encoding="utf-8")
+    final_prompt = _refine_prompt(task, args, graph_context, candidates)
+    Path(prompt_path).write_text(ANSWER_SYSTEM + "\n\n" + final_prompt, encoding="utf-8")
+    answer = _call_answer_model(args, final_prompt).strip()
+    header = f"*Topic:* {task}\n\n*Task:* {args.answer_task}\n\n---\n\n"
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(header + answer + "\n", encoding="utf-8")
+    print(f"[task_graph_benchmark] wrote {out}", flush=True)
+
+
 def run(args):
     here = Path(__file__).resolve().parent
     out = Path(args.out).resolve()
@@ -289,8 +558,10 @@ def run(args):
     graph_dir = out / "answers" / "graph"
     prompt_base_dir = out / "prompts" / "baseline"
     prompt_graph_dir = out / "prompts" / "graph"
+    candidate_graph_dir = out / "candidates" / "graph"
     bench_dir = out / "benchmark"
-    for d in (runs_dir, baseline_dir, graph_dir, prompt_base_dir, prompt_graph_dir, bench_dir):
+    for d in (runs_dir, baseline_dir, graph_dir, prompt_base_dir, prompt_graph_dir,
+              candidate_graph_dir, bench_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     tasks = _read_tasks(args.tasks, args.limit)
@@ -325,6 +596,8 @@ def run(args):
             "path_leads": args.path_leads,
             "hub_nodes": args.hub_nodes,
             "neighbor_edges": args.neighbor_edges,
+            "graph_synthesis_mode": args.graph_synthesis_mode,
+            "graph_candidates": args.graph_candidates,
         },
         "tasks": [],
     }
@@ -336,6 +609,7 @@ def run(args):
         graph_answer = graph_dir / f"{i:03d}.md"
         base_prompt = prompt_base_dir / f"{i:03d}.txt"
         graph_prompt = prompt_graph_dir / f"{i:03d}.txt"
+        graph_candidates = candidate_graph_dir / f"{i:03d}.txt"
         print(f"\n[task_graph_benchmark] task {i + 1}/{len(tasks)}: {task}", flush=True)
 
         ideate_cmd = [
@@ -390,8 +664,9 @@ def run(args):
                 context_meta = {"mode": args.graph_context_mode, "dry_run": True}
             else:
                 graph_context, context_meta = _build_graph_context(task_run, insights_json, args)
-            _write_answer(args, task=task, out=str(graph_answer), prompt_path=str(graph_prompt),
-                          graph_context=graph_context, dry_run=args.dry_run)
+            _write_graph_answer(args, task=task, out=str(graph_answer), prompt_path=str(graph_prompt),
+                                candidate_path=str(graph_candidates), graph_context=graph_context,
+                                dry_run=args.dry_run)
         else:
             print(f"[task_graph_benchmark] reusing {graph_answer}", flush=True)
             if _maybe_exists(graph_prompt):
@@ -405,6 +680,7 @@ def run(args):
             "graph_answer": str(graph_answer),
             "baseline_prompt": str(base_prompt),
             "graph_prompt": str(graph_prompt),
+            "graph_candidates": str(graph_candidates),
             "graph_context": context_meta,
             "commands": {
                 "ideate": _cmd_str(ideate_cmd),
@@ -470,9 +746,11 @@ def main():
                    help="[hf] torch dtype")
     p.add_argument("--max-leads", dest="max_leads", type=int, default=10,
                    help="max mined graph leads passed to the graph answer prompt")
-    p.add_argument("--graph-context-mode", choices=["rich", "insights", "paths", "full"], default="rich",
-                   help="how to feed the per-task graph to the synthesis model. rich is default: "
-                        "mined insights + relation paths + hub neighborhoods + compact graph table")
+    p.add_argument("--graph-context-mode", choices=["concepts", "curated", "rich", "insights", "paths", "full"],
+                   default="concepts",
+                   help="how to feed the per-task graph to the synthesis model. concepts is default: "
+                        "specific mined graph concepts only, avoiding noisy edge semantics; curated adds "
+                        "quality-filtered leads/paths/edges; rich keeps the older high-degree hub packet")
     p.add_argument("--graph-context-chars", dest="graph_context_chars", type=int, default=14000,
                    help="hard character cap for the graph context packet")
     p.add_argument("--max-context-nodes", dest="max_context_nodes", type=int, default=80,
@@ -487,6 +765,13 @@ def main():
                    help="max high-degree nodes included with local neighborhoods")
     p.add_argument("--neighbor-edges", dest="neighbor_edges", type=int, default=6,
                    help="max neighbor edges shown per hub node")
+    p.add_argument("--graph-synthesis-mode", choices=["candidates", "direct"], default="candidates",
+                   help="candidates uses two graph-arm Llama calls: generate multiple graph-seeded "
+                        "hypotheses, then select/refine the best final answer. direct uses one call")
+    p.add_argument("--graph-candidates", dest="graph_candidates", type=int, default=6,
+                   help="number of graph-seeded candidate hypotheses generated before refinement")
+    p.add_argument("--candidate-temperature", dest="candidate_temperature", type=float, default=0.85,
+                   help="temperature for the graph candidate-generation call")
     p.add_argument("--answer-task", dest="answer_task", default=DEFAULT_ANSWER_TASK,
                    help="shared synthesis instruction appended to each benchmark task")
 

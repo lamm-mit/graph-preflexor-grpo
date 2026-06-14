@@ -17,7 +17,7 @@
     window.setTimeout(() => {
       if (!window.graphExplorerReady) {
         const el = document.createElement("div");
-        el.style.cssText = "position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:20;max-width:720px;padding:12px 14px;border:1px solid #d96868;background:#171a1f;color:#edf0f3;border-radius:6px;font:13px system-ui";
+        el.className = "load-warning";
         el.textContent = "Graph renderer did not load. Check that the browser can reach the Three.js CDN, or vendor Three.js locally and update the import map.";
         document.body.appendChild(el);
       }
@@ -27,29 +27,38 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <strong>Graph-PRefLexOR Explorer</strong>
-      <span id="graphName">No graph loaded</span>
+      <div class="brand-mark">GP</div>
+      <div>
+        <strong>Graph-PRefLexOR Explorer</strong>
+        <span id="graphName">No graph loaded</span>
+      </div>
     </div>
     <div class="top-actions">
       <label class="file-button">
         Upload GraphML
         <input id="fileInput" type="file" accept=".graphml,.xml">
       </label>
-      <input id="runPath" class="path-input" placeholder="runs/exp_leap">
-      <button id="loadRunBtn">Load Run</button>
-      <button id="resetViewBtn">Reset View</button>
+      <input id="runPath" class="path-input" placeholder="runs/exp_leap or /path/to/file.graphml">
+      <button id="loadRunBtn">Load</button>
+      <button id="resetViewBtn" title="Reset camera">Reset View</button>
     </div>
   </header>
 
   <main class="shell">
     <aside class="panel left-panel">
-      <section>
-        <h2>Graph</h2>
+      <section class="panel-card">
+        <div class="section-head">
+          <h2>Graph Overview</h2>
+          <span class="section-kicker" id="filterSummary">No filter applied.</span>
+        </div>
         <div id="stats" class="stats-grid"></div>
       </section>
 
-      <section>
-        <h2>Visual Mapping</h2>
+      <details class="panel-card collapsible" open>
+        <summary>
+          <span>Visual Mapping</span>
+          <span class="summary-note">layout, color, scale</span>
+        </summary>
         <div class="controls-grid">
           <label>Layout
             <select id="layoutModeInput">
@@ -100,10 +109,10 @@
               <option value="depth">Depth</option>
             </select>
           </label>
-          <label>Low Color <input id="lowColorInput" type="color" value="#64a7d9"></label>
-          <label>High Color <input id="highColorInput" type="color" value="#e1a13a"></label>
-          <label>Edge Color <input id="edgeColorInput" type="color" value="#46505c"></label>
-          <label>Background <input id="backgroundColorInput" type="color" value="#090b0d"></label>
+          <label>Low Color <input id="lowColorInput" type="color" value="#35c2ff"></label>
+          <label>High Color <input id="highColorInput" type="color" value="#f5b14c"></label>
+          <label>Edge Color <input id="edgeColorInput" type="color" value="#5d6878"></label>
+          <label>Background <input id="backgroundColorInput" type="color" value="#080a0f"></label>
           <label>Node Scale <input id="nodeScaleInput" type="range" min="0.5" max="3" step="0.1" value="1"></label>
           <label>Edge Opacity <input id="edgeOpacityInput" type="range" min="0.05" max="1" step="0.05" value="0.34"></label>
           <label>Physics Ticks <input id="physicsTicksInput" type="number" min="0" max="600" step="10" value="90"></label>
@@ -111,12 +120,33 @@
           <label>Repulsion <input id="repulsionInput" type="number" min="2" max="240" step="2" value="42"></label>
           <label>Gravity <input id="gravityInput" type="number" min="0" max="0.03" step="0.001" value="0.004"></label>
         </div>
-        <button id="applyVisualsBtn" class="wide">Apply Layout</button>
+        <button id="applyVisualsBtn" class="wide primary-button">Apply Layout</button>
         <div id="visualLegend" class="legend"></div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Filter & Timeline</h2>
+      <details class="panel-card collapsible" open>
+        <summary>
+          <span>Search & Select</span>
+          <span id="searchCount" class="summary-note">0 results</span>
+        </summary>
+        <div class="row">
+          <input id="searchInput" placeholder="concept, mechanism, material">
+          <button id="searchBtn">Search</button>
+        </div>
+        <div class="button-grid compact-buttons">
+          <button id="hubsBtn">Top Hubs</button>
+          <button id="clearSearchBtn">Clear List</button>
+          <button id="selectedSubgraphBtn">Selected View</button>
+          <button id="boxSelectBtn">Box Select</button>
+        </div>
+        <div id="searchResults" class="result-list"></div>
+      </details>
+
+      <details class="panel-card collapsible">
+        <summary>
+          <span>Filter & Timeline</span>
+          <span class="summary-note">metrics, relations, growth</span>
+        </summary>
         <div class="controls-grid">
           <label>Metric
             <select id="filterMetricInput">
@@ -145,20 +175,13 @@
           <button id="playTimelineBtn">Play Growth</button>
           <button id="stopTimelineBtn">Stop</button>
         </div>
-        <div id="filterSummary" class="hint">No filter applied.</div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Search</h2>
-        <div class="row">
-          <input id="searchInput" placeholder="concept, mechanism, material">
-          <button id="searchBtn">Search</button>
-        </div>
-        <div id="searchResults" class="result-list"></div>
-      </section>
-
-      <section>
-        <h2>Focus</h2>
+      <details class="panel-card collapsible">
+        <summary>
+          <span>Focus Tools</span>
+          <span class="summary-note">paths, neighborhoods</span>
+        </summary>
         <div class="controls-grid">
           <label>Depth <input id="depthInput" type="number" min="0" max="5" value="1"></label>
           <label>Limit <input id="limitInput" type="number" min="20" max="2000" value="400"></label>
@@ -168,24 +191,21 @@
         <div class="button-grid">
           <button id="neighborhoodBtn">Neighborhood</button>
           <button id="pathBtn">Path</button>
-          <button id="hubsBtn">Top Hubs</button>
           <button id="showAllBtn">Show All</button>
-          <button id="selectedSubgraphBtn">Selected</button>
-          <button id="boxSelectBtn">Box Select</button>
           <button id="pinSelectedBtn">Pin</button>
           <button id="reheatBtn">Reheat</button>
-        </div>
-        <div class="button-grid">
           <button id="clearSelectionBtn">Clear Selection</button>
           <button id="clearPinsBtn">Clear Pins</button>
           <button id="explainClusterBtn">Explain Cluster</button>
           <button id="exportSelectionBtn">Export JSON</button>
         </div>
-        <div class="hint">Click selects a source. Shift-click selects a target. Cmd/Ctrl/Alt-click adds to selection. Box Select drags a rectangle.</div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Views, Compare, Export</h2>
+      <details class="panel-card collapsible">
+        <summary>
+          <span>Views & Export</span>
+          <span class="summary-note">compare, save, export</span>
+        </summary>
         <div class="row">
           <input id="viewNameInput" placeholder="view name">
           <button id="saveViewBtn">Save</button>
@@ -198,17 +218,20 @@
           <input id="compareRunInput" placeholder="runs/other_run">
           <button id="compareRunBtn">Compare</button>
         </div>
-        <div class="button-grid">
+        <div class="button-grid compact-buttons">
           <button id="exportPngBtn">PNG</button>
           <button id="exportSvgBtn">SVG</button>
           <button id="exportJsonBtn">JSON</button>
           <button id="deleteViewBtn">Delete View</button>
         </div>
         <div id="compareDetails" class="details muted">No comparison loaded.</div>
-      </section>
+      </details>
 
-      <section>
-        <h2>Run Ideation</h2>
+      <details class="panel-card collapsible" open>
+        <summary>
+          <span>Run Monitor</span>
+          <span id="jobStatusPill" class="status-pill idle">idle</span>
+        </summary>
         <textarea id="topicInput" rows="3" placeholder="topic or benchmark task"></textarea>
         <div class="controls-grid">
           <label>Strategy <input id="strategyInput" value="frontier"></label>
@@ -216,14 +239,29 @@
           <label>Iters <input id="itersInput" type="number" min="1" value="50"></label>
           <label>Out <input id="outInput" placeholder="runs/explorer_run"></label>
         </div>
-        <button id="startRunBtn" class="wide">Start CLI Run</button>
+        <div class="run-progress">
+          <div class="progress-head">
+            <span id="jobProgressText">No active run</span>
+            <label class="inline-check"><input id="autoRefreshRunInput" type="checkbox" checked> Auto-refresh graph</label>
+          </div>
+          <progress id="jobProgress" max="100" value="0"></progress>
+          <div id="jobMetrics" class="run-metrics"></div>
+          <svg id="growthSparkline" class="sparkline" viewBox="0 0 280 58" preserveAspectRatio="none"></svg>
+          <div id="jobSnapshotText" class="hint">No graph snapshots detected.</div>
+        </div>
+        <div class="button-grid">
+          <button id="startRunBtn" class="primary-button">Start CLI Run</button>
+          <button id="stopRunBtn" class="danger-button" disabled>Stop Run</button>
+        </div>
         <pre id="jobLog" class="log"></pre>
-      </section>
+      </details>
     </aside>
 
     <section class="viewport-wrap">
       <div id="viewport"></div>
       <div id="selectionBox" class="selection-box hidden"></div>
+      <div class="viewer-overlay viewer-top-left" id="viewerContext">whole graph</div>
+      <div class="viewer-overlay viewer-top-right" id="selectionChips">No selection</div>
       <div id="hud" class="hud">
         <span id="renderMode">whole graph</span>
         <span id="selectionHud">source: none | target: none</span>
@@ -231,19 +269,47 @@
       <div id="tooltip" class="tooltip hidden"></div>
     </section>
 
-    <aside class="panel right-panel">
-      <section>
-        <h2>Selection</h2>
-        <div id="selectionDetails" class="details">No node selected.</div>
+    <aside class="panel right-panel assistant-panel">
+      <section class="chat-panel">
+        <div class="chat-head">
+          <div>
+            <h2>Graph Chat</h2>
+            <div id="chatContextBar" class="chat-context">No graph loaded.</div>
+          </div>
+          <div class="chat-head-actions">
+            <select id="chatRoleInput" title="Featured chat model">
+              <option value="graph_qa">Graph QA</option>
+              <option value="generator">Generator</option>
+              <option value="questioner">Questioner</option>
+              <option value="judge">Judge</option>
+              <option value="baseline">Baseline</option>
+            </select>
+            <button id="resetChatBtn">Reset</button>
+          </div>
+        </div>
+        <div id="chatMessages" class="chat-messages"></div>
+        <div class="quick-prompts">
+          <button class="prompt-chip" data-prompt="Summarize the current graph focus and identify the strongest mechanisms.">Summarize</button>
+          <button class="prompt-chip" data-prompt="Find structural gaps, weakly connected themes, and high-value questions to ask next.">Gaps</button>
+          <button class="prompt-chip" data-prompt="Suggest bridge ideas between the selected nodes or communities, with concrete experiments.">Bridge</button>
+          <button class="prompt-chip" data-prompt="Rank the most important hubs and explain what they imply for the research direction.">Hubs</button>
+        </div>
+        <input id="contextQueryInput" placeholder="optional extra context search">
+        <div class="chat-composer">
+          <textarea id="questionInput" rows="4" placeholder="Ask about the selected nodes, visible subgraph, or whole graph..."></textarea>
+          <div class="composer-row">
+            <label>Context nodes <input id="contextNodesInput" type="number" min="20" max="400" value="90"></label>
+            <button id="askBtn" class="primary-button">Send</button>
+          </div>
+        </div>
+        <div id="answerBox" class="answer hidden"></div>
       </section>
 
-      <section>
-        <h2>Paths</h2>
-        <div id="pathDetails" class="details muted">No path loaded.</div>
-      </section>
-
-      <section>
-        <h2>Models & Servers</h2>
+      <details class="panel-card collapsible settings-card">
+        <summary>
+          <span>Model Settings</span>
+          <span class="summary-note">roles, presets, config</span>
+        </summary>
         <div class="controls-grid">
           <label>Role
             <select id="modelRoleInput">
@@ -280,37 +346,40 @@
           <label>Effort <input id="roleEffortInput" placeholder="high"></label>
         </div>
         <div class="button-grid">
-          <button id="applyRoleToAskBtn">Use For Ask</button>
-          <button id="checkModelBtn">Check</button>
+          <button id="applyRoleToAskBtn">Feature In Chat</button>
+          <button id="checkModelBtn">Check Server</button>
           <button id="previewConfigBtn">Preview Config</button>
           <button id="writeConfigBtn">Write Config</button>
         </div>
         <div id="modelStatus" class="details muted">No server checked.</div>
+        <details class="nested-settings">
+          <summary>Direct Chat Transport</summary>
+          <div class="controls-grid">
+            <label>Provider
+              <select id="providerInput">
+                <option value="openai">OpenAI-compatible</option>
+                <option value="hf">Local HF</option>
+              </select>
+            </label>
+            <label>Model <input id="modelInput" value="meta-llama/Llama-3.2-3B-Instruct"></label>
+            <label>Base URL <input id="baseUrlInput" placeholder="http://localhost:8000/v1"></label>
+            <label>API key <input id="apiKeyInput" type="password" placeholder="optional literal key"></label>
+            <label>Effort <input id="effortInput" placeholder="high"></label>
+            <label>Temp <input id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0.3"></label>
+            <label>Tokens <input id="maxTokensInput" type="number" min="128" max="16000" value="1800"></label>
+          </div>
+        </details>
         <pre id="configPreview" class="log"></pre>
-      </section>
+      </details>
 
-      <section>
-        <h2>Ask Graph</h2>
-        <textarea id="questionInput" rows="4" placeholder="What mechanisms or hypotheses does this neighborhood suggest?"></textarea>
-        <input id="contextQueryInput" placeholder="optional graph search query for context">
-        <div class="controls-grid">
-          <label>Provider
-            <select id="providerInput">
-              <option value="openai">OpenAI-compatible</option>
-              <option value="hf">Local HF</option>
-            </select>
-          </label>
-          <label>Model <input id="modelInput" value="meta-llama/Llama-3.2-3B-Instruct"></label>
-          <label>Base URL <input id="baseUrlInput" placeholder="http://localhost:8000/v1"></label>
-          <label>API key <input id="apiKeyInput" type="password" placeholder="x or real key"></label>
-          <label>Effort <input id="effortInput" placeholder="high"></label>
-          <label>Temp <input id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0.3"></label>
-          <label>Tokens <input id="maxTokensInput" type="number" min="128" max="16000" value="1800"></label>
-          <label>Context <input id="contextNodesInput" type="number" min="20" max="400" value="90"></label>
-        </div>
-        <button id="askBtn" class="wide">Ask With Current Context</button>
-        <div id="answerBox" class="answer"></div>
-      </section>
+      <details class="panel-card collapsible" open>
+        <summary>
+          <span>Selection Inspector</span>
+          <span class="summary-note">selected nodes and paths</span>
+        </summary>
+        <div id="selectionDetails" class="details">No node selected.</div>
+        <div id="pathDetails" class="details muted">No path loaded.</div>
+      </details>
     </aside>
   </main>
 

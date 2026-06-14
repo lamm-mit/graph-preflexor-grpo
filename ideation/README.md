@@ -173,13 +173,16 @@ The script writes both answer sets and then calls the same pairwise judge used b
 ```bash
 python task_graph_benchmark.py \
   --tasks benchmark_tasks.txt \
-  --out runs/task_graph_bench/frontier_50_rich \
+  --out runs/task_graph_bench/frontier_50_concepts \
+  --force \
   --strategy frontier \
   --budget-calls 50 \
   --max-iters 50 \
   --insights-top 12 \
-  --graph-context-mode rich \
-  --graph-context-chars 14000 \
+  --graph-context-mode concepts \
+  --graph-synthesis-mode candidates \
+  --graph-candidates 6 \
+  --graph-context-chars 10000 \
   --max-context-nodes 80 \
   --max-context-edges 180 \
   --backend openai \
@@ -213,6 +216,7 @@ Outputs:
 - `task_runs/NNN_.../`: one short Graph-PRefLexOR run per benchmark task
 - `answers/baseline/*.md`: Llama single-shot answers
 - `answers/graph/*.md`: synthesized answers from each short graph
+- `candidates/graph/*.txt`: graph-seeded candidate hypotheses generated before final refinement
 - `prompts/baseline/*.txt` and `prompts/graph/*.txt`: exact prompts sent to Llama for audit
 - `benchmark/pairwise.{png,svg,pdf,json,md}`: blind pairwise judge results
 - `manifest.json`: exact task/run/answer mapping
@@ -221,8 +225,12 @@ The runner is resumable: existing graphs, insights, and answers are reused. Add 
 
 Graph context modes:
 
-- `rich` (default): mined leads with details, selected relation paths/chains, hub neighborhoods, and
-  a compact graph table
+- `concepts` (default): specific mined graph concepts only, without trusting relation edges; use this
+  if the graph contains useful vocabulary but noisy edge semantics
+- `curated`: quality-filtered mined leads, selected relation paths/chains, and specific graph
+  concepts/edges; use this when graph relations are clean enough to trust
+- `rich`: older diagnostic packet with mined leads, selected paths, hub neighborhoods, and a compact
+  graph table; useful for debugging but can overload a 3B model
 - `full`: compact node/edge table only; for small per-task graphs this includes the complete node list
 - `paths`: mined leads plus relation paths/chains only
 - `insights`: mined structural leads only, closest to the original version
@@ -231,14 +239,16 @@ Recommended compute/context sweep:
 
 ```bash
 python task_graph_benchmark.py --tasks benchmark_tasks.txt \
-  --out runs/task_graph_bench/frontier_30_rich --strategy frontier \
-  --budget-calls 30 --max-iters 30 --graph-context-mode rich \
+  --out runs/task_graph_bench/frontier_30_concepts --strategy frontier \
+  --budget-calls 30 --max-iters 30 --graph-context-mode concepts \
+  --graph-synthesis-mode candidates \
   --backend openai --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 --judge-model gpt-5.5 --judge-effort high
 
 python task_graph_benchmark.py --tasks benchmark_tasks.txt \
-  --out runs/task_graph_bench/frontier_100_rich --strategy frontier \
-  --budget-calls 100 --max-iters 100 --graph-context-mode rich \
+  --out runs/task_graph_bench/frontier_100_concepts --strategy frontier \
+  --budget-calls 100 --max-iters 100 --graph-context-mode concepts \
+  --graph-synthesis-mode candidates \
   --backend openai --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 --judge-model gpt-5.5 --judge-effort high
 ```
