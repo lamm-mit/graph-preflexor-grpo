@@ -176,11 +176,20 @@ python path_pair_benchmark.py \
   --run runs/exp_leap \
   --out runs/exp_leap/benchmark/path_pairs \
   --n 10 \
+  --force-pairs \
+  --force \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
   --judge-model gpt-5.5 \
   --judge-effort high
 ```
+
+By default this uses strict pair selection: it rejects meta/method nodes such as `NovelIdea` and
+`UntestedIdea`, speculative-physics labels such as quantum/topological/entanglement terms, topic-name
+hubs, and mostly generic bridges. The graph prompt still shows the true path, but also extracts the
+mechanistically useful bridge concepts so the small model is not forced to follow noisy edge verbs.
+Use `--force-pairs` when rerunning an existing output directory; otherwise the runner intentionally
+reuses the existing `pairs.json`.
 
 Useful controls:
 
@@ -192,6 +201,7 @@ python path_pair_benchmark.py \
   --n 10 \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
+  --force-pairs \
   --dry-run \
   --no-judge
 
@@ -208,6 +218,20 @@ python path_pair_benchmark.py \
   --base-url http://localhost:8000/v1 \
   --judge-model gpt-5.5 \
   --judge-effort high
+
+# Inspect the noisy/unfiltered graph region deliberately.
+python path_pair_benchmark.py \
+  --run runs/exp_leap \
+  --out runs/exp_leap/benchmark/path_pairs_permissive \
+  --n 10 \
+  --quality-mode permissive \
+  --allow-meta \
+  --allow-speculative \
+  --allow-topic-hubs \
+  --force-pairs \
+  --model meta-llama/Llama-3.2-3B-Instruct \
+  --base-url http://localhost:8000/v1 \
+  --no-judge
 ```
 
 Outputs:
@@ -1410,8 +1434,10 @@ wider spread is only a *result* if the new concepts are **on-topic** — verify 
 `profile_graph.py` makes a single-graph audit report for a completed run, a mid-run snapshot, or any
 GraphML file. It reads the graph directly and writes a browsable Markdown report, PDF, machine-readable
 JSON, and diagnostic figures covering graph statistics, top nodes, relation types, connected components,
-communities/modules, bridge edges, articulation points, cross-module paths, provenance, and data-quality
-flags. If Graph-PRefLexOR attributes such as `iter`, `depth`, `question`, and `response_id` are present,
+communities/modules, bridge edges, articulation points, cross-module paths, long-range transitive
+connections, short cross-module bridges, recurring relational motifs, structural analogy/role-equivalence
+candidates, bounded isomorphism analysis, provenance, and data-quality flags. If Graph-PRefLexOR
+attributes such as `iter`, `depth`, `question`, and `response_id` are present,
 the provenance section can explain where concepts entered the graph; arbitrary GraphML still gets the
 structural/module audit. `report.pdf` is rendered by default with Pandoc when available; add `--no-pdf`
 to skip PDF generation.
@@ -1437,7 +1463,7 @@ python profile_graph.py \
     --model gpt-5.5 \
     --reasoning-effort high \
     --llm-modules 12 \
-    --llm-deep-passes 3 \
+    --llm-deep-passes 4 \
     --max-summary-tokens 1600 \
     --deep-pass-tokens 5000 \
     --deep-dive-tokens 12000
@@ -1453,7 +1479,7 @@ python profile_graph.py \
     --model meta-llama/Llama-3.2-3B-Instruct \
     --base-url http://localhost:8000/v1 \
     --llm-modules 12 \
-    --llm-deep-passes 3 \
+    --llm-deep-passes 4 \
     --max-summary-tokens 1600 \
     --deep-pass-tokens 5000 \
     --deep-dive-tokens 12000
@@ -1469,7 +1495,7 @@ python profile_graph.py \
     --base-url http://localhost:8000/v1 \
     --reasoning-effort high \
     --llm-modules 12 \
-    --llm-deep-passes 3 \
+    --llm-deep-passes 4 \
     --max-summary-tokens 1600 \
     --deep-pass-tokens 5000 \
     --deep-dive-tokens 12000
@@ -1478,9 +1504,16 @@ python profile_graph.py \
 For OpenAI models, `--backend responses` (also accepted as `--backend openai`) uses the Responses API
 with `reasoning={"effort": "high"}` by default; adjust with `--reasoning-effort`. For direct Hugging
 Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files do not
-always contain the original embedding model context. The CLI prints stage-by-stage progress while it
-runs, including per-module summaries, extra evidence-pass calls (`--llm-deep-passes`, default 3), PDF
-rendering, and the final paper-level synthesis; add `--quiet` to suppress progress output. The deep-dive
+always contain the original embedding model context. The deterministic mining layer still runs without
+embeddings, using lexical distance instead of embedding distance, but `--embed-model auto` usually gives
+better long-range and analogy candidates. The report includes a **Mined Graph Insights** section with
+long transitive paths, compact cross-module bridges, recurring two-step motifs, local role-equivalence
+analogies, exact rooted ego-net isomorphism classes, exact small-module isomorphism classes, WL orbit
+candidate classes, bounded whole-graph automorphism checks, and non-hub brokerage nodes; the LLM receives
+the same evidence for its paper-level analysis.
+The CLI prints stage-by-stage progress while it runs, including per-module summaries, extra evidence-pass
+calls (`--llm-deep-passes`, default 4), PDF rendering, and the final paper-level synthesis; add `--quiet`
+to suppress progress output. The deep-dive
 text is written near the top of `report.md` under **Paper-Level Graph Interpretation** and stored in
 `profile.json` at `llm_summaries.deep_dive`; the supporting LLM evidence memos are stored at
 `llm_summaries.deep_dive_passes`. If a high-reasoning Responses call returns no visible text or the

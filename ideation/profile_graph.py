@@ -4,8 +4,8 @@
 The normal plotting scripts answer "how well did the run do?" This script answers
 "what is actually in this graph?" It builds a graph atlas with global statistics,
 components, modularity communities, top nodes, critical connectors, relation
-patterns, provenance, data-quality warnings, figures, and optional LLM-written
-module summaries.
+patterns, provenance, graph-mined insight candidates, data-quality warnings,
+figures, and optional LLM-written module summaries.
 
 Examples
 --------
@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import os
@@ -55,12 +56,14 @@ STOPWORDS = {
     "with", "within", "what", "why", "which", "key", "role", "system", "systems", "process",
     "mechanism", "mechanisms", "effect", "effects", "property", "properties", "material",
     "materials", "concept", "idea", "related", "relation",
+    "question", "questions", "unresolved", "underlying", "general",
 }
 
 GENERIC_LABELS = {
     "a", "b", "c", "d", "e", "f", "g", "h", "node", "concept", "idea", "thing",
     "entity", "mechanism", "process", "system", "property", "properties", "effect",
     "effects", "response", "interaction", "interactions", "structure", "function",
+    "question", "questions", "unresolvedquestions", "underlyingmechanisms", "phenomena",
 }
 
 
@@ -76,7 +79,7 @@ class LLMOptions:
     deep_pass_tokens: int = 5000
     deep_tokens: int = 10000
     reasoning_effort: str = "high"
-    deep_passes: int = 3
+    deep_passes: int = 4
     device: Optional[str] = None
     dtype: str = "auto"
 
@@ -341,8 +344,10 @@ def _label_flags(label: str) -> List[str]:
     flags = []
     if not s:
         flags.append("empty")
-    if len(norm) <= 2:
+    if len(norm) <= 3 and s not in {"DNA", "RNA"}:
         flags.append("too_short")
+    if re.fullmatch(r"[A-Z][a-z]{1,3}", s):
+        flags.append("short_fragment")
     if s in GENERIC_LABELS or norm in GENERIC_LABELS:
         flags.append("generic")
     if re.fullmatch(r"[A-Z]{1,3}", s) and s not in {"DNA", "RNA"}:
@@ -354,6 +359,13 @@ def _label_flags(label: str) -> List[str]:
     if len(re.findall(r"[A-Za-z]", s)) < max(1, len(s) * 0.25):
         flags.append("low_alpha")
     return flags
+
+
+def _mining_label_ok(G: nx.Graph, n: Any) -> bool:
+    flags = set(_label_flags(_label(G, n)))
+    noisy = {"empty", "too_short", "generic", "short_acronym", "short_fragment",
+             "numeric_artifact", "low_alpha"}
+    return not (flags & noisy)
 
 
 def _relation_counts(G: nx.Graph, nodes: Optional[set] = None) -> Counter:
@@ -581,29 +593,799 @@ def _representative_paths(G: nx.Graph, cents: Dict[str, Dict[Any, float]], modul
     paths.sort(key=lambda x: x[0], reverse=True)
     out = []
     for score, p in paths[:max_paths]:
-        rels = []
-        for u, v in zip(p, p[1:]):
-            d = G.get_edge_data(u, v) or G.get_edge_data(v, u) or {}
-            rels.append(_edge_relation(d if isinstance(d, dict) else {}))
         out.append({
             "score": float(score),
             "nodes": [_label(G, n) for n in p],
             "node_ids": [str(n) for n in p],
             "modules": [module_of.get(n) for n in p],
-            "relations": rels,
+            "relations": _path_relations(G, p),
             "text": _path_text(G, p),
         })
     return out
 
 
+def _edge_data_between(G: nx.Graph, u: Any, v: Any) -> Tuple[Dict[str, Any], str]:
+    if G.has_edge(u, v):
+        data = G.get_edge_data(u, v) or {}
+        return data if isinstance(data, dict) else {}, "undirected" if not G.is_directed() else "forward"
+    if G.has_edge(v, u):
+        data = G.get_edge_data(v, u) or {}
+        return data if isinstance(data, dict) else {}, "reverse"
+    return {}, "missing"
+
+
+def _path_relations(G: nx.Graph, path: Sequence[Any]) -> List[str]:
+    rels = []
+    for u, v in zip(path, path[1:]):
+        d, _orientation = _edge_data_between(G, u, v)
+        rels.append(_edge_relation(d))
+    return rels
+
+
 def _path_text(G: nx.Graph, path: Sequence[Any]) -> str:
-    bits = []
-    for i, n in enumerate(path):
-        bits.append(_label(G, n))
-        if i < len(path) - 1:
-            d = G.get_edge_data(path[i], path[i + 1]) or G.get_edge_data(path[i + 1], path[i]) or {}
-            bits.append(f"--{_edge_relation(d if isinstance(d, dict) else {})}-->")
+    if not path:
+        return ""
+    bits = [_label(G, path[0])]
+    for u, v in zip(path, path[1:]):
+        d, orientation = _edge_data_between(G, u, v)
+        rel = _edge_relation(d)
+        if orientation == "reverse":
+            bits.append(f"<--{rel}--")
+        elif orientation == "undirected":
+            bits.append(f"--{rel}--")
+        else:
+            bits.append(f"--{rel}-->")
+        bits.append(_label(G, v))
     return " ".join(bits)
+
+
+def _label_tokens(label: str) -> List[str]:
+    text = re.sub(r"([a-z])([A-Z])", r"\1 \2", str(label))
+    return [w for w in re.findall(r"[A-Za-z][A-Za-z0-9]{2,}", text.lower())
+            if w not in STOPWORDS and w not in GENERIC_LABELS]
+
+
+def _lexical_distance(a: str, b: str) -> float:
+    sa, sb = set(_label_tokens(a)), set(_label_tokens(b))
+    if not sa and not sb:
+        return 0.0
+    if not sa or not sb:
+        return 1.0
+    return 1.0 - (len(sa & sb) / max(1, len(sa | sb)))
+
+
+def _node_topic_distance(G: nx.Graph, a: Any, b: Any,
+                         vecs: Optional[Dict[Any, np.ndarray]]) -> float:
+    if vecs and a in vecs and b in vecs:
+        va = np.asarray(vecs[a], dtype=np.float32)
+        vb = np.asarray(vecs[b], dtype=np.float32)
+        denom = float(np.linalg.norm(va) * np.linalg.norm(vb))
+        if denom:
+            return float(max(0.0, min(2.0, 1.0 - (float(np.dot(va, vb)) / denom))))
+    return _lexical_distance(_label(G, a), _label(G, b))
+
+
+def _hub_nodes_for_mining(G: nx.Graph, cents: Dict[str, Dict[Any, float]]) -> set:
+    n = max(1, G.number_of_nodes())
+    k = min(n, max(10, min(50, int(math.ceil(n * 0.01)))))
+    return {node for node, _ in sorted(cents["degree"].items(), key=lambda x: x[1], reverse=True)[:k]}
+
+
+def _candidate_nodes_for_mining(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                                module_of: Dict[Any, int], limit: int = 180,
+                                include_hubs: bool = False) -> List[Any]:
+    hubs = set() if include_hubs else _hub_nodes_for_mining(G, cents)
+    ordered: List[Any] = []
+    for key, cap in (("pagerank", limit), ("betweenness", limit), ("degree", max(40, limit // 2))):
+        for n, _score in sorted(cents.get(key, {}).items(), key=lambda x: x[1], reverse=True)[:cap]:
+            if n not in hubs and _mining_label_ok(G, n):
+                ordered.append(n)
+    by_module: Dict[int, List[Any]] = defaultdict(list)
+    for n in G.nodes:
+        if n not in hubs and _mining_label_ok(G, n) and module_of.get(n) is not None:
+            by_module[int(module_of[n])].append(n)
+    for nodes in by_module.values():
+        nodes.sort(key=lambda n: (cents["pagerank"].get(n, 0.0),
+                                  cents["betweenness"].get(n, 0.0),
+                                  cents["degree"].get(n, 0.0)), reverse=True)
+        ordered.extend(nodes[:5])
+    seen = set()
+    out = []
+    for n in ordered:
+        if n in seen:
+            continue
+        seen.add(n)
+        out.append(n)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _path_profile_row(G: nx.Graph, path: Sequence[Any], cents: Dict[str, Dict[Any, float]],
+                      module_of: Dict[Any, int], vecs: Optional[Dict[Any, np.ndarray]],
+                      score: float, hub_nodes: set) -> Dict[str, Any]:
+    rels = _path_relations(G, path)
+    modules = [module_of.get(n) for n in path]
+    internal = list(path[1:-1])
+    topic_distance = _node_topic_distance(G, path[0], path[-1], vecs) if len(path) >= 2 else 0.0
+    row = {
+        "score": float(score),
+        "hops": max(0, len(path) - 1),
+        "endpoint_topic_distance": float(topic_distance),
+        "module_diversity": len({m for m in modules if m is not None}),
+        "relation_diversity": len(set(rels)),
+        "internal_hub_count": sum(1 for n in internal if n in hub_nodes),
+        "internal_mean_betweenness": float(statistics.mean([cents["betweenness"].get(n, 0.0)
+                                                            for n in internal])) if internal else 0.0,
+        "source": _node_packet(G, path[0], cents, module_of),
+        "target": _node_packet(G, path[-1], cents, module_of),
+        "bridge_nodes": [_node_packet(G, n, cents, module_of) for n in internal],
+        "nodes": [_label(G, n) for n in path],
+        "node_ids": [str(n) for n in path],
+        "modules": modules,
+        "relations": rels,
+        "text": _path_text(G, path),
+    }
+    row["why"] = (
+        f"{row['hops']}-hop path crossing {row['module_diversity']} modules with "
+        f"endpoint topic distance {row['endpoint_topic_distance']:.3g} and "
+        f"{row['relation_diversity']} relation types"
+    )
+    return row
+
+
+def _mine_long_range_transitive_paths(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                                      module_of: Dict[Any, int],
+                                      vecs: Optional[Dict[Any, np.ndarray]],
+                                      max_paths: int = 30,
+                                      min_hops: int = 4,
+                                      max_hops: int = 8) -> List[Dict[str, Any]]:
+    U = _get_undirected(G)
+    candidates = _candidate_nodes_for_mining(G, cents, module_of, limit=180)
+    candidate_set = set(candidates)
+    hub_nodes = _hub_nodes_for_mining(G, cents)
+    scored: List[Tuple[float, Sequence[Any]]] = []
+    seen = set()
+    for a in candidates:
+        if not U.has_node(a):
+            continue
+        try:
+            paths = nx.single_source_shortest_path(U, a, cutoff=max_hops)
+        except Exception:
+            continue
+        for b in candidate_set:
+            if a == b or module_of.get(a) == module_of.get(b) or b not in paths:
+                continue
+            key = frozenset((a, b))
+            if key in seen:
+                continue
+            p = paths[b]
+            hops = len(p) - 1
+            if hops < min_hops or hops > max_hops:
+                continue
+            topic_distance = _node_topic_distance(G, a, b, vecs)
+            if topic_distance < (0.18 if vecs else 0.35):
+                continue
+            rels = _path_relations(G, p)
+            modules = {module_of.get(n) for n in p if module_of.get(n) is not None}
+            internal = p[1:-1]
+            internal_bet = sum(cents["betweenness"].get(n, 0.0) for n in internal)
+            internal_hubs = sum(1 for n in internal if n in hub_nodes)
+            score = (
+                2.5 * topic_distance
+                + 0.35 * hops
+                + 0.45 * len(modules)
+                + 0.20 * len(set(rels))
+                + 1500.0 * (cents["pagerank"].get(a, 0.0) + cents["pagerank"].get(b, 0.0))
+                + 20.0 * internal_bet
+                - 0.55 * internal_hubs
+            )
+            seen.add(key)
+            scored.append((score, p))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [_path_profile_row(G, p, cents, module_of, vecs, score, hub_nodes)
+            for score, p in scored[:max_paths]]
+
+
+def _mine_short_cross_module_bridges(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                                     module_of: Dict[Any, int],
+                                     vecs: Optional[Dict[Any, np.ndarray]],
+                                     max_paths: int = 30,
+                                     max_hops: int = 3) -> List[Dict[str, Any]]:
+    U = _get_undirected(G)
+    candidates = _candidate_nodes_for_mining(G, cents, module_of, limit=220, include_hubs=False)
+    candidate_set = set(candidates)
+    hub_nodes = _hub_nodes_for_mining(G, cents)
+    scored: List[Tuple[float, Sequence[Any]]] = []
+    seen = set()
+    for a in candidates:
+        if not U.has_node(a):
+            continue
+        try:
+            paths = nx.single_source_shortest_path(U, a, cutoff=max_hops)
+        except Exception:
+            continue
+        for b in candidate_set:
+            if a == b or module_of.get(a) == module_of.get(b) or b not in paths:
+                continue
+            key = frozenset((a, b))
+            if key in seen:
+                continue
+            p = paths[b]
+            hops = len(p) - 1
+            if hops < 1 or hops > max_hops:
+                continue
+            topic_distance = _node_topic_distance(G, a, b, vecs)
+            rels = _path_relations(G, p)
+            modules = {module_of.get(n) for n in p if module_of.get(n) is not None}
+            internal = p[1:-1]
+            internal_bet = sum(cents["betweenness"].get(n, 0.0) for n in internal)
+            internal_hubs = sum(1 for n in internal if n in hub_nodes)
+            score = (
+                2.0 * topic_distance
+                + 0.80 * len(modules)
+                + 0.25 * len(set(rels))
+                + 20.0 * internal_bet
+                + 1200.0 * (cents["pagerank"].get(a, 0.0) + cents["pagerank"].get(b, 0.0))
+                - 0.20 * hops
+                - 0.60 * internal_hubs
+            )
+            seen.add(key)
+            scored.append((score, p))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [_path_profile_row(G, p, cents, module_of, vecs, score, hub_nodes)
+            for score, p in scored[:max_paths]]
+
+
+def _module_role_pattern(mu: Optional[int], mv: Optional[int], mw: Optional[int]) -> str:
+    sm = "same" if mu == mv else "cross"
+    mt = "same" if mv == mw else "cross"
+    st = "same" if mu == mw else "different"
+    return f"source-middle:{sm}; middle-target:{mt}; endpoints:{st}"
+
+
+def _capped_edges_for_motif(G: nx.Graph, n: Any, cents: Dict[str, Dict[Any, float]],
+                            incoming: bool, cap: int = 36) -> List[Tuple[Any, Any, Dict[str, Any]]]:
+    if G.is_directed():
+        edges = list(G.in_edges(n, data=True)) if incoming else list(G.out_edges(n, data=True))
+        endpoint = (lambda e: e[0]) if incoming else (lambda e: e[1])
+    else:
+        edges = [(u, v, d) for u, v, d in G.edges(n, data=True)]
+        endpoint = lambda e: e[1] if e[0] == n else e[0]
+    edges.sort(key=lambda e: (cents["pagerank"].get(endpoint(e), 0.0),
+                              cents["betweenness"].get(endpoint(e), 0.0),
+                              cents["degree"].get(endpoint(e), 0.0)), reverse=True)
+    return edges[:cap]
+
+
+def _mine_relational_motifs(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                            module_of: Dict[Any, int], max_motifs: int = 30) -> List[Dict[str, Any]]:
+    counts: Counter = Counter()
+    examples: Dict[Tuple[str, str, str], List[Sequence[Any]]] = defaultdict(list)
+    exact_modules: Dict[Tuple[str, str, str], Counter] = defaultdict(Counter)
+    middle_nodes: Dict[Tuple[str, str, str], Counter] = defaultdict(Counter)
+    for mid in G.nodes:
+        incoming = _capped_edges_for_motif(G, mid, cents, incoming=True)
+        outgoing = _capped_edges_for_motif(G, mid, cents, incoming=False)
+        for u, _v, d1 in incoming:
+            src = u if u != mid else _v
+            for _x, w, d2 in outgoing:
+                tgt = w if w != mid else _x
+                if src == tgt:
+                    continue
+                mu, mv, mw = module_of.get(src), module_of.get(mid), module_of.get(tgt)
+                if len({m for m in (mu, mv, mw) if m is not None}) <= 1:
+                    continue
+                rel1, rel2 = _edge_relation(d1), _edge_relation(d2)
+                role = _module_role_pattern(mu, mv, mw)
+                key = (rel1, rel2, role)
+                counts[key] += 1
+                exact_modules[key][f"{mu}->{mv}->{mw}"] += 1
+                middle_nodes[key][_label(G, mid)] += 1
+                if len(examples[key]) < 4:
+                    examples[key].append((src, mid, tgt))
+    rows = []
+    for key, count in counts.most_common(max_motifs):
+        rel1, rel2, role = key
+        rows.append({
+            "count": int(count),
+            "relation_chain": f"{rel1} -> {rel2}",
+            "role_pattern": role,
+            "top_exact_module_paths": exact_modules[key].most_common(5),
+            "top_middle_nodes": [{"label": lab, "count": int(c)}
+                                 for lab, c in middle_nodes[key].most_common(8)],
+            "examples": [{"text": _path_text(G, p),
+                          "nodes": [_label(G, n) for n in p],
+                          "modules": [module_of.get(n) for n in p]}
+                         for p in examples[key]],
+        })
+    return rows
+
+
+def _relation_role_signatures(G: nx.Graph, module_of: Dict[Any, int]) -> Dict[Any, Counter]:
+    sig: Dict[Any, Counter] = defaultdict(Counter)
+    for u, v, d in G.edges(data=True):
+        rel = _edge_relation(d)
+        cross = module_of.get(u) != module_of.get(v)
+        edge_scope = "cross" if cross else "within"
+        if G.is_directed():
+            sig[u][f"out:{rel}"] += 1
+            sig[v][f"in:{rel}"] += 1
+            sig[u][f"out_{edge_scope}:{rel}"] += 1
+            sig[v][f"in_{edge_scope}:{rel}"] += 1
+        else:
+            sig[u][f"edge:{rel}"] += 1
+            sig[v][f"edge:{rel}"] += 1
+            sig[u][f"{edge_scope}:{rel}"] += 1
+            sig[v][f"{edge_scope}:{rel}"] += 1
+    return sig
+
+
+def _counter_cosine(a: Counter, b: Counter) -> float:
+    if not a or not b:
+        return 0.0
+    dot = sum(float(v) * float(b.get(k, 0.0)) for k, v in a.items())
+    na = math.sqrt(sum(float(v) ** 2 for v in a.values()))
+    nb = math.sqrt(sum(float(v) ** 2 for v in b.values()))
+    if not na or not nb:
+        return 0.0
+    return float(dot / (na * nb))
+
+
+def _node_context_edges(G: nx.Graph, n: Any, cents: Dict[str, Dict[Any, float]],
+                        limit: int = 6) -> List[str]:
+    edges: List[Tuple[float, str]] = []
+    if G.is_directed():
+        iterable = list(G.out_edges(n, data=True)) + list(G.in_edges(n, data=True))
+    else:
+        iterable = list(G.edges(n, data=True))
+    for u, v, d in iterable:
+        other = v if u == n else u
+        score = (cents["pagerank"].get(other, 0.0),
+                 cents["betweenness"].get(other, 0.0),
+                 cents["degree"].get(other, 0.0))
+        edges.append((float(score[0] + score[1] + score[2] * 1e-3), _path_text(G, [u, v])))
+    edges.sort(key=lambda x: x[0], reverse=True)
+    return [text for _score, text in edges[:limit]]
+
+
+def _mine_structural_analogies(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                               module_of: Dict[Any, int],
+                               vecs: Optional[Dict[Any, np.ndarray]],
+                               max_pairs: int = 30) -> List[Dict[str, Any]]:
+    sigs = _relation_role_signatures(G, module_of)
+    hubs = _hub_nodes_for_mining(G, cents)
+    candidates = [n for n in _candidate_nodes_for_mining(G, cents, module_of, limit=260)
+                  if n not in hubs and sigs.get(n)]
+    scored = []
+    for i, a in enumerate(candidates):
+        for b in candidates[i + 1:]:
+            if module_of.get(a) == module_of.get(b):
+                continue
+            sim = _counter_cosine(sigs[a], sigs[b])
+            if sim < 0.55:
+                continue
+            topic_distance = _node_topic_distance(G, a, b, vecs)
+            if topic_distance < (0.15 if vecs else 0.30):
+                continue
+            shared = sorted(((k, min(sigs[a][k], sigs[b][k])) for k in (set(sigs[a]) & set(sigs[b]))),
+                            key=lambda x: x[1], reverse=True)[:10]
+            if not shared:
+                continue
+            shared_relation_names = {role.rsplit(":", 1)[-1] for role, _count in shared}
+            if len(shared_relation_names) < 2:
+                continue
+            centrality = (
+                math.log1p(cents["degree"].get(a, 0.0) + cents["degree"].get(b, 0.0))
+                + 1200.0 * (cents["pagerank"].get(a, 0.0) + cents["pagerank"].get(b, 0.0))
+            )
+            deg_a, deg_b = cents["degree"].get(a, 0.0), cents["degree"].get(b, 0.0)
+            imbalance = abs(deg_a - deg_b) / max(1.0, deg_a + deg_b)
+            score = 2.2 * sim + 1.6 * topic_distance + 0.20 * centrality - 0.40 * imbalance
+            scored.append((score, sim, topic_distance, shared, a, b))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    rows = []
+    for score, sim, topic_distance, shared, a, b in scored[:max_pairs]:
+        rows.append({
+            "score": float(score),
+            "signature_similarity": float(sim),
+            "topic_distance": float(topic_distance),
+            "node_a": _node_packet(G, a, cents, module_of),
+            "node_b": _node_packet(G, b, cents, module_of),
+            "shared_relation_roles": [{"role": k, "shared_count": int(v)} for k, v in shared],
+            "node_a_context": _node_context_edges(G, a, cents),
+            "node_b_context": _node_context_edges(G, b, cents),
+            "interpretation_hint": (
+                "Local role-equivalence candidate: the two concepts occupy similar relation "
+                "roles in different modules while remaining semantically/lexically separated."
+            ),
+        })
+    return rows
+
+
+def _mine_brokerage_nodes(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                          module_of: Dict[Any, int], max_nodes: int = 30) -> List[Dict[str, Any]]:
+    U = _get_undirected(G)
+    hubs = _hub_nodes_for_mining(G, cents)
+    rows = []
+    for n in G.nodes:
+        if n in hubs or not U.has_node(n) or not _mining_label_ok(G, n):
+            continue
+        neighbor_modules = {module_of.get(nb) for nb in U.neighbors(n)
+                            if module_of.get(nb) is not None and module_of.get(nb) != module_of.get(n)}
+        if not neighbor_modules:
+            continue
+        incident_rels = []
+        if G.is_directed():
+            incident_iter = list(G.out_edges(n, data=True)) + list(G.in_edges(n, data=True))
+        else:
+            incident_iter = list(G.edges(n, data=True))
+        for _u, _v, d in incident_iter:
+            incident_rels.append(_edge_relation(d))
+        score = (
+            1.2 * len(neighbor_modules)
+            + 0.25 * len(set(incident_rels))
+            + 25.0 * cents["betweenness"].get(n, 0.0)
+            + 1200.0 * cents["pagerank"].get(n, 0.0)
+            + math.log1p(cents["degree"].get(n, 0.0))
+        )
+        row = _node_packet(G, n, cents, module_of)
+        row.update({
+            "score": float(score),
+            "external_module_count": len(neighbor_modules),
+            "external_modules": sorted(neighbor_modules),
+            "relation_diversity": len(set(incident_rels)),
+            "context": _node_context_edges(G, n, cents),
+        })
+        rows.append(row)
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    return rows[:max_nodes]
+
+
+def _stable_hash_payload(payload: Any, n: int = 16) -> str:
+    text = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:n]
+
+
+def _iso_graph(G: nx.Graph, nodes: Optional[Iterable[Any]] = None,
+               root: Optional[Any] = None) -> nx.Graph:
+    selected = list(nodes) if nodes is not None else list(G.nodes)
+    H = nx.DiGraph() if G.is_directed() else nx.Graph()
+    selected_set = set(selected)
+    for n in selected:
+        H.add_node(n, iso_role="root" if root is not None and n == root else "node")
+    for u, v, d in G.edges(data=True):
+        if u in selected_set and v in selected_set:
+            H.add_edge(u, v, relation=_edge_relation(d))
+    return H
+
+
+def _wl_graph_hash(H: nx.Graph, iterations: int = 3) -> str:
+    try:
+        return nx.weisfeiler_lehman_graph_hash(
+            H, node_attr="iso_role", edge_attr="relation", iterations=iterations)
+    except Exception:
+        rels = Counter(_edge_relation(d) for _u, _v, d in H.edges(data=True))
+        degs = sorted((int(H.degree(n)), H.nodes[n].get("iso_role", "node")) for n in H.nodes)
+        return _stable_hash_payload({
+            "directed": H.is_directed(),
+            "nodes": H.number_of_nodes(),
+            "edges": H.number_of_edges(),
+            "degrees": degs,
+            "relations": rels.most_common(),
+        })
+
+
+def _iso_match(H1: nx.Graph, H2: nx.Graph) -> bool:
+    if H1.number_of_nodes() != H2.number_of_nodes() or H1.number_of_edges() != H2.number_of_edges():
+        return False
+    try:
+        from networkx.algorithms import isomorphism as iso
+        node_match = iso.categorical_node_match("iso_role", "node")
+        edge_match = iso.categorical_edge_match("relation", "related_to")
+        if H1.is_directed() or H2.is_directed():
+            return iso.DiGraphMatcher(H1, H2, node_match=node_match,
+                                      edge_match=edge_match).is_isomorphic()
+        return iso.GraphMatcher(H1, H2, node_match=node_match,
+                                edge_match=edge_match).is_isomorphic()
+    except Exception:
+        return _wl_graph_hash(H1, iterations=4) == _wl_graph_hash(H2, iterations=4)
+
+
+def _relation_counter_for_nodes(G: nx.Graph, nodes: Iterable[Any]) -> Counter:
+    selected = set(nodes)
+    c = Counter()
+    for u, v, d in G.edges(data=True):
+        if u in selected and v in selected:
+            c[_edge_relation(d)] += 1
+    return c
+
+
+def _wl_orbit_candidates(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                         module_of: Dict[Any, int],
+                         max_classes: int = 30, iterations: int = 5) -> Dict[str, Any]:
+    colors = {}
+    for n in G.nodes:
+        if G.is_directed():
+            in_rels = Counter(_edge_relation(d) for _u, _v, d in G.in_edges(n, data=True))
+            out_rels = Counter(_edge_relation(d) for _u, _v, d in G.out_edges(n, data=True))
+            payload = {
+                "in_degree": int(G.in_degree(n)),
+                "out_degree": int(G.out_degree(n)),
+                "in_relations": sorted(in_rels.items()),
+                "out_relations": sorted(out_rels.items()),
+            }
+        else:
+            rels = Counter(_edge_relation(d) for _u, _v, d in G.edges(n, data=True))
+            payload = {"degree": int(G.degree(n)), "relations": sorted(rels.items())}
+        colors[n] = _stable_hash_payload(payload)
+
+    for _i in range(iterations):
+        new_colors = {}
+        for n in G.nodes:
+            if G.is_directed():
+                incoming = sorted((_edge_relation(d), colors[u]) for u, _v, d in G.in_edges(n, data=True))
+                outgoing = sorted((_edge_relation(d), colors[v]) for _u, v, d in G.out_edges(n, data=True))
+                payload = {"self": colors[n], "in": incoming, "out": outgoing}
+            else:
+                neighbors = []
+                for u, v, d in G.edges(n, data=True):
+                    other = v if u == n else u
+                    neighbors.append((_edge_relation(d), colors[other]))
+                payload = {"self": colors[n], "neighbors": sorted(neighbors)}
+            new_colors[n] = _stable_hash_payload(payload)
+        if all(new_colors[n] == colors[n] for n in G.nodes):
+            colors = new_colors
+            break
+        colors = new_colors
+
+    buckets: Dict[str, List[Any]] = defaultdict(list)
+    for n, color in colors.items():
+        if _mining_label_ok(G, n):
+            buckets[color].append(n)
+
+    rows = []
+    for color, nodes in buckets.items():
+        if len(nodes) < 2:
+            continue
+        modules = {module_of.get(n) for n in nodes if module_of.get(n) is not None}
+        degree_values = sorted({int(cents["degree"].get(n, 0.0)) for n in nodes})
+        score = len(nodes) * (1 + len(modules)) + sum(cents["pagerank"].get(n, 0.0) for n in nodes) * 1200.0
+        nodes_sorted = sorted(nodes, key=lambda n: (cents["pagerank"].get(n, 0.0),
+                                                    cents["degree"].get(n, 0.0)), reverse=True)
+        rows.append({
+            "score": float(score),
+            "wl_color": color,
+            "class_size": len(nodes),
+            "modules": sorted(modules),
+            "degree_values": degree_values,
+            "nodes": [_node_packet(G, n, cents, module_of) for n in nodes_sorted[:12]],
+            "interpretation": (
+                "WL-indistinguishable node class. These are automorphism/orbit candidates, "
+                "not guaranteed exact automorphisms unless confirmed by exact matching."
+            ),
+        })
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    return {
+        "iterations": iterations,
+        "candidate_classes": rows[:max_classes],
+        "candidate_class_count": len(rows),
+        "candidate_node_count": int(sum(r["class_size"] for r in rows)),
+    }
+
+
+def _exact_rooted_ego_isomorphisms(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                                   module_of: Dict[Any, int],
+                                   max_classes: int = 30,
+                                   candidate_limit: int = 500,
+                                   max_ego_nodes: int = 36) -> List[Dict[str, Any]]:
+    U = _get_undirected(G)
+    candidates = _candidate_nodes_for_mining(G, cents, module_of, limit=candidate_limit)
+    buckets: Dict[Tuple[int, str, int, int], List[Tuple[Any, nx.Graph]]] = defaultdict(list)
+    for radius in (1, 2):
+        for root in candidates:
+            if not U.has_node(root):
+                continue
+            lengths = nx.single_source_shortest_path_length(U, root, cutoff=radius)
+            nodes = list(lengths)
+            if len(nodes) < 3 or len(nodes) > max_ego_nodes:
+                continue
+            H = _iso_graph(G, nodes=nodes, root=root)
+            if H.number_of_edges() == 0:
+                continue
+            key = (radius, _wl_graph_hash(H, iterations=4), H.number_of_nodes(), H.number_of_edges())
+            buckets[key].append((root, H))
+
+    classes = []
+    for (radius, _hash, n_nodes, n_edges), items in buckets.items():
+        if len(items) < 2:
+            continue
+        exact_groups: List[Dict[str, Any]] = []
+        for root, H in items[:90]:
+            matched = False
+            for group in exact_groups:
+                if _iso_match(group["rep"], H):
+                    group["roots"].append(root)
+                    matched = True
+                    break
+            if not matched:
+                exact_groups.append({"rep": H, "roots": [root]})
+        for group in exact_groups:
+            roots = group["roots"]
+            if len(roots) < 2:
+                continue
+            modules = {module_of.get(n) for n in roots if module_of.get(n) is not None}
+            relation_counts = Counter(_edge_relation(d) for _u, _v, d in group["rep"].edges(data=True))
+            score = (
+                len(roots) * (1.0 + len(modules))
+                + radius
+                + sum(cents["pagerank"].get(n, 0.0) for n in roots) * 1500.0
+            )
+            roots_sorted = sorted(roots, key=lambda n: (cents["pagerank"].get(n, 0.0),
+                                                        cents["degree"].get(n, 0.0)), reverse=True)
+            classes.append({
+                "score": float(score),
+                "radius": radius,
+                "class_size": len(roots),
+                "ego_nodes": n_nodes,
+                "ego_edges": n_edges,
+                "modules": sorted(modules),
+                "relation_counts": relation_counts.most_common(12),
+                "roots": [_node_packet(G, n, cents, module_of) for n in roots_sorted[:12]],
+                "example_contexts": [{"root": _label(G, n), "context": _node_context_edges(G, n, cents)}
+                                     for n in roots_sorted[:5]],
+                "interpretation": (
+                    "Exact rooted ego-net isomorphism class preserving root position, edge direction, "
+                    "and relation labels while ignoring concept labels."
+                ),
+            })
+    classes.sort(key=lambda r: r["score"], reverse=True)
+    return classes[:max_classes]
+
+
+def _exact_small_module_isomorphisms(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                                     module_of: Dict[Any, int],
+                                     max_classes: int = 20,
+                                     max_module_nodes: int = 40) -> List[Dict[str, Any]]:
+    by_module: Dict[int, List[Any]] = defaultdict(list)
+    for n, m in module_of.items():
+        if m is not None:
+            by_module[int(m)].append(n)
+
+    buckets: Dict[Tuple[str, int, int], List[Tuple[int, nx.Graph, List[Any]]]] = defaultdict(list)
+    for m, nodes in by_module.items():
+        if len(nodes) < 2 or len(nodes) > max_module_nodes:
+            continue
+        H = _iso_graph(G, nodes=nodes)
+        if H.number_of_edges() == 0:
+            continue
+        key = (_wl_graph_hash(H, iterations=4), H.number_of_nodes(), H.number_of_edges())
+        buckets[key].append((m, H, nodes))
+
+    rows = []
+    for (_hash, n_nodes, n_edges), items in buckets.items():
+        if len(items) < 2:
+            continue
+        exact_groups: List[Dict[str, Any]] = []
+        for m, H, nodes in items:
+            matched = False
+            for group in exact_groups:
+                if _iso_match(group["rep"], H):
+                    group["modules"].append((m, nodes))
+                    matched = True
+                    break
+            if not matched:
+                exact_groups.append({"rep": H, "modules": [(m, nodes)]})
+        for group in exact_groups:
+            modules = group["modules"]
+            if len(modules) < 2:
+                continue
+            score = len(modules) * n_nodes + sum(
+                sum(cents["pagerank"].get(n, 0.0) for n in nodes) for _m, nodes in modules) * 1200.0
+            module_rows = []
+            for m, nodes in modules[:10]:
+                top_nodes = sorted(nodes, key=lambda n: (cents["pagerank"].get(n, 0.0),
+                                                         cents["degree"].get(n, 0.0)), reverse=True)[:8]
+                module_rows.append({
+                    "module": m,
+                    "size": len(nodes),
+                    "top_nodes": [_node_packet(G, n, cents, module_of) for n in top_nodes],
+                    "top_terms": _top_terms([_label(G, n) for n in nodes], top=8),
+                })
+            rows.append({
+                "score": float(score),
+                "class_size": len(modules),
+                "module_nodes": n_nodes,
+                "module_edges": n_edges,
+                "relation_counts": Counter(_edge_relation(d)
+                                           for _u, _v, d in group["rep"].edges(data=True)).most_common(12),
+                "modules": module_rows,
+                "interpretation": (
+                    "Exact module-induced subgraph isomorphism preserving edge direction and relation "
+                    "labels while ignoring concept labels."
+                ),
+            })
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    return rows[:max_classes]
+
+
+def _whole_graph_automorphism_summary(G: nx.Graph, max_nodes: int = 45,
+                                      max_edges: int = 140, cap: int = 1000) -> Dict[str, Any]:
+    if G.number_of_nodes() > max_nodes or G.number_of_edges() > max_edges:
+        return {
+            "attempted": False,
+            "reason": (
+                f"skipped exact whole-graph automorphism enumeration because graph has "
+                f"{G.number_of_nodes()} nodes and {G.number_of_edges()} edges; limits are "
+                f"{max_nodes} nodes and {max_edges} edges"
+            ),
+        }
+    H = _iso_graph(G)
+    try:
+        from networkx.algorithms import isomorphism as iso
+        edge_match = iso.categorical_edge_match("relation", "related_to")
+        matcher = iso.DiGraphMatcher(H, H, edge_match=edge_match) if H.is_directed() else iso.GraphMatcher(H, H, edge_match=edge_match)
+        count = 0
+        nontrivial_examples = []
+        for mapping in matcher.isomorphisms_iter():
+            count += 1
+            if len(nontrivial_examples) < 5:
+                moved = [(str(k), str(v)) for k, v in mapping.items() if k != v][:10]
+                if moved:
+                    nontrivial_examples.append(moved)
+            if count > cap:
+                return {
+                    "attempted": True,
+                    "count_lower_bound": cap,
+                    "capped": True,
+                    "nontrivial_examples": nontrivial_examples,
+                }
+        return {
+            "attempted": True,
+            "automorphism_count": count,
+            "capped": False,
+            "nontrivial_examples": nontrivial_examples,
+        }
+    except Exception as exc:
+        return {"attempted": True, "error": str(exc)}
+
+
+def _mine_isomorphism_analysis(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                               module_of: Dict[Any, int]) -> Dict[str, Any]:
+    return {
+        "scope_notes": [
+            "Unbounded subgraph-isomorphism enumeration is NP-complete and is not attempted on large ideation graphs.",
+            "This audit performs bounded exact isomorphism checks for rooted ego-nets and small modules, plus WL color-refinement orbit candidates for the full graph.",
+            "Exact ego/module classes preserve edge direction and relation labels but intentionally ignore concept labels, so they reveal repeated graph roles rather than duplicate text.",
+            "WL orbit candidates are useful automorphism/role-equivalence leads but are not proof of exact automorphism.",
+        ],
+        "whole_graph_automorphism": _whole_graph_automorphism_summary(G),
+        "wl_orbit_candidates": _wl_orbit_candidates(G, cents, module_of),
+        "rooted_ego_isomorphism_classes": _exact_rooted_ego_isomorphisms(G, cents, module_of),
+        "small_module_isomorphism_classes": _exact_small_module_isomorphisms(G, cents, module_of),
+    }
+
+
+def _mine_graph_insights(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                         module_of: Dict[Any, int],
+                         vecs: Optional[Dict[Any, np.ndarray]]) -> Dict[str, Any]:
+    return {
+        "method_notes": [
+            "Long-range transitive paths are shortest paths of 4-8 hops between high-signal nodes in different modules, scored for topic distance, module diversity, relation diversity, endpoint centrality, and low hub dependence.",
+            "Short bridges are 1-3 hop cross-module paths that expose compact conceptual joins.",
+            "Relational motifs count recurring two-step relation chains across module boundaries.",
+            "Structural analogies are local role-equivalence candidates: nodes in different modules with similar incoming/outgoing relation signatures but separated labels or embeddings.",
+            "If structural analogies are empty, no pair met the stricter role-equivalence threshold; recurring motifs may still expose weaker analogy patterns.",
+            "The isomorphism audit combines exact rooted ego-net matching, exact small-module matching, WL orbit candidates, and bounded whole-graph automorphism checks.",
+            "Brokerage nodes are non-hub concepts that touch multiple external modules with diverse incident relations.",
+        ],
+        "long_range_transitive_paths": _mine_long_range_transitive_paths(G, cents, module_of, vecs),
+        "short_cross_module_bridges": _mine_short_cross_module_bridges(G, cents, module_of, vecs),
+        "relational_motifs": _mine_relational_motifs(G, cents, module_of),
+        "structural_analogies": _mine_structural_analogies(G, cents, module_of, vecs),
+        "isomorphism_analysis": _mine_isomorphism_analysis(G, cents, module_of),
+        "brokerage_nodes": _mine_brokerage_nodes(G, cents, module_of),
+    }
 
 
 def _provenance_report(G: nx.Graph, run_dir: Optional[Path], transcript: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1068,6 +1850,31 @@ def _compact_deep_evidence(profile: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _compact_mined_insights(profile: Dict[str, Any]) -> Dict[str, Any]:
+    mined = profile.get("mined_insights", {})
+    iso = mined.get("isomorphism_analysis", {})
+    compact_iso = {
+        "scope_notes": iso.get("scope_notes", []),
+        "whole_graph_automorphism": iso.get("whole_graph_automorphism", {}),
+        "wl_orbit_candidates": {
+            **{k: v for k, v in iso.get("wl_orbit_candidates", {}).items()
+               if k != "candidate_classes"},
+            "candidate_classes": iso.get("wl_orbit_candidates", {}).get("candidate_classes", [])[:12],
+        },
+        "rooted_ego_isomorphism_classes": iso.get("rooted_ego_isomorphism_classes", [])[:12],
+        "small_module_isomorphism_classes": iso.get("small_module_isomorphism_classes", [])[:8],
+    }
+    return {
+        "method_notes": mined.get("method_notes", []),
+        "long_range_transitive_paths": mined.get("long_range_transitive_paths", [])[:15],
+        "short_cross_module_bridges": mined.get("short_cross_module_bridges", [])[:15],
+        "relational_motifs": mined.get("relational_motifs", [])[:15],
+        "structural_analogies": mined.get("structural_analogies", [])[:15],
+        "isomorphism_analysis": compact_iso,
+        "brokerage_nodes": mined.get("brokerage_nodes", [])[:15],
+    }
+
+
 def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str, Any]]) -> str:
     gs = profile["global_stats"]
     prov = profile["provenance"]
@@ -1120,6 +1927,7 @@ def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str,
             "embedding_error": profile.get("embedding_error") if not sem else None,
         },
         "deep_evidence_digest": _compact_deep_evidence(profile),
+        "mined_graph_insights": _compact_mined_insights(profile),
     }
     return (
         "Write a paper-level deep dive interpreting this knowledge graph as the final artifact of an "
@@ -1133,12 +1941,13 @@ def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str,
         "2. What The Graph Discovered About The Topic\n"
         "3. Major Mechanistic Programs\n"
         "4. Cross-Module Bridges And Critical Concepts\n"
-        "5. Novel Or Speculative Hypotheses Worth Human Review\n"
-        "6. What Looks Mature Versus What Looks Like Frontier Drift\n"
-        "7. Provenance And Search Dynamics\n"
-        "8. Reliability, Noise, And Failure Modes\n"
-        "9. Concrete Next Analyses Or Experiments\n"
-        "10. Short Abstract Suitable For A Paper Or Lab Notebook\n\n"
+        "5. Long-Range Paths, Motifs, Isomorphisms, And Structural Analogies\n"
+        "6. Novel Or Speculative Hypotheses Worth Human Review\n"
+        "7. What Looks Mature Versus What Looks Like Frontier Drift\n"
+        "8. Provenance And Search Dynamics\n"
+        "9. Reliability, Noise, And Failure Modes\n"
+        "10. Concrete Next Analyses Or Experiments\n"
+        "11. Short Abstract Suitable For A Paper Or Lab Notebook\n\n"
         "Be deep and analytical. Prefer dense paragraphs and short evidence tables over generic prose. "
         "Do not claim biological, chemical, or materials-science truth unless the graph evidence supports "
         "it; phrase such claims as hypotheses generated by the graph.\n\n"
@@ -1185,12 +1994,34 @@ def _deep_pass_prompt(name: str, profile: Dict[str, Any], modules: Sequence[Dict
             "inter_module_edges": profile["module_edges"][:35],
             "critical_connectors": profile["critical_connectors"],
             "representative_paths": profile["representative_paths"][:25],
+            "mined_graph_insights": _compact_mined_insights(profile),
         }
         task = (
             "Analyze bridge concepts and graph-generated hypotheses. Focus on non-obvious bridges "
             "after obvious hubs are removed. Extract candidate hypotheses that a researcher should "
             "inspect, and cite the exact paths, relation verbs, module ids, and node labels that "
             "support each hypothesis."
+        )
+    elif name == "graph_mining_insights":
+        payload = {
+            **common,
+            "mined_graph_insights": _compact_mined_insights(profile),
+            "semantic_audit": {
+                "embedding_model": profile.get("embedding_model"),
+                "embedding_spread": sem.get("embedding_spread"),
+                "semantic_outliers": sem.get("semantic_outliers", [])[:12],
+                "distant_connected_paths": sem.get("distant_connected_paths", [])[:12],
+                "embedding_error": profile.get("embedding_error") if not sem else None,
+            },
+            "module_edges": profile["module_edges"][:25],
+        }
+        task = (
+            "Analyze the graph-mining layer. Interpret the long-range transitive paths, short "
+            "cross-module bridges, recurring relational motifs, local role-equivalence/structural "
+            "analogy pairs, exact rooted ego/module isomorphism classes, WL orbit candidates, and "
+            "brokerage nodes. Explain what each class of evidence reveals about the original topic, "
+            "and extract high-value insight claims with exact path/motif/isomorphism/analogy evidence. "
+            "Treat analogies and WL orbit candidates as hypotheses, not proof."
         )
     elif name == "search_dynamics_reliability":
         payload = {
@@ -1234,7 +2065,8 @@ def _deep_pass_prompt(name: str, profile: Dict[str, Any], modules: Sequence[Dict
 
 
 def _deep_pass_names(n: int) -> List[str]:
-    names = ["mechanistic_programs", "bridges_and_hypotheses", "search_dynamics_reliability"]
+    names = ["mechanistic_programs", "graph_mining_insights",
+             "bridges_and_hypotheses", "search_dynamics_reliability"]
     return names[:max(0, min(n, len(names)))]
 
 
@@ -1243,6 +2075,7 @@ DEEP_DIVE_HEADINGS = [
     "What The Graph Discovered About The Topic",
     "Major Mechanistic Programs",
     "Cross-Module Bridges And Critical Concepts",
+    "Long-Range Paths, Motifs, Isomorphisms, And Structural Analogies",
     "Novel Or Speculative Hypotheses Worth Human Review",
     "What Looks Mature Versus What Looks Like Frontier Drift",
     "Provenance And Search Dynamics",
@@ -1271,6 +2104,7 @@ def _deep_dive_completion_prompt(profile: Dict[str, Any], modules: Sequence[Dict
         },
         "major_modules": [_slim_module(m, top_nodes=8) for m in modules],
         "compact_deep_evidence": _compact_deep_evidence(profile),
+        "compact_mined_insights": _compact_mined_insights(profile),
         "supporting_pass_memos": pass_memos,
         "previous_draft_tail": draft[-5000:],
     }
@@ -1308,6 +2142,7 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
         "major_modules": [{k: m[k] for k in ("id", "size", "top_terms", "top_nodes", "relations")}
                           for m in modules],
         "critical_connectors": profile["critical_connectors"],
+        "mined_graph_insights": _compact_mined_insights(profile),
         "quality": {"n_flagged_labels": profile["quality"]["n_flagged_labels"],
                     "examples": profile["quality"]["flagged_labels"][:15]},
     }
@@ -1492,7 +2327,7 @@ def _md_table(rows: Sequence[Sequence[Any]], headers: Sequence[str]) -> str:
     def cell(x: Any) -> str:
         if isinstance(x, float):
             return f"{x:.4g}"
-        return str(x).replace("\n", " ")
+        return str(x).replace("\n", " ").replace("|", "\\|")
     out = ["| " + " | ".join(headers) + " |",
            "| " + " | ".join(["---"] * len(headers)) + " |"]
     for row in rows:
@@ -1637,6 +2472,138 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
                                    ["label", "external neighbors"]))
             lines.append("")
 
+    mined = profile.get("mined_insights") or {}
+    if mined:
+        lines += ["## Mined Graph Insights", ""]
+        if mined.get("method_notes"):
+            lines += ["### Mining Methods", ""]
+            for note in mined["method_notes"]:
+                lines.append(f"- {note}")
+            lines.append("")
+
+        if mined.get("long_range_transitive_paths"):
+            lines += ["### Long-Range Transitive Connections", ""]
+            lines.append(_md_table([
+                (r["score"], r["hops"], r["endpoint_topic_distance"], r["module_diversity"], r["text"])
+                for r in mined["long_range_transitive_paths"][:20]
+            ], ["score", "hops", "topic distance", "modules", "path"]))
+            lines.append("")
+
+        if mined.get("short_cross_module_bridges"):
+            lines += ["### Short Cross-Module Bridges", ""]
+            lines.append(_md_table([
+                (r["score"], r["hops"], r["endpoint_topic_distance"],
+                 "; ".join(n["label"] for n in r.get("bridge_nodes", [])) or "(direct)",
+                 r["text"])
+                for r in mined["short_cross_module_bridges"][:20]
+            ], ["score", "hops", "topic distance", "bridge nodes", "path"]))
+            lines.append("")
+
+        if mined.get("structural_analogies"):
+            lines += ["### Structural Analogies / Role Isomorphism Candidates", ""]
+            lines.append(_md_table([
+                (r["score"], r["signature_similarity"], r["topic_distance"],
+                 r["node_a"]["label"], r["node_a"].get("module"),
+                 r["node_b"]["label"], r["node_b"].get("module"),
+                 "; ".join(x["role"] for x in r.get("shared_relation_roles", [])[:5]))
+                for r in mined["structural_analogies"][:20]
+            ], ["score", "role sim", "topic distance", "node A", "module A",
+                "node B", "module B", "shared relation roles"]))
+            lines.append("")
+        else:
+            lines += [
+                "### Structural Analogies / Role Isomorphism Candidates",
+                "",
+                "No strong local role-equivalence candidates met the current threshold. "
+                "Inspect recurring motifs for weaker analogy patterns.",
+                "",
+            ]
+
+        iso = mined.get("isomorphism_analysis") or {}
+        if iso:
+            lines += ["### Isomorphism Analysis", ""]
+            for note in iso.get("scope_notes", []):
+                lines.append(f"- {note}")
+            lines.append("")
+
+            auto = iso.get("whole_graph_automorphism") or {}
+            if auto:
+                if auto.get("attempted"):
+                    auto_value = auto.get("automorphism_count", auto.get("count_lower_bound", "(unknown)"))
+                    capped = "yes" if auto.get("capped") else "no"
+                    lines.append(f"- Exact whole-graph automorphism enumeration: count={auto_value}; capped={capped}.")
+                    if auto.get("error"):
+                        lines.append(f"- Automorphism enumeration error: `{auto['error']}`")
+                else:
+                    lines.append(f"- Exact whole-graph automorphism enumeration: {auto.get('reason')}")
+                lines.append("")
+
+            wl = iso.get("wl_orbit_candidates") or {}
+            if wl.get("candidate_classes"):
+                lines += ["#### WL Orbit Candidate Classes", ""]
+                lines.append(
+                    f"WL refinement found {wl.get('candidate_class_count')} candidate classes covering "
+                    f"{wl.get('candidate_node_count')} nodes after {wl.get('iterations')} iterations."
+                )
+                lines.append("")
+                lines.append(_md_table([
+                    (r["score"], r["class_size"], ", ".join(map(str, r["modules"])),
+                     ", ".join(map(str, r["degree_values"])),
+                     "; ".join(n["label"] for n in r.get("nodes", [])[:8]))
+                    for r in wl["candidate_classes"][:15]
+                ], ["score", "class size", "modules", "degree values", "example nodes"]))
+                lines.append("")
+            else:
+                lines += ["#### WL Orbit Candidate Classes", "", "No repeated WL node classes met the reporting threshold.", ""]
+
+            egos = iso.get("rooted_ego_isomorphism_classes") or []
+            if egos:
+                lines += ["#### Exact Rooted Ego-Net Isomorphism Classes", ""]
+                lines.append(_md_table([
+                    (r["score"], r["radius"], r["class_size"], r["ego_nodes"], r["ego_edges"],
+                     ", ".join(map(str, r["modules"])),
+                     "; ".join(n["label"] for n in r.get("roots", [])[:8]),
+                     "; ".join(f"{rel} ({count})" for rel, count in r.get("relation_counts", [])[:5]))
+                    for r in egos[:15]
+                ], ["score", "radius", "class size", "ego nodes", "ego edges",
+                    "modules", "root examples", "relation counts"]))
+                lines.append("")
+            else:
+                lines += ["#### Exact Rooted Ego-Net Isomorphism Classes", "", "No repeated rooted ego-net isomorphism classes met the reporting threshold.", ""]
+
+            module_iso = iso.get("small_module_isomorphism_classes") or []
+            if module_iso:
+                lines += ["#### Exact Small-Module Isomorphism Classes", ""]
+                lines.append(_md_table([
+                    (r["score"], r["class_size"], r["module_nodes"], r["module_edges"],
+                     "; ".join(f"module {m['module']} ({m['size']} nodes)"
+                               for m in r.get("modules", [])[:6]),
+                     "; ".join(f"{rel} ({count})" for rel, count in r.get("relation_counts", [])[:5]))
+                    for r in module_iso[:12]
+                ], ["score", "class size", "nodes", "edges", "modules", "relation counts"]))
+                lines.append("")
+            else:
+                lines += ["#### Exact Small-Module Isomorphism Classes", "", "No exact small-module isomorphism classes met the reporting threshold.", ""]
+
+        if mined.get("relational_motifs"):
+            lines += ["### Recurring Cross-Module Relational Motifs", ""]
+            lines.append(_md_table([
+                (r["count"], r["relation_chain"], r["role_pattern"],
+                 "; ".join(f"{x['label']} ({x['count']})" for x in r.get("top_middle_nodes", [])[:4]),
+                 r.get("examples", [{}])[0].get("text", ""))
+                for r in mined["relational_motifs"][:20]
+            ], ["count", "relation chain", "module role pattern", "top middle nodes", "example"]))
+            lines.append("")
+
+        if mined.get("brokerage_nodes"):
+            lines += ["### Non-Hub Brokerage Nodes", ""]
+            lines.append(_md_table([
+                (r["score"], r["label"], r.get("module"), r["external_module_count"],
+                 r["relation_diversity"], "; ".join(r.get("context", [])[:3]))
+                for r in mined["brokerage_nodes"][:20]
+            ], ["score", "label", "module", "external modules", "relation diversity", "context"]))
+            lines.append("")
+
     lines += ["## Inter-Module Edges", ""]
     lines.append(_md_table([(e["module_a"], e["module_b"], e["edge_count"],
                              f"{e['example']['source']} --{e['example']['relation']}--> {e['example']['target']}")
@@ -1763,7 +2730,7 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
                   out: Optional[str] = None, embed_model: Optional[str] = None,
                   top_nodes: int = 25, max_modules: int = 30, llm_options: Optional[LLMOptions] = None,
                   llm_modules: int = 12, verbose: bool = False, pdf: bool = True) -> Dict[str, Any]:
-    total_steps = 11
+    total_steps = 12
     if embed_model:
         total_steps += 1
     if llm_options and llm_options.enabled:
@@ -1823,6 +2790,18 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
             progress.detail(f"embedding model: {resolved_model}")
     semantic = _semantic_audit(G, vecs, module_of) if vecs else {}
 
+    progress.step("Mining transitive paths, motifs, analogies, and broker nodes")
+    mined_insights = _mine_graph_insights(G, cents, module_of, vecs)
+    iso_counts = mined_insights.get("isomorphism_analysis", {})
+    progress.detail(
+        "mined: "
+        f"{len(mined_insights['long_range_transitive_paths'])} long paths, "
+        f"{len(mined_insights['short_cross_module_bridges'])} short bridges, "
+        f"{len(mined_insights['relational_motifs'])} motifs, "
+        f"{len(mined_insights['structural_analogies'])} analogies, "
+        f"{len(iso_counts.get('rooted_ego_isomorphism_classes', []))} ego-isomorphism classes"
+    )
+
     profile: Dict[str, Any] = {
         "generated_at": _now(),
         "topic": topic,
@@ -1843,6 +2822,7 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
         "quality": quality,
         "provenance": provenance,
         "semantic_audit": semantic,
+        "mined_insights": mined_insights,
         "embedding_model": resolved_model,
         "embedding_error": embed_error,
         "report_limits": {"modules_in_markdown": min(max_modules, 18)},
@@ -1904,7 +2884,7 @@ def main() -> None:
                    help="output-token budget for the paper-level LLM deep dive")
     p.add_argument("--reasoning-effort", default="high", choices=["minimal", "low", "medium", "high"],
                    help="[responses/openai] reasoning effort for the LLM analysis calls")
-    p.add_argument("--llm-deep-passes", type=int, default=3,
+    p.add_argument("--llm-deep-passes", type=int, default=4,
                    help="number of extra LLM evidence passes before the final deep dive; 0 disables")
     p.add_argument("--device", help="[hf] device_map")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16", "float32"])

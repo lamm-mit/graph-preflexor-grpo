@@ -573,7 +573,7 @@ function ThreeGraphCanvas() {
     graphGroup.add(
       new THREE.LineSegments(
         edgeGeometry,
-        new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: Math.max(0.12, visual.edgeOpacity * 1.15) }),
+        new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: Math.max(0.18, visual.edgeOpacity * 1.35) }),
       ),
     );
 

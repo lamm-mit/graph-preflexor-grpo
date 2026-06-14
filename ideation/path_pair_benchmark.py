@@ -49,9 +49,60 @@ ANSWER_INSTRUCTION = (
 
 GRAPH_NOTE = (
     "The following path/neighborhood was mined from the Graph-PRefLexOR reasoning graph. "
-    "It is a structural lead, not a verified fact. Use it to build a plausible mechanism, "
-    "but do not copy incoherent edges literally."
+    "It is a structural lead, not a verified fact. Use the concrete bridge concepts as "
+    "mechanistic cues, but do not copy incoherent edge verbs literally."
 )
+
+DOMAIN_ANCHORS = {
+    "adhesion", "adhesive", "alginate", "biomineralization", "biopolymer", "boronate",
+    "capsule", "capillary", "catechol", "cellulose", "chitosan", "collagen", "composite",
+    "crack", "crosslink", "diffusion", "disulfide", "dynamic", "enzyme", "enzymatic",
+    "fiber", "fibril", "gelatin", "healing", "hydrogel", "hydrolysis", "ionic",
+    "lignin", "matrix", "mechanophore", "membrane", "microcapsule", "microdomain",
+    "mineralization", "nanocapsule", "nanofibril", "nanovesicle", "peptide", "polymer",
+    "polymerization", "polysaccharide", "protein", "release", "repair", "reversible",
+    "silk", "supramolecular", "swelling", "template", "templating", "vesicle",
+}
+
+META_PHRASES = {
+    "novel idea", "untested idea", "benchmark", "mechanical testing", "testing protocol",
+    "screening protocol", "candidate idea", "hypothesis generation", "idea generation",
+}
+
+SPECULATIVE_PHRASES = {
+    "black hole", "cosmic", "entanglement", "gravitational", "quantum fluctuation",
+    "quantum fluctuations", "quantum", "temporal entanglement", "time crystal",
+    "topological insulator", "wormhole",
+}
+
+NOISY_PHRASES = {
+    "catastrophic failure induced phase reconfigurable",
+    "increased material topology",
+    "nonequilibrium microdomains interact with degradation",
+    "resource intensity increases environmental footprint",
+}
+
+LOCAL_GENERIC_LABELS = set(T.GENERIC_LABELS) | {
+    "adaptive probes",
+    "collective optimization",
+    "healing agent",
+    "healing reactions",
+    "integrity restoration",
+    "material properties",
+    "mechanisms",
+    "mechanistic understanding",
+    "polymer matrix",
+    "principles",
+    "processing conditions",
+    "repair mechanisms",
+    "scalability",
+    "self healing mechanisms",
+    "self healing biopolymer composites",
+    "simulations",
+    "trade off",
+    "trade offs",
+    "interplay mechanisms",
+}
 
 
 def _display_label(label):
@@ -68,6 +119,19 @@ def _display_chain(G, path):
         parts.append(f"--{T._relation(G, u, v)}-->")
         parts.append(_display_label(T._label(G, v)))
     return " ".join(parts)
+
+
+def _bridge_concepts(G, path):
+    labels = []
+    seen = set()
+    for n in path[1:-1]:
+        label = T._label(G, n)
+        key = T._label_key(label)
+        if key in seen or key in LOCAL_GENERIC_LABELS:
+            continue
+        seen.add(key)
+        labels.append(_display_label(label))
+    return labels
 
 
 def _safe_name(i, a, b):
@@ -90,6 +154,74 @@ def _topic(run, G, override=None):
     return override or I.read_topic(str(run), G) or Path(run).name
 
 
+def _has_phrase(key, phrases):
+    return any(p in key for p in phrases)
+
+
+def _domain_anchor_count(label):
+    ws = set(T._words(label))
+    return sum(1 for w in ws if w in DOMAIN_ANCHORS)
+
+
+def _is_topic_hub(label, topic):
+    key = T._label_key(label)
+    topic_key = T._label_key(topic)
+    if not key or not topic_key:
+        return False
+    if key == topic_key:
+        return True
+    topic_words = set(T._words(topic))
+    label_words = set(T._words(label))
+    return len(topic_words) >= 3 and topic_words.issubset(label_words)
+
+
+def _label_rejection(label, topic, *, endpoint, quality_mode, allow_meta,
+                     allow_speculative, allow_topic_hubs):
+    key = T._label_key(label)
+    if T._is_placeholder_label(label):
+        return "placeholder"
+    if _has_phrase(key, NOISY_PHRASES):
+        return "known_noisy_phrase"
+    if not allow_meta and _has_phrase(key, META_PHRASES):
+        return "meta_or_method_label"
+    if not allow_speculative and _has_phrase(key, SPECULATIVE_PHRASES):
+        return "speculative_physics_label"
+    if not allow_topic_hubs and _is_topic_hub(label, topic):
+        return "topic_hub"
+    if endpoint:
+        if key in LOCAL_GENERIC_LABELS:
+            return "generic_endpoint"
+    return None
+
+
+def _path_rejection(G, path, topic, args):
+    labels = [T._label(G, n) for n in path]
+    if not T._clean_path(G, path):
+        return "unclean_path"
+    for i, label in enumerate(labels):
+        reason = _label_rejection(
+            label,
+            topic,
+            endpoint=i in (0, len(labels) - 1),
+            quality_mode=args.quality_mode,
+            allow_meta=args.allow_meta,
+            allow_speculative=args.allow_speculative,
+            allow_topic_hubs=args.allow_topic_hubs,
+        )
+        if reason:
+            return reason
+
+    interior = labels[1:-1]
+    if args.quality_mode == "strict":
+        bridge_anchors = sum(_domain_anchor_count(x) for x in interior)
+        if bridge_anchors < args.min_bridge_anchors:
+            return "bridge_lacks_domain_anchors"
+        generic_interior = sum(1 for x in interior if T._label_key(x) in LOCAL_GENERIC_LABELS)
+        if generic_interior > args.max_generic_bridge_nodes:
+            return "too_many_generic_bridge_nodes"
+    return None
+
+
 def _token_jaccard_distance(a, b):
     A, B = set(T._words(a)), set(T._words(b))
     if not A or not B:
@@ -102,17 +234,29 @@ def _path_relation_quality(G, path):
     return sum(T._relation_quality(r) for r in rels) / max(1, len(rels))
 
 
-def _candidate_nodes(G, limit):
+def _candidate_nodes(G, limit, topic, args):
     U = G.to_undirected()
     nodes = []
     for n in G.nodes:
         label = T._label(G, n)
         if not T._is_specific_label(label):
             continue
-        if T._label_key(label) in T.GENERIC_LABELS:
+        if T._label_key(label) in LOCAL_GENERIC_LABELS:
+            continue
+        if _label_rejection(
+            label,
+            topic,
+            endpoint=True,
+            quality_mode=args.quality_mode,
+            allow_meta=args.allow_meta,
+            allow_speculative=args.allow_speculative,
+            allow_topic_hubs=args.allow_topic_hubs,
+        ):
             continue
         nodes.append(n)
-    nodes.sort(key=lambda n: (T._specificity_score(T._label(G, n)), math.log1p(U.degree(n))),
+    nodes.sort(key=lambda n: (_domain_anchor_count(T._label(G, n)),
+                              T._specificity_score(T._label(G, n)),
+                              -math.log1p(U.degree(n))),
                reverse=True)
     return nodes[:limit]
 
@@ -120,18 +264,29 @@ def _candidate_nodes(G, limit):
 def _path_score(G, path):
     a, b = path[0], path[-1]
     la, lb = T._label(G, a), T._label(G, b)
+    labels = [T._label(G, n) for n in path]
+    interior = labels[1:-1]
+    domain = sum(_domain_anchor_count(x) for x in labels)
+    interior_domain = sum(_domain_anchor_count(x) for x in interior)
+    generic_interior = sum(1 for x in interior if T._label_key(x) in LOCAL_GENERIC_LABELS)
+    U = G.to_undirected()
+    hub_penalty = sum(math.log1p(U.degree(n)) for n in path[1:-1]) / max(1, len(path) - 2)
     return (
-        T._specificity_score(la)
-        + T._specificity_score(lb)
-        + _token_jaccard_distance(la, lb)
-        + 0.25 * (len(path) - 1)
-        + _path_relation_quality(G, path)
+        1.2 * domain
+        + 0.8 * interior_domain
+        + 0.8 * _path_relation_quality(G, path)
+        + 0.6 * _token_jaccard_distance(la, lb)
+        + 0.2 * (len(path) - 1)
+        + 0.25 * (T._specificity_score(la) + T._specificity_score(lb))
+        - 1.4 * generic_interior
+        - 0.15 * hub_penalty
     )
 
 
-def sample_pairs(G, *, n, seed, candidate_pool, candidate_pairs, min_hops, max_hops, max_node_use):
+def sample_pairs(G, *, n, seed, candidate_pool, candidate_pairs, min_hops, max_hops,
+                 max_node_use, topic, args):
     U = G.to_undirected()
-    nodes = _candidate_nodes(G, candidate_pool)
+    nodes = _candidate_nodes(G, candidate_pool, topic, args)
     if len(nodes) < 2:
         raise SystemExit("not enough specific graph concepts to sample pairs")
 
@@ -151,7 +306,8 @@ def sample_pairs(G, *, n, seed, candidate_pool, candidate_pairs, min_hops, max_h
         hops = len(path) - 1
         if hops < min_hops or hops > max_hops:
             continue
-        if not T._clean_path(G, path):
+        reason = _path_rejection(G, path, topic, args)
+        if reason:
             continue
         key = tuple(path)
         if key in seen_paths:
@@ -185,8 +341,10 @@ def sample_pairs(G, *, n, seed, candidate_pool, candidate_pairs, min_hops, max_h
             "raw_path_labels": [T._label(G, x) for x in path],
             "chain": _display_chain(G, path),
             "raw_chain": T._chain_text(G, path),
+            "bridge_concepts": _bridge_concepts(G, path),
             "hops": len(path) - 1,
             "score": float(score),
+            "domain_anchors": int(sum(_domain_anchor_count(T._label(G, x)) for x in path)),
         })
         if len(chosen) >= n:
             break
@@ -195,7 +353,7 @@ def sample_pairs(G, *, n, seed, candidate_pool, candidate_pairs, min_hops, max_h
     return chosen
 
 
-def _neighborhood_block(G, path, neighbors_per_node):
+def _neighborhood_block(G, path, neighbors_per_node, topic, args):
     U = G.to_undirected()
     rows = []
     path_set = set(path)
@@ -208,6 +366,18 @@ def _neighborhood_block(G, path, neighbors_per_node):
                 continue
             ml = T._label(G, m)
             if T._is_placeholder_label(ml):
+                continue
+            if T._label_key(ml) in LOCAL_GENERIC_LABELS:
+                continue
+            if _label_rejection(
+                ml,
+                topic,
+                endpoint=False,
+                quality_mode=args.quality_mode,
+                allow_meta=args.allow_meta,
+                allow_speculative=args.allow_speculative,
+                allow_topic_hubs=args.allow_topic_hubs,
+            ):
                 continue
             neigh.append((T._specificity_score(ml), U.degree(m), m))
         neigh.sort(reverse=True)
@@ -242,10 +412,12 @@ def _graph_prompt(topic, pair, neighborhood):
         f"# Concept B\n{pair['concept_b']}\n\n"
         f"# Graph-derived bridge\n{GRAPH_NOTE}\n\n"
         f"Path: {pair['chain']}\n\n"
+        f"Mechanistically useful bridge concepts: {', '.join(pair.get('bridge_concepts') or pair['path_labels'][1:-1])}\n\n"
         f"Local neighborhood around the path:\n{neighborhood}\n\n"
         f"# Task\n{ANSWER_INSTRUCTION}\n\n"
-        "Rules: use both endpoint concepts; convert the graph bridge into a scientifically "
-        "plausible mechanism; ignore any graph relation that is too vague or implausible. "
+        "Rules: use both endpoint concepts; preferentially use the useful bridge concepts; "
+        "convert the graph bridge into a scientifically plausible mechanism; ignore any graph "
+        "relation that is too vague or implausible. "
         "Write only the final answer."
     )
 
@@ -303,6 +475,8 @@ def run(args):
             min_hops=args.min_hops,
             max_hops=args.max_hops,
             max_node_use=args.max_node_use,
+            topic=topic,
+            args=args,
         )
         json.dump({"run": str(run_dir), "topic": topic, "pairs": pairs}, open(pairs_path, "w"), indent=2)
     if resampled_pairs:
@@ -317,7 +491,7 @@ def run(args):
         base_md = answer_base / f"{name}.md"
         graph_md = answer_graph / f"{name}.md"
         base_prompt = _baseline_prompt(topic, pair)
-        graph_prompt = _graph_prompt(topic, pair, _neighborhood_block(G, pair["path"], args.neighbors))
+        graph_prompt = _graph_prompt(topic, pair, _neighborhood_block(G, pair["path"], args.neighbors, topic, args))
         (prompt_base / f"{name}.txt").write_text(SYSTEM + "\n\n" + base_prompt, encoding="utf-8")
         (prompt_graph / f"{name}.txt").write_text(SYSTEM + "\n\n" + graph_prompt, encoding="utf-8")
         print(f"[path_pair_benchmark] {i+1}/{len(pairs)} {pair['concept_a']} <-> {pair['concept_b']}", flush=True)
@@ -348,6 +522,12 @@ def run(args):
             "min_hops": args.min_hops,
             "max_hops": args.max_hops,
             "neighbors": args.neighbors,
+            "quality_mode": args.quality_mode,
+            "allow_meta": args.allow_meta,
+            "allow_speculative": args.allow_speculative,
+            "allow_topic_hubs": args.allow_topic_hubs,
+            "min_bridge_anchors": args.min_bridge_anchors,
+            "max_generic_bridge_nodes": args.max_generic_bridge_nodes,
         },
         "model": {"backend": args.backend, "model": args.model, "base_url": args.base_url},
     }
@@ -390,6 +570,18 @@ def main():
     p.add_argument("--max-node-use", type=int, default=2)
     p.add_argument("--neighbors", type=int, default=4,
                    help="specific off-path neighbors shown per path node in graph arm")
+    p.add_argument("--quality-mode", choices=["strict", "permissive"], default="strict",
+                   help="strict rejects meta/speculative/topic-hub paths; permissive only applies basic cleanup")
+    p.add_argument("--allow-meta", action="store_true",
+                   help="allow meta/method labels such as NovelIdea, UntestedIdea, or testing protocols")
+    p.add_argument("--allow-speculative", action="store_true",
+                   help="allow speculative physics labels such as quantum/topological/entanglement")
+    p.add_argument("--allow-topic-hubs", action="store_true",
+                   help="allow paths through a node whose label is the run topic")
+    p.add_argument("--min-bridge-anchors", type=int, default=2,
+                   help="minimum domain-anchor words required in interior path nodes in strict mode")
+    p.add_argument("--max-generic-bridge-nodes", type=int, default=1,
+                   help="maximum generic interior bridge nodes allowed in strict mode")
 
     p.add_argument("--backend", choices=["openai", "hf"], default="openai")
     p.add_argument("--model", required=True)
