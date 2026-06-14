@@ -15,6 +15,29 @@ export const palette = [
   "#b7c4d3",
 ];
 
+export const colorPalettes: Record<VisualState["colorPalette"], { label: string; colors: string[] }> = {
+  atlas: {
+    label: "Atlas blue-gold",
+    colors: ["#27648f", "#3b8e8a", "#7aa95c", "#d5a23f", "#be6b3f"],
+  },
+  viridis: {
+    label: "Viridis",
+    colors: ["#440154", "#31688e", "#35b779", "#fde725"],
+  },
+  plasma: {
+    label: "Plasma",
+    colors: ["#0d0887", "#7e03a8", "#cc4778", "#f89540", "#f0f921"],
+  },
+  graphite: {
+    label: "Graphite",
+    colors: ["#5f6874", "#87909a", "#b2a273", "#d6a044"],
+  },
+  categorical: {
+    label: "Categorical",
+    colors: palette,
+  },
+};
+
 export function formatNumber(value: number | undefined, digits = 0): string {
   if (value === undefined || Number.isNaN(value)) return "";
   return value.toLocaleString(undefined, { maximumFractionDigits: digits });
@@ -40,10 +63,40 @@ export function normalize(value: number, range: { min: number; max: number }) {
   return Math.max(0, Math.min(1, (value - range.min) / (range.max - range.min)));
 }
 
+function hexToRgb(hex: string) {
+  const clean = hex.replace("#", "");
+  return {
+    r: parseInt(clean.slice(0, 2), 16),
+    g: parseInt(clean.slice(2, 4), 16),
+    b: parseInt(clean.slice(4, 6), 16),
+  };
+}
+
+function interpolateColors(colors: string[], t: number) {
+  const stops = colors.length ? colors : colorPalettes.atlas.colors;
+  if (stops.length === 1) return stops[0];
+  const scaled = Math.max(0, Math.min(1, t)) * (stops.length - 1);
+  const lowIndex = Math.floor(scaled);
+  const highIndex = Math.min(stops.length - 1, lowIndex + 1);
+  const localT = scaled - lowIndex;
+  const low = hexToRgb(stops[lowIndex]);
+  const high = hexToRgb(stops[highIndex]);
+  const rgb = [low.r, low.g, low.b].map((value, index) => {
+    const target = [high.r, high.g, high.b][index];
+    return Math.round(value + (target - value) * localT);
+  });
+  return `rgb(${rgb.join(",")})`;
+}
+
+export function categoryColor(value: number, visual: VisualState) {
+  const colors = colorPalettes[visual.colorPalette]?.colors || colorPalettes.categorical.colors;
+  return colors[Math.abs(Math.floor(value)) % colors.length];
+}
+
 export function colorForNode(node: GraphNode, visual: VisualState, selected: boolean): string {
   if (selected) return "#ffffff";
   if (visual.colorBy === "component" || visual.colorBy === "community") {
-    return palette[Math.abs(Math.floor(nodeMetric(node, visual.colorBy))) % palette.length];
+    return categoryColor(nodeMetric(node, visual.colorBy), visual);
   }
   const range = metricRange([node], visual.colorBy);
   const metric = nodeMetric(node, visual.colorBy);
@@ -52,15 +105,14 @@ export function colorForNode(node: GraphNode, visual: VisualState, selected: boo
     if (visual.colorBy === "pagerank") return "#38bdf8";
     return "#f4b24f";
   }
-  return metric >= (range.min + range.max) / 2 ? "#f4b24f" : "#38bdf8";
+  return metric >= (range.min + range.max) / 2
+    ? colorPalettes[visual.colorPalette]?.colors.at(-1) || "#f4b24f"
+    : colorPalettes[visual.colorPalette]?.colors[0] || "#38bdf8";
 }
 
-export function colorScale(value: number, range: { min: number; max: number }) {
+export function colorScale(value: number, range: { min: number; max: number }, paletteName: VisualState["colorPalette"] = "atlas") {
   const t = normalize(value, range);
-  const low = [56, 189, 248];
-  const high = [244, 178, 79];
-  const rgb = low.map((v, i) => Math.round(v + (high[i] - v) * t));
-  return `rgb(${rgb.join(",")})`;
+  return interpolateColors(colorPalettes[paletteName]?.colors || colorPalettes.atlas.colors, t);
 }
 
 export function hash01(input: string, salt = 0) {
@@ -138,15 +190,6 @@ export function nodeSize(node: GraphNode, graph: GraphPayload, visual: VisualSta
   if (visual.sizeBy === "constant") return 3.8;
   const range = metricRange(graph.nodes, visual.sizeBy);
   return 2.4 + Math.pow(normalize(nodeMetric(node, visual.sizeBy), range), 0.7) * 9;
-}
-
-function hexToRgb(hex: string) {
-  const clean = hex.replace("#", "");
-  return {
-    r: parseInt(clean.slice(0, 2), 16),
-    g: parseInt(clean.slice(2, 4), 16),
-    b: parseInt(clean.slice(4, 6), 16),
-  };
 }
 
 export function edgeColor(edge: GraphEdge, opacity = 0.16) {

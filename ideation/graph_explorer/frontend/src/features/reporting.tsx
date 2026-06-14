@@ -4,8 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { formatNumber } from "../graph-utils";
 import { useExplorerStore } from "../store";
-import type { GraphPayload, ProfileJobStatus, ProfileOptions, ProfileReportPayload } from "../types";
-import { cx, Drawer, formatRunTime, IconButton } from "../components/common";
+import type { GraphFileSummary, GraphPayload, ProfileJobStatus, ProfileOptions, ProfileReportPayload } from "../types";
+import { cx, Drawer, formatRunTime, HelpTip, IconButton } from "../components/common";
 
 const REPORT_STUDIO_STORAGE_KEY = "graph-preflexor-explorer.report-studio.v1";
 
@@ -81,6 +81,23 @@ function defaultProfileOut(run: string, model: string, suffix = "") {
   return `${run || "runs/explorer_run"}/profile_${modelSlug(model)}${suffix}`;
 }
 
+const profilePresetHelp = {
+  research:
+    "Highest-quality report generation. Uses the Responses backend with gpt-5.5, high reasoning, more module summaries, four deep passes, LLM report review, and PDF output.",
+  light:
+    "Fast LLM report preset. Uses --profile-preset light, six modules, one deep pass, medium reasoning, smaller token budgets, no LLM report review, and PDF output.",
+  local:
+    "Local draft path for privacy/cost-sensitive iteration. Uses an OpenAI-compatible chat backend on localhost:8000 and skips PDF by default.",
+  fast:
+    "Metrics-only audit. Disables LLM reporting and PDF generation; useful to inspect graph statistics quickly before spending model calls.",
+} as const;
+
+function graphFileLabel(file: GraphFileSummary) {
+  const iter = file.iter == null ? "final" : `iter ${file.iter}`;
+  const run = file.run_name || file.run || "graph";
+  return `${run} | ${iter} | ${file.name}`;
+}
+
 export function ReportStudio({
   onReportReady,
   defaultOpen = false,
@@ -98,6 +115,16 @@ export function ReportStudio({
   const [status, setStatus] = useState(stored.job ? "Restored saved profile job." : "");
   const [busy, setBusy] = useState(false);
 
+  const runsQuery = useQuery({
+    queryKey: ["runs"],
+    queryFn: api.runs,
+    refetchInterval: 7000,
+  });
+  const graphmlQuery = useQuery({
+    queryKey: ["graphml-files"],
+    queryFn: api.graphmlFiles,
+    refetchInterval: 9000,
+  });
   const reportsQuery = useQuery({
     queryKey: ["profile-reports", options.run],
     queryFn: () => api.profileReports(options.run || ""),
@@ -160,6 +187,11 @@ export function ReportStudio({
     const inferred = inferRunFromGraph(graph);
     if (!inferred) return;
     patchOptions({ run: inferred, out: defaultProfileOut(inferred, options.model) });
+  }
+
+  function useCurrentGraphPath() {
+    if (!graph?.path) return;
+    patchOptions({ graph: graph.path, out: defaultProfileOut(inferRunFromGraph(graph) || "runs/explorer_run", options.model, "_graph") });
   }
 
   function setPreset(kind: "research" | "light" | "local" | "fast") {
@@ -281,8 +313,42 @@ export function ReportStudio({
           GraphML
         </button>
       </div>
+      <div className="source-help">
+        {sourceMode === "run" ? (
+          <>
+            <strong>Run folder source</strong>
+            <span>
+              Profiles the latest GraphML snapshot in the selected run folder. Existing report folders for that run are listed below.
+            </span>
+          </>
+        ) : (
+          <>
+            <strong>GraphML source</strong>
+            <span>
+              Profiles one exact server-visible GraphML file. Browser uploads are in memory only unless the file also exists on disk.
+            </span>
+          </>
+        )}
+      </div>
       {sourceMode === "run" ? (
-        <div className="row">
+        <div className="source-picker">
+          <label>
+            Available runs
+            <select
+              onChange={(event) => {
+                const run = event.target.value;
+                if (run) patchOptions({ run, out: defaultProfileOut(run, options.model) });
+              }}
+              value={runsQuery.data?.runs.some((run) => run.path === options.run) ? options.run || "" : ""}
+            >
+              <option value="">Choose a run folder...</option>
+              {(runsQuery.data?.runs || []).map((run) => (
+                <option disabled={!run.graph_ready} key={run.path} value={run.path}>
+                  {run.name} {run.snapshot_count ? `| ${run.snapshot_count} snapshots` : ""} {run.graph_ready ? "" : "| no graph"}
+                </option>
+              ))}
+            </select>
+          </label>
           <input
             onChange={(event) => patchOptions({ run: event.target.value })}
             placeholder="runs/exp_leap"
@@ -291,11 +357,31 @@ export function ReportStudio({
           <IconButton disabled={!inferRunFromGraph(graph)} icon={<Network size={14} />} label="Current" onClick={useCurrentRun} />
         </div>
       ) : (
-        <input
-          onChange={(event) => patchOptions({ graph: event.target.value })}
-          placeholder="/path/to/file.graphml"
-          value={options.graph || ""}
-        />
+        <div className="source-picker">
+          <label>
+            Available GraphML
+            <select
+              onChange={(event) => {
+                const graphPath = event.target.value;
+                if (graphPath) patchOptions({ graph: graphPath, out: defaultProfileOut(options.run || "runs/explorer_run", options.model, "_graph") });
+              }}
+              value={graphmlQuery.data?.graphs.some((item) => item.path === options.graph || item.absolute_path === options.graph) ? options.graph || "" : ""}
+            >
+              <option value="">Choose a GraphML file...</option>
+              {(graphmlQuery.data?.graphs || []).map((file) => (
+                <option key={file.absolute_path || file.path} value={file.path}>
+                  {graphFileLabel(file)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <input
+            onChange={(event) => patchOptions({ graph: event.target.value })}
+            placeholder="/path/to/file.graphml"
+            value={options.graph || ""}
+          />
+          <IconButton disabled={!graph?.path} icon={<Network size={14} />} label="Current" onClick={useCurrentGraphPath} />
+        </div>
       )}
       <label>
         Output
@@ -307,20 +393,20 @@ export function ReportStudio({
       </label>
 
       <div className="preset-grid">
-        <button onClick={() => setPreset("research")} type="button">
-          <strong>GPT-5.5 Deep</strong>
+        <button onClick={() => setPreset("research")} title={profilePresetHelp.research} type="button">
+          <strong>GPT-5.5 Deep <HelpTip text={profilePresetHelp.research} /></strong>
           <span>responses | high effort</span>
         </button>
-        <button onClick={() => setPreset("light")} type="button">
-          <strong>GPT-5.5 Light</strong>
+        <button onClick={() => setPreset("light")} title={profilePresetHelp.light} type="button">
+          <strong>GPT-5.5 Light <HelpTip text={profilePresetHelp.light} /></strong>
           <span>profile-preset light</span>
         </button>
-        <button onClick={() => setPreset("local")} type="button">
-          <strong>Local Draft</strong>
+        <button onClick={() => setPreset("local")} title={profilePresetHelp.local} type="button">
+          <strong>Local Draft <HelpTip text={profilePresetHelp.local} /></strong>
           <span>chat | localhost:8000</span>
         </button>
-        <button onClick={() => setPreset("fast")} type="button">
-          <strong>Fast Audit</strong>
+        <button onClick={() => setPreset("fast")} title={profilePresetHelp.fast} type="button">
+          <strong>Fast Audit <HelpTip text={profilePresetHelp.fast} /></strong>
           <span>metrics only</span>
         </button>
       </div>

@@ -5,7 +5,7 @@ import { api } from "../api";
 import { cx, Drawer, formatRunTime, IconButton } from "../components/common";
 import { formatNumber } from "../graph-utils";
 import { useExplorerStore } from "../store";
-import type { JobStatus, RunSummary } from "../types";
+import type { GraphFileSummary, JobStatus, RunSummary } from "../types";
 
 const RUN_MONITOR_STORAGE_KEY = "graph-preflexor-explorer.run-monitor.v1";
 const IDEATION_STRATEGIES = ["frontier", "node", "answer", "edge", "novelty", "leap", "converse", "mixed"] as const;
@@ -39,6 +39,15 @@ function writeRunMonitorStorage(value: StoredRunMonitor) {
   window.localStorage.setItem(RUN_MONITOR_STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() }));
 }
 
+function inferRunFromGraphPath(path = "") {
+  const match = path.match(/(?:^|\/)(runs\/[^/]+)/);
+  return match?.[1] || "";
+}
+
+function snapshotLabel(snapshot: GraphFileSummary) {
+  return snapshot.iter == null ? "Final graph" : `Iteration ${snapshot.iter}`;
+}
+
 export function RunExplorer({
   onLoadRun,
   defaultOpen = false,
@@ -50,10 +59,17 @@ export function RunExplorer({
   const [filter, setFilter] = useState("");
   const [status, setStatus] = useState("");
   const [loadingRun, setLoadingRun] = useState("");
+  const [snapshotRun, setSnapshotRun] = useState(() => inferRunFromGraphPath(graph?.path || ""));
   const runsQuery = useQuery({
     queryKey: ["runs"],
     queryFn: api.runs,
     refetchInterval: 5000,
+  });
+  const snapshotsQuery = useQuery({
+    queryKey: ["run-graphs", snapshotRun],
+    queryFn: () => api.runGraphs(snapshotRun),
+    enabled: Boolean(snapshotRun),
+    refetchInterval: 6000,
   });
   const runs = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -68,6 +84,7 @@ export function RunExplorer({
     setLoadingRun(run.path);
     setStatus("");
     try {
+      setSnapshotRun(run.path);
       await onLoadRun(run.path);
       setStatus(`Loaded ${run.name}.`);
     } catch (error) {
@@ -76,6 +93,27 @@ export function RunExplorer({
       setLoadingRun("");
     }
   }
+
+  async function loadSnapshot(snapshot: GraphFileSummary) {
+    const path = snapshot.path || snapshot.absolute_path || "";
+    if (!path) return;
+    setLoadingRun(path);
+    setStatus("");
+    try {
+      await onLoadRun(path);
+      setSnapshotRun(snapshot.run || inferRunFromGraphPath(path));
+      setStatus(`Loaded ${snapshotLabel(snapshot)}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingRun("");
+    }
+  }
+
+  useEffect(() => {
+    const inferred = inferRunFromGraphPath(graph?.path || "");
+    if (inferred) setSnapshotRun(inferred);
+  }, [graph?.path]);
 
   return (
     <Drawer
@@ -127,6 +165,46 @@ export function RunExplorer({
         })}
         {!runs.length ? <div className="status-box">{runsQuery.error ? String(runsQuery.error) : "No runs found."}</div> : null}
       </div>
+      {snapshotRun ? (
+        <div className="snapshot-browser">
+          <div className="snapshot-head">
+            <div>
+              <strong>Graph snapshots</strong>
+              <span>{snapshotRun}</span>
+            </div>
+            <IconButton
+              disabled={snapshotsQuery.isFetching}
+              description="Rescan GraphML snapshots generated inside this run folder."
+              icon={snapshotsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
+              label="Refresh"
+              onClick={() => void snapshotsQuery.refetch()}
+            />
+          </div>
+          <div className="snapshot-list">
+            {(snapshotsQuery.data?.graphs || []).map((snapshot) => {
+              const active = Boolean(graph?.path && (graph.path === snapshot.absolute_path || graph.path.endsWith(snapshot.path)));
+              return (
+                <button
+                  className={cx(active && "active")}
+                  disabled={loadingRun === snapshot.path || loadingRun === snapshot.absolute_path}
+                  key={snapshot.absolute_path || snapshot.path}
+                  onClick={() => loadSnapshot(snapshot)}
+                  title="Load this iteration GraphML into the viewer and make it the active chat context."
+                  type="button"
+                >
+                  <strong>{snapshotLabel(snapshot)}</strong>
+                  <span>
+                    {snapshot.is_latest ? "latest | " : ""}
+                    {formatRunTime(snapshot.updated_at)} | {formatNumber(snapshot.size / 1024, 1)} KB
+                  </span>
+                </button>
+              );
+            })}
+            {snapshotsQuery.isError ? <div className="status-box">{String(snapshotsQuery.error)}</div> : null}
+            {snapshotsQuery.data && !snapshotsQuery.data.graphs.length ? <div className="status-box">No GraphML snapshots found.</div> : null}
+          </div>
+        </div>
+      ) : null}
       {status ? <div className="status-box">{status}</div> : null}
     </Drawer>
   );

@@ -2,8 +2,11 @@ import type {
   BridgeIdea,
   ConfigPayload,
   EmbeddingStatus,
+  GraphAskContext,
+  GraphFileSummary,
   GraphPayload,
   JobStatus,
+  ModelProbe,
   ModelRole,
   PathConnector,
   ProfileJobStatus,
@@ -36,6 +39,8 @@ export const api = {
   runs: () => request<{ root: string; runs: RunSummary[] }>("/api/runs"),
   config: () => request<ConfigPayload>("/api/config"),
   loadRun: (run: string) => request<GraphPayload>("/api/load_run", { run }),
+  runGraphs: (run: string) => request<{ run: string; graphs: GraphFileSummary[] }>("/api/run_graphs", { run }),
+  graphmlFiles: () => request<{ graphs: GraphFileSummary[] }>("/api/graphml_files", {}),
   clearGraph: () => request<{ ok: boolean }>("/api/clear_graph", {}),
   uploadGraphml: (name: string, graphml: string) =>
     request<GraphPayload>("/api/load_graphml", { name, graphml }),
@@ -51,9 +56,19 @@ export const api = {
     depth: number;
     max_nodes: number;
     max_edges: number;
+    context_mode?: "focused" | "graph_rag";
+    report_context?: { out: string; max_chars?: number } | null;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
-  }) => request<{ answer: string; context: { node_count: number; edge_count: number } }>("/api/ask", body),
+  }) => request<{ answer: string; context: GraphAskContext }>("/api/ask", body),
+  graphRagContext: (body: {
+    question: string;
+    selected_nodes: string[];
+    query: string;
+    depth: number;
+    max_nodes: number;
+    max_edges: number;
+  }) => request<{ context: GraphAskContext }>("/api/graph_rag_context", body),
   neighborhood: (body: { nodes: string[]; depth: number; limit: number }) =>
     request<GraphPayload & { focus_nodes?: string[] }>("/api/neighborhood", body),
   path: (body: { source: string; target: string; k: number; cutoff: number }) =>
@@ -87,6 +102,7 @@ export const api = {
     `/api/report_asset?out=${encodeURIComponent(out)}&file=${encodeURIComponent(file)}`,
   modelStatus: (role: ModelRole) =>
     request<{ ok: boolean; url?: string; message?: string; models?: string[] }>("/api/model_status", { role }),
+  modelProbe: (role: ModelRole) => request<ModelProbe>("/api/model_probe", { role }),
   configPreview: (roles: Record<string, ModelRole>) =>
     request<{ config: string }>("/api/config_preview", { roles }),
   saveConfig: (roles: Record<string, ModelRole>) =>

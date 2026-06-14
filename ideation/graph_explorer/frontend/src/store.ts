@@ -47,13 +47,15 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
   searchResults: [],
   highlightedPaths: [],
   visual: {
-    viewMode: "3d",
+    viewMode: "2d",
     layout: "force",
     colorBy: "degree",
+    colorPalette: "atlas",
     sizeBy: "degree",
     edgeOpacity: 0.12,
   },
   roles: {
+    chat: { ...questionerRole, role: "chat" },
     graph_qa: { ...questionerRole },
     generator: {
       ...defaultRole,
@@ -71,7 +73,7 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
     },
     baseline: defaultRole,
   },
-  chatRole: "graph_qa",
+  chatRole: "chat",
   chatMessages: [],
   setGraph: (graph) =>
     set({

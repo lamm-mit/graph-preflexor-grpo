@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import math
 import mimetypes
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,6 +38,8 @@ STATIC_DIR = ROOT / "static"
 REACT_DIST_DIR = ROOT / "frontend" / "dist"
 IDEATION_DIR = ROOT.parent
 PROJECT_DIR = IDEATION_DIR.parent
+EMBEDDING_CACHE_VERSION = "graph-explorer-embeddings-v1"
+EMBEDDING_CACHE_DIR = IDEATION_DIR / ".cache" / "graph_explorer" / "embeddings"
 
 STATE = {
     "graph": None,
@@ -488,7 +492,18 @@ def _graphml_candidates(run_dir):
             p for p in sorted(snapshot_dir.glob("iter_*.graphml"), reverse=True)
             if p.is_file() and p.stat().st_size > 0
         )
-    return candidates
+
+    def sort_key(path):
+        try:
+            stat = path.stat()
+            mtime = stat.st_mtime_ns
+        except OSError:
+            mtime = 0
+        match = re.search(r"iter_(\d+)\.graphml$", path.name)
+        iteration = int(match.group(1)) if match else -1
+        return (mtime, iteration, 1 if path.name == "graph.graphml" else 0)
+
+    return sorted(candidates, key=sort_key, reverse=True)
 
 
 def _iter_from_snapshot(path):
@@ -522,6 +537,71 @@ def _snapshot_meta(run_dir):
         "snapshot_mtime": mtime,
         "snapshot_size": size,
     }
+
+
+def _graph_file_item(path, *, run_dir=None, latest_path=None):
+    path = Path(path)
+    try:
+        stat = path.stat()
+        updated_at = stat.st_mtime
+        size = stat.st_size
+    except OSError:
+        updated_at = 0
+        size = 0
+    run_dir = Path(run_dir) if run_dir else None
+    run_rel = _relative_to_ideation(run_dir) if run_dir else ""
+    return {
+        "name": path.name,
+        "path": _relative_to_ideation(path),
+        "absolute_path": str(path),
+        "run": run_rel,
+        "run_name": run_dir.name if run_dir else "",
+        "iter": _iter_from_snapshot(path),
+        "updated_at": updated_at,
+        "size": size,
+        "is_latest": bool(latest_path and Path(latest_path) == path),
+    }
+
+
+def _run_graphs_payload(run_value):
+    target = _resolve_run_path(run_value)
+    if target.is_file():
+        run_dir = target.parent.parent if target.parent.name == "graphml" else target.parent
+        candidates = [target]
+    elif target.is_dir():
+        run_dir = target
+        candidates = _graphml_candidates(run_dir)
+    else:
+        raise ValueError(f"run path is neither a file nor a directory: {target}")
+    latest = candidates[0] if candidates else None
+    return {
+        "run": _relative_to_ideation(run_dir),
+        "graphs": [_graph_file_item(path, run_dir=run_dir, latest_path=latest) for path in candidates],
+    }
+
+
+def _graphml_files_payload(limit=500):
+    items = []
+    runs_dir = IDEATION_DIR / "runs"
+    if runs_dir.exists():
+        for run_dir in sorted((p for p in runs_dir.iterdir() if p.is_dir()), key=lambda p: p.stat().st_mtime, reverse=True):
+            candidates = _graphml_candidates(run_dir)
+            latest = candidates[0] if candidates else None
+            for path in candidates:
+                items.append(_graph_file_item(path, run_dir=run_dir, latest_path=latest))
+                if len(items) >= limit:
+                    break
+            if len(items) >= limit:
+                break
+    current_path = STATE.get("graph_path")
+    if current_path:
+        path = Path(current_path)
+        if path.exists() and path.is_file() and path.suffix.lower() in {".graphml", ".xml"}:
+            seen = {item["absolute_path"] for item in items}
+            if str(path) not in seen:
+                items.insert(0, _graph_file_item(path, run_dir=path.parent, latest_path=path))
+    items.sort(key=lambda item: (item.get("updated_at") or 0, item.get("iter") or -1), reverse=True)
+    return {"graphs": items[:limit]}
 
 
 def _read_growth(run_dir, limit=80):
@@ -587,7 +667,7 @@ def _load_run_graph(run_value):
         raise ValueError(f"run directory not found: {target} ({_available_runs_message()})")
     if target.is_file():
         candidates = [target]
-        run_dir = target.parent
+        run_dir = target.parent.parent if target.parent.name == "graphml" else target.parent
     elif target.is_dir():
         run_dir = target
         candidates = _graphml_candidates(run_dir)
@@ -636,6 +716,8 @@ def _role_from_config(role, cfg):
     data = dict(cfg.get(role) or {})
     if role == "graph_qa" and not data.get("model"):
         data = dict(cfg.get("questioner") or {})
+    if role == "chat" and not data.get("model"):
+        data = dict(cfg.get("questioner") or {})
     return {
         "role": role,
         "provider": data.get("provider") or "openai",
@@ -650,7 +732,7 @@ def _role_from_config(role, cfg):
 
 def _config_payload():
     cfg, path = _load_config()
-    roles = ["generator", "questioner", "graph_qa", "judge", "baseline", "embedder"]
+    roles = ["chat", "generator", "questioner", "graph_qa", "judge", "baseline", "embedder"]
     return {
         "path": str(path),
         "exists": path.exists(),
@@ -730,6 +812,143 @@ def _model_status(body):
         return {"ok": False, "url": url, "status": exc.code, "models": [], "message": str(exc)}
     except Exception as exc:
         return {"ok": False, "url": url, "models": [], "message": str(exc)}
+
+
+def _is_local_base_url(base_url):
+    if not base_url:
+        return False
+    host = urlparse(base_url).hostname or ""
+    return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+
+
+def _model_probe(body):
+    role = _coerce_role(body.get("role") or body)
+    provider = role.get("provider") or "openai"
+    model = role.get("model") or ""
+    base_url = (role.get("base_url") or "").rstrip("/")
+    api_key_env = role.get("api_key_env") or ("OPENAI_API_KEY" if not base_url or "api.openai.com" in base_url else "")
+    local = _is_local_base_url(base_url)
+
+    if not model:
+        return {
+            "ok": False,
+            "category": "missing_model",
+            "stage": "config",
+            "message": "Model id is required.",
+            "model": model,
+            "base_url": base_url,
+            "local": local,
+        }
+    if provider in ("hf", "embedding"):
+        return {
+            "ok": True,
+            "category": "not_http",
+            "stage": "config",
+            "message": f"{provider} roles do not use an OpenAI-compatible HTTP probe.",
+            "model": model,
+            "base_url": base_url,
+            "local": local,
+        }
+    if not base_url:
+        if api_key_env and not os.environ.get(api_key_env):
+            return {
+                "ok": False,
+                "category": "api_key",
+                "stage": "config",
+                "message": f"Set {api_key_env} before using {model}.",
+                "model": model,
+                "base_url": base_url,
+                "api_key_env": api_key_env,
+                "local": False,
+            }
+    elif not local and "api.openai.com" in base_url and api_key_env and not os.environ.get(api_key_env):
+        return {
+            "ok": False,
+            "category": "api_key",
+            "stage": "config",
+            "message": f"Set {api_key_env} before using {model}.",
+            "model": model,
+            "base_url": base_url,
+            "api_key_env": api_key_env,
+            "local": False,
+        }
+
+    status = _model_status({"role": role, "timeout": body.get("timeout", 2.0)})
+    models = status.get("models") or []
+    if not status.get("ok"):
+        message = status.get("message") or "model endpoint is unavailable"
+        category = "connection" if local else ("api_key" if status.get("status") in (401, 403) else "status_error")
+        return {
+            "ok": False,
+            "category": category,
+            "stage": "models",
+            "message": message,
+            "model": model,
+            "base_url": base_url,
+            "api_key_env": api_key_env,
+            "local": local,
+            "url": status.get("url"),
+            "models": models,
+        }
+    if models and model not in models:
+        return {
+            "ok": False,
+            "category": "model_missing",
+            "stage": "models",
+            "message": f"{model} was not listed by the server.",
+            "model": model,
+            "base_url": base_url,
+            "api_key_env": api_key_env,
+            "local": local,
+            "url": status.get("url"),
+            "models": models[:40],
+        }
+
+    try:
+        cfg = dict(role)
+        cfg["max_tokens"] = 8
+        cfg["temperature"] = 0
+        answer = _call_openai_compatible(
+            cfg,
+            [
+                {"role": "system", "content": "You are a health check."},
+                {"role": "user", "content": "Reply exactly with: ok"},
+            ],
+        )
+        return {
+            "ok": True,
+            "category": "ok",
+            "stage": "completion",
+            "message": "Completion probe succeeded.",
+            "model": model,
+            "base_url": base_url,
+            "api_key_env": api_key_env,
+            "local": local,
+            "models": models[:40],
+            "sample": answer[:80],
+        }
+    except Exception as exc:
+        msg = str(exc)
+        lower = msg.lower()
+        if "api key" in lower or "unauthorized" in lower or "authentication" in lower or "401" in lower:
+            category = "api_key"
+        elif local and any(text in lower for text in ("connection refused", "failed to establish", "no route", "connection error")):
+            category = "connection"
+        elif "model" in lower and any(text in lower for text in ("not found", "does not exist", "not served", "unknown")):
+            category = "model_missing"
+        else:
+            category = "completion_error"
+        return {
+            "ok": False,
+            "category": category,
+            "stage": "completion",
+            "message": msg,
+            "model": model,
+            "base_url": base_url,
+            "api_key_env": api_key_env,
+            "local": local,
+            "models": models[:40],
+        }
 
 
 def _save_config(body):
@@ -910,6 +1129,135 @@ def _encode_embedding_texts(texts, model_name, *, batch_size=64):
     return vectors.astype(np.float32)
 
 
+def _hash_file(path):
+    h = hashlib.sha256()
+    with Path(path).open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _stable_hash_value(h, value):
+    h.update(json.dumps(_clean(value), sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _graph_content_signature(G, path=""):
+    path = Path(path) if path else None
+    if path and path.exists() and path.is_file():
+        try:
+            stat = path.stat()
+            return f"file:{_hash_file(path)}:{stat.st_size}"
+        except OSError:
+            pass
+
+    h = hashlib.sha256()
+    h.update(f"directed:{int(G.is_directed())}\n".encode("utf-8"))
+    for node_id, attrs in sorted(G.nodes(data=True), key=lambda item: str(item[0])):
+        h.update(b"node\0")
+        h.update(str(node_id).encode("utf-8", errors="replace"))
+        h.update(b"\0")
+        _stable_hash_value(h, attrs)
+        h.update(b"\n")
+    edge_rows = []
+    for u, v, attrs in G.edges(data=True):
+        if not G.is_directed() and str(v) < str(u):
+            u, v = v, u
+        edge_rows.append((str(u), str(v), dict(attrs)))
+    for u, v, attrs in sorted(edge_rows):
+        h.update(b"edge\0")
+        h.update(u.encode("utf-8", errors="replace"))
+        h.update(b"\0")
+        h.update(v.encode("utf-8", errors="replace"))
+        h.update(b"\0")
+        _stable_hash_value(h, attrs)
+        h.update(b"\n")
+    return f"graph:{h.hexdigest()}:{G.number_of_nodes()}:{G.number_of_edges()}"
+
+
+def _embedding_cache_key(signature, model_name):
+    raw = f"{EMBEDDING_CACHE_VERSION}\n{model_name}\n{signature}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _embedding_cache_path(cache_key):
+    return EMBEDDING_CACHE_DIR / cache_key[:2] / cache_key
+
+
+def _load_embedding_cache(signature, model_name, graph_id, graph_name):
+    cache_key = _embedding_cache_key(signature, model_name)
+    cache_path = _embedding_cache_path(cache_key)
+    meta_path = cache_path / "meta.json"
+    vectors_path = cache_path / "vectors.npy"
+    if not meta_path.exists() or not vectors_path.exists():
+        return None
+    try:
+        import numpy as np
+
+        with meta_path.open() as f:
+            meta = json.load(f)
+        if (
+            meta.get("version") != EMBEDDING_CACHE_VERSION
+            or meta.get("signature") != signature
+            or meta.get("model") != model_name
+        ):
+            return None
+        ids = [str(x) for x in meta.get("ids") or []]
+        labels = [str(x) for x in meta.get("labels") or []]
+        texts = [str(x) for x in meta.get("texts") or []]
+        vectors = np.load(vectors_path, allow_pickle=False)
+        if vectors.ndim != 2 or vectors.shape[0] != len(ids):
+            return None
+    except Exception:
+        return None
+    return {
+        "graph_id": graph_id,
+        "graph_name": graph_name,
+        "graph_signature": signature,
+        "model": model_name,
+        "ids": ids,
+        "labels": labels,
+        "texts": texts,
+        "vectors": vectors.astype(np.float32, copy=False),
+        "dimension": int(vectors.shape[1]) if vectors.shape[0] else 0,
+        "created_at": float(meta.get("created_at") or time.time()),
+        "cache_key": cache_key,
+        "cache_path": str(cache_path),
+        "cached": True,
+    }
+
+
+def _save_embedding_cache(signature, model_name, index):
+    import numpy as np
+
+    cache_key = _embedding_cache_key(signature, model_name)
+    cache_path = _embedding_cache_path(cache_key)
+    EMBEDDING_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix=f"{cache_key}.", dir=str(cache_path.parent)))
+    try:
+        vectors = index.get("vectors")
+        np.save(tmp / "vectors.npy", vectors)
+        meta = {
+            "version": EMBEDDING_CACHE_VERSION,
+            "signature": signature,
+            "model": model_name,
+            "ids": index.get("ids") or [],
+            "labels": index.get("labels") or [],
+            "texts": index.get("texts") or [],
+            "dimension": int(index.get("dimension") or 0),
+            "created_at": float(index.get("created_at") or time.time()),
+        }
+        with (tmp / "meta.json").open("w") as f:
+            json.dump(meta, f, ensure_ascii=True)
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
+        os.replace(tmp, cache_path)
+    finally:
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+    return cache_key, cache_path
+
+
 def _start_embedding_index(body=None):
     body = dict(body or {})
     force = bool(body.get("force"))
@@ -921,6 +1269,7 @@ def _start_embedding_index(body=None):
         graph_name = STATE.get("graph_name") or ""
         if G is None or not graph_id:
             raise ValueError("Load a graph before building an embedding index.")
+        graph_path = STATE.get("graph_path") or ""
         index = STATE.get("embedding_index")
         if (
             not force
@@ -939,6 +1288,31 @@ def _start_embedding_index(body=None):
         ):
             return _embedding_status_locked()
         nodes = [(str(n), dict(d)) for n, d in G.nodes(data=True)]
+        signature = _graph_content_signature(G, graph_path)
+        if not force:
+            cached = _load_embedding_cache(signature, model_name, graph_id, graph_name)
+            if cached:
+                STATE["embedding_index"] = cached
+                STATE["embedding_job"] = {
+                    "id": cached.get("cache_key", ""),
+                    "graph_id": graph_id,
+                    "graph_name": graph_name,
+                    "model": model_name,
+                    "status": "done",
+                    "started_at": time.time(),
+                    "ended_at": time.time(),
+                    "error": "",
+                    "cached": True,
+                    "cache_key": cached.get("cache_key", ""),
+                    "progress": {
+                        "percent": 1.0,
+                        "current": len(cached.get("ids") or []),
+                        "total": len(cached.get("ids") or []),
+                        "message": "Loaded cached embedding index",
+                        "detail": f"{len(cached.get('ids') or [])} nodes | {model_name}",
+                    },
+                }
+                return _embedding_status_locked()
         job_id = uuid.uuid4().hex[:10]
         STATE["embedding_index"] = None
         STATE["embedding_job"] = {
@@ -950,6 +1324,7 @@ def _start_embedding_index(body=None):
             "started_at": time.time(),
             "ended_at": None,
             "error": "",
+            "cached": False,
             "progress": {
                 "percent": 0.02,
                 "current": 0,
@@ -980,6 +1355,9 @@ def _start_embedding_index(body=None):
                     }
             _embedding_model(model_name)
             for start in range(0, total, batch_size):
+                with LOCK:
+                    if STATE.get("graph_id") != graph_id or STATE.get("embedding_job", {}).get("id") != job_id:
+                        return
                 stop = min(total, start + batch_size)
                 batch = _encode_embedding_texts(texts[start:stop], model_name, batch_size=batch_size)
                 batches.append(batch)
@@ -994,20 +1372,32 @@ def _start_embedding_index(body=None):
                             "detail": f"{current}/{total} nodes",
                         }
             vectors = np.vstack(batches) if batches else np.zeros((0, 0), dtype=np.float32)
+            index = {
+                "graph_id": graph_id,
+                "graph_name": graph_name,
+                "graph_signature": signature,
+                "model": model_name,
+                "ids": ids,
+                "labels": labels,
+                "texts": texts,
+                "vectors": vectors,
+                "dimension": int(vectors.shape[1]) if len(vectors.shape) == 2 and vectors.shape[0] else 0,
+                "created_at": time.time(),
+                "cached": False,
+            }
+            try:
+                cache_key, cache_path = _save_embedding_cache(signature, model_name, index)
+                index["cache_key"] = cache_key
+                index["cache_path"] = str(cache_path)
+            except Exception as cache_exc:
+                index["cache_error"] = str(cache_exc)
             with LOCK:
                 if STATE.get("graph_id") == graph_id and STATE.get("embedding_job", {}).get("id") == job_id:
-                    STATE["embedding_index"] = {
-                        "graph_id": graph_id,
-                        "model": model_name,
-                        "ids": ids,
-                        "labels": labels,
-                        "texts": texts,
-                        "vectors": vectors,
-                        "dimension": int(vectors.shape[1]) if len(vectors.shape) == 2 and vectors.shape[0] else 0,
-                        "created_at": time.time(),
-                    }
+                    STATE["embedding_index"] = index
                     STATE["embedding_job"]["status"] = "done"
                     STATE["embedding_job"]["ended_at"] = time.time()
+                    STATE["embedding_job"]["cached"] = False
+                    STATE["embedding_job"]["cache_key"] = index.get("cache_key", "")
                     STATE["embedding_job"]["progress"] = {
                         "percent": 1.0,
                         "current": total,
@@ -1379,20 +1769,132 @@ def _format_node(G, n):
     return "; ".join(bits)
 
 
-def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_nodes=90, max_edges=160):
+def _context_node_payload(G, nodes, scores=None, limit=80):
+    metrics = _centrality(G)
+    degree = metrics["degree"]
+    pr = metrics["pagerank"]
+    core = metrics["core"]
+    scores = scores or {}
+    out = []
+    for n in nodes[:limit]:
+        if n not in G:
+            continue
+        d = dict(G.nodes[n])
+        out.append({
+            "id": str(n),
+            "label": str(d.get("label") or n),
+            "degree": int(degree.get(n, 0)),
+            "pagerank": float(pr.get(n, 0.0)),
+            "core": int(core.get(n, 0)),
+            "iter": _int_attr(d, "iter", 0),
+            "score": float(scores.get(n, 0.0)),
+        })
+    return out
+
+
+def _add_score(scores, sources, node, amount, source):
+    node = str(node)
+    scores[node] = scores.get(node, 0.0) + float(amount)
+    if source:
+        sources.setdefault(node, set()).add(source)
+
+
+def _graph_rag_ranked_nodes(G, question, selected_nodes=None, query="", max_nodes=240):
     selected_nodes = [str(n) for n in (selected_nodes or []) if str(n) in G]
-    seeds = list(selected_nodes)
-    if query:
-        seeds.extend([r["id"] for r in _search_nodes(G, query, limit=12)])
-    if seeds:
-        nodes = _neighborhood_nodes(G, seeds, depth=depth, limit=max_nodes)
+    retrieval_query = " ".join(x for x in [str(query or "").strip(), str(question or "").strip()] if x)
+    metrics = _centrality(G)
+    degree = metrics["degree"]
+    pr = metrics["pagerank"]
+    core = metrics["core"]
+    scores = {}
+    sources = {}
+
+    for n in selected_nodes:
+        _add_score(scores, sources, n, 500.0, "selected")
+
+    if retrieval_query:
+        for rank, item in enumerate(_search_nodes(G, retrieval_query, limit=max(60, min(180, max_nodes)))):
+            node = str(item["id"])
+            _add_score(scores, sources, node, max(20.0, float(item.get("score", 0.0))) + max(0, 60 - rank) * 0.35, "semantic/text")
+
+    central = sorted(G.nodes, key=lambda n: (pr.get(n, 0.0), degree.get(n, 0), core.get(n, 0)), reverse=True)
+    for rank, n in enumerate(central[: max(16, min(80, max_nodes // 4))]):
+        _add_score(scores, sources, n, 12.0 + max(0, 40 - rank) * 0.15, "centrality")
+
+    seed_nodes = [n for n, _ in sorted(scores.items(), key=lambda item: item[1], reverse=True)[:24] if n in G]
+    if selected_nodes:
+        seed_nodes = list(dict.fromkeys(selected_nodes + seed_nodes))
+
+    if seed_nodes:
+        neighborhood = _neighborhood_nodes(G, seed_nodes[:16], depth=2, limit=max_nodes * 3)
+        for n in neighborhood:
+            _add_score(scores, sources, n, 4.0 + math.log1p(degree.get(n, 0)), "neighborhood")
+
+    path_rows = []
+    if len(seed_nodes) >= 2:
+        U = G.to_undirected()
+        path_pairs = []
+        if len(selected_nodes) >= 2:
+            path_pairs.extend(zip(selected_nodes, selected_nodes[1:]))
+        path_pairs.extend(zip(seed_nodes[:8:2], seed_nodes[1:8:2]))
+        seen_pairs = set()
+        for a, b in path_pairs[:8]:
+            key = tuple(sorted((str(a), str(b))))
+            if key in seen_pairs or a not in U or b not in U:
+                continue
+            seen_pairs.add(key)
+            try:
+                path = nx.shortest_path(U, a, b)
+            except Exception:
+                continue
+            if len(path) > 14:
+                continue
+            path_rows.append([str(x) for x in path])
+            for i, n in enumerate(path):
+                _add_score(scores, sources, n, 35.0 if 0 < i < len(path) - 1 else 12.0, "path")
+
+    ranked = [n for n, _ in sorted(scores.items(), key=lambda item: item[1], reverse=True) if n in G]
+    if not ranked:
+        ranked = central[:max_nodes]
+    return ranked[:max_nodes], scores, sources, path_rows, retrieval_query
+
+
+def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_nodes=90, max_edges=160, context_mode="focused"):
+    selected_nodes = [str(n) for n in (selected_nodes or []) if str(n) in G]
+    context_mode = "graph_rag" if str(context_mode or "").lower() in {"graph_rag", "rag", "graph-rag"} else "focused"
+    source_map = {}
+    path_rows = []
+    retrieval_query = query
+    scores = {}
+    if context_mode == "graph_rag":
+        max_nodes = min(max(_safe_int(max_nodes, 240), 120), 900)
+        max_edges = min(max(_safe_int(max_edges, 420), 220), 1400)
+        ranked_nodes, scores, source_map, path_rows, retrieval_query = _graph_rag_ranked_nodes(
+            G,
+            question,
+            selected_nodes=selected_nodes,
+            query=query,
+            max_nodes=max_nodes,
+        )
+        nodes = set(ranked_nodes)
+        ranked_seed = ranked_nodes
     else:
-        degree = dict(G.to_undirected().degree())
-        nodes = set(n for n, _ in sorted(degree.items(), key=lambda x: x[1], reverse=True)[:max_nodes])
+        seeds = list(selected_nodes)
+        if query:
+            seeds.extend([r["id"] for r in _search_nodes(G, query, limit=12)])
+        if seeds:
+            nodes = _neighborhood_nodes(G, seeds, depth=depth, limit=max_nodes)
+        else:
+            degree = dict(G.to_undirected().degree())
+            nodes = set(n for n, _ in sorted(degree.items(), key=lambda x: x[1], reverse=True)[:max_nodes])
+        ranked_seed = []
 
     H = G.subgraph(nodes).copy()
     degree = dict(G.to_undirected().degree())
-    ranked_nodes = sorted(H.nodes, key=lambda n: degree.get(n, 0), reverse=True)[:max_nodes]
+    if context_mode == "graph_rag" and ranked_seed:
+        ranked_nodes = [n for n in ranked_seed if n in H][:max_nodes]
+    else:
+        ranked_nodes = sorted(H.nodes, key=lambda n: degree.get(n, 0), reverse=True)[:max_nodes]
     edge_rows = []
     for u, v, d in H.edges(data=True):
         edge_rows.append((degree.get(u, 0) + degree.get(v, 0), str(u), str(v), str(d.get("relation", "related_to"))))
@@ -1409,21 +1911,36 @@ def _context_for_llm(G, question, selected_nodes=None, query="", depth=1, max_no
                     shortest_paths.append(" -> ".join(str(x) for x in p))
             except Exception:
                 pass
+    for p in path_rows:
+        text = " -> ".join(str(x) for x in p)
+        if text not in shortest_paths:
+            shortest_paths.append(text)
 
-    node_text = "\n".join(f"- {_format_node(G, n)}; degree={degree.get(n, 0)}" for n in ranked_nodes)
+    if context_mode == "graph_rag":
+        node_lines = []
+        for n in ranked_nodes:
+            sources = ",".join(sorted(source_map.get(str(n), []))) or "ranked"
+            node_lines.append(f"- {_format_node(G, n)}; degree={degree.get(n, 0)}; retrieval={sources}; score={scores.get(str(n), 0):.2f}")
+        node_text = "\n".join(node_lines)
+    else:
+        node_text = "\n".join(f"- {_format_node(G, n)}; degree={degree.get(n, 0)}" for n in ranked_nodes)
     edge_text = "\n".join(f"- {u} -[{rel}]- {v}" for _, u, v, rel in edge_rows)
     path_text = "\n".join(f"- {p}" for p in shortest_paths) if shortest_paths else "(none requested or no short path found)"
     return {
+        "mode": context_mode,
         "selected": selected_nodes,
-        "query": query,
+        "query": retrieval_query,
         "node_count": len(ranked_nodes),
         "edge_count": len(edge_rows),
+        "node_ids": [str(n) for n in ranked_nodes],
+        "nodes": _context_node_payload(G, ranked_nodes, scores=scores, limit=80),
         "text": (
             f"Graph: {STATE.get('graph_name') or '(loaded graph)'}\n"
             f"Topic: {STATE.get('topic') or '(not recorded)'}\n"
             f"Question: {question}\n"
+            f"Context mode: {context_mode}\n"
             f"Selected nodes: {', '.join(selected_nodes) if selected_nodes else '(none)'}\n"
-            f"Search query: {query or '(none)'}\n\n"
+            f"Retrieval query: {retrieval_query or '(none)'}\n\n"
             f"Key nodes in focus context:\n{node_text or '(none)'}\n\n"
             f"Edges in focus context:\n{edge_text or '(none)'}\n\n"
             f"Short selected paths:\n{path_text}\n"
@@ -1526,16 +2043,29 @@ def _answer_question(body):
         depth=_safe_int(body.get("depth"), 1),
         max_nodes=_safe_int(body.get("max_nodes"), 90),
         max_edges=_safe_int(body.get("max_edges"), 160),
+        context_mode=body.get("context_mode") or "focused",
     )
-    system = (
-        "You are a graph-aware research assistant. Use the graph context as exploratory leads, "
-        "not as verified facts. Explain what the selected neighborhood or paths suggest, name "
-        "specific mechanisms, identify structural gaps, and propose concrete next queries or "
-        "experiments when useful. If the graph context is insufficient, say what is missing."
-    )
+    report_context = _report_context_payload(body.get("report_context"))
+    if context.get("mode") == "graph_rag":
+        system = (
+            "You are a graph-RAG research agent. Use the selected nodes, semantic/text retrieval hits, "
+            "neighborhoods, path connectors, and centrality anchors in the graph context as exploratory "
+            "evidence, not verified facts. Surface the most relevant nodes and neighborhoods, explain why "
+            "they were retrieved, identify bridge concepts and structural gaps, and propose concrete next "
+            "queries or experiments. If retrieval is weak or ambiguous, say exactly what more context is needed."
+        )
+    else:
+        system = (
+            "You are a graph-aware research assistant. Use the graph context as exploratory leads, "
+            "not as verified facts. Explain what the selected neighborhood or paths suggest, name "
+            "specific mechanisms, identify structural gaps, and propose concrete next queries or "
+            "experiments when useful. If the graph context is insufficient, say what is missing."
+        )
+    report_text = f"# Attached user-selected report context\n{report_context['text']}\n\n" if report_context else ""
     user = (
         f"# User question\n{question}\n\n"
         f"# Graph context packet\n{context['text']}\n\n"
+        f"{report_text}"
         "Answer directly. Refer to node labels and path structure when they matter."
     )
     provider = cfg.get("provider", "openai")
@@ -1554,7 +2084,59 @@ def _answer_question(body):
         answer = _call_hf(cfg, messages)
     else:
         answer = _call_openai_compatible(cfg, messages)
-    return {"answer": answer, "context": {k: v for k, v in context.items() if k != "text"}}
+    public_context = {k: v for k, v in context.items() if k != "text"}
+    if report_context:
+        public_context["report_context"] = {k: v for k, v in report_context.items() if k != "text"}
+    return {"answer": answer, "context": public_context}
+
+
+def _graph_rag_context_payload(body):
+    G = _require_graph()
+    question = str(body.get("question") or body.get("query") or "").strip()
+    context = _context_for_llm(
+        G,
+        question,
+        selected_nodes=body.get("selected_nodes") or [],
+        query=body.get("query") or "",
+        depth=_safe_int(body.get("depth"), 1),
+        max_nodes=_safe_int(body.get("max_nodes"), 240),
+        max_edges=_safe_int(body.get("max_edges"), 520),
+        context_mode="graph_rag",
+    )
+    return {"context": {k: v for k, v in context.items() if k != "text"}}
+
+
+def _report_context_payload(raw):
+    if not isinstance(raw, dict):
+        return None
+    out = str(raw.get("out") or "").strip()
+    if not out:
+        return None
+    max_chars = max(1000, min(50000, _safe_int(raw.get("max_chars"), 12000)))
+    artifacts = _profile_artifacts(out)
+    report_path = Path(artifacts.get("report_path") or "")
+    if not report_path.exists() or not report_path.is_file():
+        raise ValueError(f"selected report context is not available: {out}")
+    markdown = report_path.read_text(errors="replace")
+    summary = dict(artifacts.get("summary") or {})
+    truncated = len(markdown) > max_chars
+    excerpt = markdown[:max_chars]
+    title = summary.get("topic") or Path(out).name
+    return {
+        "out": artifacts.get("out") or out,
+        "title": str(title),
+        "chars": len(excerpt),
+        "total_chars": len(markdown),
+        "truncated": truncated,
+        "text": (
+            f"Report: {artifacts.get('out') or out}\n"
+            f"Title/topic: {title}\n"
+            f"Nodes: {summary.get('nodes', '')}; Edges: {summary.get('edges', '')}; Modules: {summary.get('modules', '')}\n"
+            f"Excerpt chars: {len(excerpt)} of {len(markdown)}"
+            f"{' (truncated)' if truncated else ''}\n\n"
+            f"{excerpt}"
+        ),
+    }
 
 
 def _start_ideate_job(body):
@@ -2043,6 +2625,10 @@ class Handler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/load_run":
                 run, graph_path, G = _load_run_graph(body.get("run") or "")
                 self._json(_set_graph(G, name=run.name, path=str(graph_path), topic=_load_topic(run, G)))
+            elif parsed.path == "/api/run_graphs":
+                self._json(_run_graphs_payload(body.get("run") or ""))
+            elif parsed.path == "/api/graphml_files":
+                self._json(_graphml_files_payload())
             elif parsed.path == "/api/search":
                 G = _require_graph()
                 self._json({"results": _search_nodes(G, body.get("query", ""), int(body.get("limit", 50)))})
@@ -2068,6 +2654,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_bridge_suggestions_payload(body))
             elif parsed.path == "/api/ask":
                 self._json(_answer_question(body))
+            elif parsed.path == "/api/graph_rag_context":
+                self._json(_graph_rag_context_payload(body))
             elif parsed.path == "/api/ideate":
                 self._json(_start_ideate_job(body))
             elif parsed.path == "/api/clear_graph":
@@ -2084,6 +2672,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_profile_report_payload(body))
             elif parsed.path == "/api/model_status":
                 self._json(_model_status(body))
+            elif parsed.path == "/api/model_probe":
+                self._json(_model_probe(body))
             elif parsed.path == "/api/config_preview":
                 self._json({"config": _roles_to_config_text(body.get("roles") or {})})
             elif parsed.path == "/api/save_config":

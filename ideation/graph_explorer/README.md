@@ -61,3 +61,15 @@ Use **Local HF** only when this machine has `transformers`, `torch`, and model w
 The graph question panel sends only a focused packet: selected nodes, an optional search query,
 their hop neighborhood, important edges, and short selected paths. It does not send the whole graph
 unless the focused graph is small enough to fit the chosen context limits.
+
+## Engineering Notes
+
+Refactor backlog captured 2026-06-14 while hardening the explorer:
+
+- `server.py` is currently too large for sustained feature work. Split it into graph I/O, metrics/search, embeddings/cache, model calls, run jobs, profile jobs, and HTTP routing.
+- `frontend/src/main.tsx` is also too large. Split graph canvases, chat, focus tools, model settings, and workspace layout into separate feature modules.
+- Move expensive embedding cache work fully outside the global server lock. The server should snapshot graph state under lock, release it for hashing/cache I/O, then reacquire only to publish status.
+- Replace the long manual API `if/elif` router with small route handlers plus typed request coercion to avoid fragile `int(...)` parsing and improve error messages.
+- Scope persisted chat state by graph/run/session instead of using one global browser storage key.
+- Replace the hand-rolled Markdown report renderer with a maintained Markdown/GFM renderer before reports become a primary surface.
+- Add focused tests for GraphML candidate selection, embedding cache round-trips, path resolution, and a React smoke test.

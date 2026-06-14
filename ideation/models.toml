@@ -17,6 +17,7 @@ in_situ_quant = "8"
 # Questioner + graph explorer chat — Gemma on the same mistral.rs endpoint.
 [[models]]
 kind = "text"
-model_id = "google/gemma-4-E4B"
+model_id = "meta-llama/Llama-3.2-3B-Instruct" #"google/gemma-4-E4B"
 [models.quantization]
-in_situ_quant = "4"
+in_situ_quant = "8"
+ 

@@ -89,6 +89,20 @@ export type ModelRole = {
   reasoning_effort?: string;
 };
 
+export type ModelProbe = {
+  ok: boolean;
+  category: "ok" | "missing_model" | "api_key" | "connection" | "model_missing" | "completion_error" | "status_error" | "not_http";
+  stage: "config" | "models" | "completion";
+  message: string;
+  model: string;
+  base_url?: string;
+  api_key_env?: string;
+  local?: boolean;
+  url?: string;
+  models?: string[];
+  sample?: string;
+};
+
 export type ConfigPayload = {
   exists: boolean;
   path: string;
@@ -115,6 +129,9 @@ export type EmbeddingStatus = {
   started_at?: number | null;
   ended_at?: number | null;
   error?: string;
+  cached?: boolean;
+  cache_key?: string;
+  cache_path?: string;
   progress: EmbeddingProgress;
 };
 
@@ -245,6 +262,18 @@ export type ProfileReportPayload = {
   markdown: string;
 };
 
+export type GraphFileSummary = {
+  name: string;
+  path: string;
+  absolute_path?: string;
+  run?: string;
+  run_name?: string;
+  iter?: number | null;
+  updated_at: number;
+  size: number;
+  is_latest?: boolean;
+};
+
 export type RunSummary = {
   name: string;
   path: string;
@@ -263,6 +292,32 @@ export type RunSummary = {
   status: string;
 };
 
+export type GraphAskContextNode = {
+  id: string;
+  label: string;
+  degree: number;
+  pagerank?: number;
+  core?: number;
+  iter?: number;
+  score?: number;
+};
+
+export type GraphAskContext = {
+  mode?: "focused" | "graph_rag";
+  query?: string;
+  node_count: number;
+  edge_count: number;
+  node_ids?: string[];
+  nodes?: GraphAskContextNode[];
+  report_context?: {
+    out: string;
+    title: string;
+    chars: number;
+    total_chars: number;
+    truncated: boolean;
+  };
+};
+
 export type ChatMessage = {
   id: string;
   role: "system" | "user" | "assistant";
@@ -274,6 +329,7 @@ export type VisualState = {
   viewMode: "3d" | "2d";
   layout: "force" | "component" | "community" | "degree" | "timeline";
   colorBy: "component" | "community" | "degree" | "pagerank" | "core" | "iter" | "depth";
+  colorPalette: "atlas" | "viridis" | "plasma" | "graphite" | "categorical";
   sizeBy: "degree" | "pagerank" | "core" | "constant";
   edgeOpacity: number;
 };
