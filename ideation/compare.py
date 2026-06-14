@@ -1271,8 +1271,9 @@ PAIR_DIMS = {
     "testability": "contains a falsifiable prediction, measurement, or decisive experiment",
     "plausibility": "scientifically/technically plausible; not creative nonsense",
     "specificity": "uses concrete details, variables, materials, controls, or readouts",
+    "task_fit": "answers the actual task and uses all required concepts/constraints non-trivially",
 }
-PAIR_PRIMARY_DIMS = ["novelty", "insight", "mechanism", "testability", "specificity"]
+PAIR_PRIMARY_DIMS = ["novelty", "insight", "mechanism", "testability", "specificity", "task_fit"]
 
 
 def _strip_header(t):
@@ -1498,6 +1499,7 @@ def _render_absolute(args, dims, sc, per_task, skipped):
     agg = {d: {"system": _ms(sc[d]["g"]), "baseline": _ms(sc[d]["b"]),
                "delta": _ms([g - b for g, b in zip(sc[d]["g"], sc[d]["b"])])}
            for d in all_dims}
+    primary_dims_text = ", ".join(PAIR_PRIMARY_DIMS)
     n = len(per_task)
     better = sum(1 for r in per_task if r["delta_primary"] > 0)
     worse = sum(1 for r in per_task if r["delta_primary"] < 0)
@@ -1589,7 +1591,7 @@ def _render_absolute(args, dims, sc, per_task, skipped):
               "",
               "Each answer was scored in a separate judge call with no competing answer visible.",
               "",
-              "Primary score: mean of novelty, insight, mechanism, testability, and specificity; "
+              f"Primary score: mean of {primary_dims_text}; "
               "if plausibility is below 3, the primary score is capped by plausibility.",
               ""]
     if skipped:
@@ -1676,6 +1678,7 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
     agg = {d: {"system": _ms(sc[d]["g"]), "baseline": _ms(sc[d]["b"]),
                "delta": _ms([g - b for g, b in zip(sc[d]["g"], sc[d]["b"])])}
            for d in all_dims}
+    primary_dims_text = ", ".join(PAIR_PRIMARY_DIMS)
     pref_counts = {k: prefs.count(k) for k in ("system", "baseline", "tie")}
     n = len(per_task)
     win_rate = 100.0 * pref_counts["system"] / max(1, n)
@@ -1719,8 +1722,8 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
         f"  graph insights: {pref_counts['system']} ({win_rate:.0f}%)\n"
         f"  baseline:       {pref_counts['baseline']} ({base_rate:.0f}%)\n"
         f"  tie:            {pref_counts['tie']} ({tie_rate:.0f}%)\n\n"
-        "Primary = mean(novelty, insight,\n"
-        "mechanism, testability, specificity),\n"
+        "Primary = mean core dims\n"
+        f"({primary_dims_text}),\n"
         "capped by plausibility when plausibility < 3.\n"
         f"Skipped invalid judge calls: {len(skipped)}"
     )
@@ -1766,7 +1769,7 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
               f"Preference counts: graph insights **{pref_counts['system']}**, "
               f"baseline **{pref_counts['baseline']}**, tie **{pref_counts['tie']}**.",
               "",
-              "Primary score: mean of novelty, insight, mechanism, testability, and specificity; "
+              f"Primary score: mean of {primary_dims_text}; "
               "if plausibility is below 3, the primary score is capped by plausibility.",
               ""]
     if skipped:

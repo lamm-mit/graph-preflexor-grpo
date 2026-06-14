@@ -25,7 +25,7 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
-import { cx, Drawer, IconButton, SidebarHeader } from "./components/common";
+import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
 import { ReportStage, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunExplorer, RunMonitor } from "./features/runs";
 import {
@@ -46,6 +46,7 @@ import {
 import { useExplorerStore } from "./store";
 import type {
   BridgeIdea,
+  EmbeddingStatus,
   GraphNode,
   GraphPayload,
   ModelRole,
@@ -67,6 +68,47 @@ const queryClient = new QueryClient({
 
 function graphAgentRole(roles: Record<string, ModelRole>, chatRole: string) {
   return roles.graph_qa?.model ? roles.graph_qa : roles.questioner?.model ? roles.questioner : roles[chatRole];
+}
+
+function nodeLabel(graph: GraphPayload | null, id: string) {
+  return graph?.nodes.find((node) => node.id === id)?.label || id;
+}
+
+function nodeLookupOptions(graph: GraphPayload | null, query: string, selectedNodes: string[] = []) {
+  if (!graph) return [];
+  const q = query.trim().toLowerCase();
+  const selected = selectedNodes
+    .map((id) => graph.nodes.find((node) => node.id === id))
+    .filter(Boolean) as GraphNode[];
+  const matches = q
+    ? graph.nodes
+        .filter((node) => {
+          const label = node.label.toLowerCase();
+          const id = node.id.toLowerCase();
+          return label === q || id === q || label.includes(q) || id.includes(q);
+        })
+        .sort((a, b) => {
+          const aq = a.label.toLowerCase() === q || a.id.toLowerCase() === q ? 1 : 0;
+          const bq = b.label.toLowerCase() === q || b.id.toLowerCase() === q ? 1 : 0;
+          return bq - aq || b.degree - a.degree || b.pagerank - a.pagerank;
+        })
+    : selected;
+  const seen = new Set<string>();
+  return [...selected, ...matches]
+    .filter((node) => {
+      if (seen.has(node.id)) return false;
+      seen.add(node.id);
+      return true;
+    })
+    .slice(0, 5);
+}
+
+function parseGeneratedPrompts(answer: string) {
+  return answer
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
+    .filter((line) => line.length > 8)
+    .slice(0, 4);
 }
 
 function Header({
@@ -105,7 +147,7 @@ function Header({
         </div>
       </div>
       <div className="top-actions">
-        <label className="file-button">
+        <label className="file-button" title="Upload a single GraphML/XML file from your machine. To load an existing run folder, use the path field or Run Explorer.">
           <Upload size={14} />
           Upload GraphML
           <input accept=".graphml,.xml" onChange={(event) => upload(event.target.files?.[0])} type="file" />
@@ -116,7 +158,8 @@ function Header({
           onKeyDown={(event) => {
             if (event.key === "Enter") void onLoadRun(run);
           }}
-          placeholder="runs/exp_leap or /path/to/file.graphml"
+          placeholder="run folder, e.g. runs/exp_leap, or /path/to/file.graphml"
+          title="Enter a previous run folder or a GraphML file path, then press Enter or Load."
           value={run}
         />
         <IconButton
@@ -166,7 +209,13 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const visual = useExplorerStore((state) => state.visual);
   const setVisual = useExplorerStore((state) => state.setVisual);
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<SlidersHorizontal size={14} />} note="layout, color, size" title="Visual Mapping">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Control how the loaded graph is drawn: renderer, layout, node color metric, node size metric, and edge opacity. These controls change the current visual encoding, not the graph data."
+      icon={<SlidersHorizontal size={14} />}
+      note="layout, color, size"
+      title="Visual Mapping"
+    >
       <div className="control-grid">
         <label>
           Renderer
@@ -246,15 +295,20 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const results = useExplorerStore((state) => state.searchResults);
   const setSearchResults = useExplorerStore((state) => state.setSearchResults);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
+  const setHighlightedPaths = useExplorerStore((state) => state.setHighlightedPaths);
+  const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const graph = useExplorerStore((state) => state.graph);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("Click a result to select it in the viewer. Shift-click graph nodes to build a multi-node selection.");
 
   async function runSearch() {
     if (!query.trim()) return;
     setBusy(true);
     try {
-      setSearchResults((await api.search(query)).results);
+      const next = (await api.search(query)).results;
+      setSearchResults(next);
+      setStatus(next.length ? `${next.length} close graph matches. Click one to select; use Focus Tools to route between selections.` : "No close matches found.");
     } finally {
       setBusy(false);
     }
@@ -274,10 +328,17 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
         score: node.pagerank,
       }));
     setSearchResults(hubs);
+    setStatus("Showing highest-degree hubs. Click a hub to select it in the viewer.");
   }
 
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<Search size={14} />} note={`${results.length} results`} title="Search & Select">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Search node ids, labels, and attributes. Clicking a result selects it in the graph; hold Shift while clicking graph nodes to add more selections."
+      icon={<Search size={14} />}
+      note={`${results.length} results`}
+      title="Search & Select"
+    >
       <div className="row">
         <input
           onChange={(event) => setQuery(event.target.value)}
@@ -289,21 +350,43 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
         />
         <IconButton
           disabled={busy}
+          description="Find close node matches by id, label, and recorded graph attributes."
           icon={busy ? <Loader2 className="spin" size={14} /> : <Search size={14} />}
           label="Search"
           onClick={runSearch}
         />
       </div>
       <div className="button-row">
-        <IconButton icon={<Network size={14} />} label="Top Hubs" onClick={showHubs} />
-        <IconButton icon={<X size={14} />} label="Clear" onClick={() => setSearchResults([])} />
+        <IconButton description="List the most connected nodes by degree." icon={<Network size={14} />} label="Top Hubs" onClick={showHubs} />
+        <IconButton
+          description="Clear search results and the temporary visual highlight."
+          icon={<X size={14} />}
+          label="Clear"
+          onClick={() => {
+            setSearchResults([]);
+            setHighlightedPaths([]);
+            setStatus("Search results cleared.");
+          }}
+        />
       </div>
+      {status ? <div className="micro-help">{status}</div> : null}
       <div className="result-list">
         {results.map((result) => (
-          <button className="result-item" key={result.id} onClick={() => setSelectedNode(result.id)} type="button">
+          <button
+            className={cx("result-item", selectedNodes.includes(result.id) && "active")}
+            key={result.id}
+            onClick={(event) => {
+              setSelectedNode(result.id, event.shiftKey);
+              setHighlightedPaths([[result.id]]);
+              setStatus(`Selected ${result.label}. Open Focus Tools to use it as a path source or target.`);
+            }}
+            title="Select this node in the center graph. Shift-click graph nodes to build a path anchor set."
+            type="button"
+          >
             <strong>{result.label}</strong>
             <span>
               degree {formatNumber(result.degree)} | iter {formatNumber(result.iter)} | score {formatNumber(result.score, 2)}
+              {result.semantic_score !== undefined ? ` | semantic ${formatNumber(result.semantic_score, 2)}` : ""}
             </span>
           </button>
         ))}
@@ -624,12 +707,48 @@ function GraphCanvas() {
   return viewMode === "3d" ? <ThreeGraphCanvas /> : <SigmaGraphCanvas />;
 }
 
+function EmbeddingStatusBar({
+  status,
+  onRebuild,
+}: {
+  status: EmbeddingStatus | null;
+  onRebuild: () => void;
+}) {
+  if (!status || status.status === "idle") return null;
+  const percent = status.status === "done" ? 100 : Math.round((status.progress?.percent || 0) * 100);
+  const label = status.ready
+    ? `Semantic index ready: ${formatNumber(status.nodes)} nodes`
+    : status.status === "failed"
+      ? "Semantic index failed"
+      : status.progress?.message || "Building semantic index";
+  return (
+    <div className={cx("embedding-status", status.status === "failed" && "failed", status.ready && "ready")}>
+      <div className="embedding-copy">
+        <strong>{label}</strong>
+        <span>
+          {status.model || "embedding model"}
+          {status.dimension ? ` | ${formatNumber(status.dimension)} dims` : ""}
+          {status.progress?.detail ? ` | ${status.progress.detail}` : ""}
+        </span>
+      </div>
+      <div className="embedding-meter">
+        <span>{percent}%</span>
+        <progress max={100} value={percent} />
+      </div>
+      <button onClick={onRebuild} title="Force rebuild the semantic node embedding index." type="button">
+        Rebuild
+      </button>
+    </div>
+  );
+}
+
 function ChatPanel() {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const messages = useExplorerStore((state) => state.chatMessages);
   const addChatMessage = useExplorerStore((state) => state.addChatMessage);
   const updateChatMessage = useExplorerStore((state) => state.updateChatMessage);
+  const setChatMessages = useExplorerStore((state) => state.setChatMessages);
   const resetChat = useExplorerStore((state) => state.resetChat);
   const roles = useExplorerStore((state) => state.roles);
   const chatRole = useExplorerStore((state) => state.chatRole);
@@ -637,16 +756,103 @@ function ChatPanel() {
   const [question, setQuestion] = useState("");
   const [contextQuery, setContextQuery] = useState("");
   const [contextNodes, setContextNodes] = useState(90);
+  const [followups, setFollowups] = useState<string[]>([
+    "What are the strongest bridge concepts here?",
+    "Which gaps look most experimentally useful?",
+    "What should I inspect next in this graph?",
+    "Find a surprising path between selected nodes.",
+  ]);
   const [busy, setBusy] = useState(false);
+  const [ideaBusy, setIdeaBusy] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const chatHydratedRef = useRef(false);
   const contextLabel = contextSummary(graph, selectedNodes);
+  const commandQuery = question.startsWith("/") ? question.slice(1).trim().toLowerCase() : "";
+  const commandItems = [
+    { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
+    { command: "/followups", label: "Generate follow-ups", detail: "Ask the active graph model for next query ideas.", action: () => void suggestFollowups() },
+    { command: "/model graph_qa", label: "Use graph_qa", detail: "Switch chat to the graph QA role.", action: () => setChatRole("graph_qa") },
+    { command: "/model questioner", label: "Use questioner", detail: "Switch chat to the questioner role.", action: () => setChatRole("questioner") },
+    { command: "/nodes 160", label: "Context nodes", detail: "Set the graph context size to 160 nodes.", action: () => setContextNodes(160) },
+    { command: "/help", label: "Show help", detail: "Insert a compact command reference.", action: () => addCommandHelp() },
+  ].filter((item) => !commandQuery || item.command.toLowerCase().includes(commandQuery) || item.label.toLowerCase().includes(commandQuery));
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
+  useEffect(() => {
+    if (chatHydratedRef.current || typeof window === "undefined") return;
+    chatHydratedRef.current = true;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("graph-preflexor-explorer.chat.v1") || "[]");
+      if (Array.isArray(saved) && saved.length && !messages.length) setChatMessages(saved.slice(-80));
+    } catch {
+      // Ignore corrupt local storage and start a new chat.
+    }
+  }, [messages.length, setChatMessages]);
+
+  useEffect(() => {
+    if (!chatHydratedRef.current || typeof window === "undefined") return;
+    window.localStorage.setItem("graph-preflexor-explorer.chat.v1", JSON.stringify(messages.slice(-80)));
+  }, [messages]);
+
+  function recentHistory() {
+    return messages
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .slice(-8)
+      .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
+  }
+
+  function addCommandHelp() {
+    addChatMessage({
+      role: "system",
+      meta: "commands",
+      content:
+        "/clear resets the chat.\n/model graph_qa switches the active model role.\n/nodes 160 changes context size.\n/followups asks the model for next query ideas.\n/context <text> is available by typing in the context search field.",
+    });
+  }
+
+  function executeCommand(raw: string) {
+    const value = raw.trim();
+    if (!value.startsWith("/")) return false;
+    const [command, ...rest] = value.slice(1).split(/\s+/);
+    if (command === "clear") {
+      resetChat();
+      setQuestion("");
+      return true;
+    }
+    if (command === "followups") {
+      setQuestion("");
+      void suggestFollowups();
+      return true;
+    }
+    if (command === "model") {
+      const nextRole = rest[0];
+      if (nextRole && roles[nextRole]) {
+        setChatRole(nextRole);
+        addChatMessage({ role: "system", content: `Switched chat model role to ${nextRole}.`, meta: "command" });
+      }
+      setQuestion("");
+      return true;
+    }
+    if (command === "nodes") {
+      const next = Number(rest[0]);
+      if (Number.isFinite(next)) setContextNodes(Math.max(20, Math.min(400, next)));
+      setQuestion("");
+      return true;
+    }
+    if (command === "help") {
+      addCommandHelp();
+      setQuestion("");
+      return true;
+    }
+    return false;
+  }
+
   async function ask() {
     if (!question.trim() || !graph) return;
+    if (executeCommand(question)) return;
     const role = roles[chatRole] || graphAgentRole(roles, chatRole);
     addChatMessage({ role: "user", content: question, meta: contextSummary(graph, selectedNodes) });
     const pending = addChatMessage({ role: "assistant", content: "Thinking...", meta: chatRole });
@@ -660,6 +866,7 @@ function ChatPanel() {
         max_nodes: contextNodes,
         max_edges: 160,
         model_config: role,
+        history: recentHistory(),
       });
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
@@ -670,6 +877,32 @@ function ChatPanel() {
       updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "error" });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function suggestFollowups() {
+    if (!graph) return;
+    const role = roles[chatRole] || graphAgentRole(roles, chatRole);
+    const prompt =
+      "Generate exactly four concise follow-up graph questions for the current user. Make them actionable for this graph explorer. Avoid numbering unless necessary.";
+    setIdeaBusy(true);
+    try {
+      const res = await api.ask({
+        question: prompt,
+        selected_nodes: selectedNodes,
+        query: contextQuery,
+        depth: 1,
+        max_nodes: Math.min(contextNodes, 120),
+        max_edges: 160,
+        model_config: role,
+        history: recentHistory(),
+      });
+      const prompts = parseGeneratedPrompts(res.answer);
+      if (prompts.length) setFollowups(prompts);
+    } catch (error) {
+      addChatMessage({ role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "follow-up error" });
+    } finally {
+      setIdeaBusy(false);
     }
   }
 
@@ -688,7 +921,7 @@ function ChatPanel() {
               </option>
             ))}
           </select>
-          <IconButton icon={<RotateCcw size={14} />} label="Reset" onClick={resetChat} />
+          <IconButton description="Clear the current browser-side chat thread." icon={<RotateCcw size={14} />} label="Reset" onClick={resetChat} />
         </div>
       </div>
       <div className="chat-log">
@@ -716,23 +949,39 @@ function ChatPanel() {
       </div>
       <div className="chat-composer">
         <div className="prompt-row">
-          {[
-            ["Summary", "Summarize this graph focus."],
-            ["Gaps", "Find gaps and weak links."],
-            ["Bridges", "Suggest bridge experiments."],
-            ["Hubs", "Rank the strongest hubs."],
-          ].map(([label, prompt]) => (
-            <button key={prompt} onClick={() => setQuestion(prompt)} type="button">
-              {label}
+          {followups.map((prompt, index) => (
+            <button key={prompt} onClick={() => setQuestion(prompt)} title={prompt} type="button">
+              <span>{index === 0 ? "Next" : `Idea ${index + 1}`}</span>
+              {prompt}
             </button>
           ))}
+          <button disabled={ideaBusy || !graph} onClick={() => void suggestFollowups()} title="Generate follow-up ideas with the active graph model." type="button">
+            {ideaBusy ? "Generating" : "Generate"}
+          </button>
         </div>
+        {question.startsWith("/") ? (
+          <div className="command-menu">
+            {commandItems.map((item) => (
+              <button
+                key={item.command}
+                onClick={() => {
+                  item.action();
+                  setQuestion("");
+                }}
+                type="button"
+              >
+                <strong>{item.command}</strong>
+                <span>{item.label} | {item.detail}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
         <textarea
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void ask();
           }}
-          placeholder={graph ? "Message the graph..." : "Load a graph to chat..."}
+          placeholder={graph ? "Message the graph, or type / for commands..." : "Load a graph to chat..."}
           rows={4}
           value={question}
         />
@@ -795,7 +1044,13 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
   }
 
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<Settings2 size={14} />} note="roles, presets, config" title="Model Settings">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Configure model roles used by chat, graph QA, generation, judging, and local services. Check tests an endpoint; Write updates ideation/config.yaml."
+      icon={<Settings2 size={14} />}
+      note="roles, presets, config"
+      title="Model Settings"
+    >
       <div className="control-grid">
         <label>
           Role
@@ -833,10 +1088,10 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
         </label>
       </div>
       <div className="button-row">
-        <IconButton icon={<Activity size={14} />} label="Check" onClick={check} />
-        <IconButton icon={<Command size={14} />} label="Preview" onClick={() => loadPreview(false)} />
-        <IconButton icon={<Download size={14} />} label="Write" onClick={() => loadPreview(true)} />
-        <IconButton icon={<RotateCcw size={14} />} label="Reload" onClick={() => api.config().then((cfg) => setRoles(cfg.roles))} />
+        <IconButton description="Call the selected model endpoint and report whether it is reachable." icon={<Activity size={14} />} label="Check" onClick={check} />
+        <IconButton description="Render the config.yaml that would be written from these role settings." icon={<Command size={14} />} label="Preview" onClick={() => loadPreview(false)} />
+        <IconButton description="Write these role settings to ideation/config.yaml." icon={<Download size={14} />} label="Write" onClick={() => loadPreview(true)} />
+        <IconButton description="Reload roles from ideation/config.yaml." icon={<RotateCcw size={14} />} label="Reload" onClick={() => api.config().then((cfg) => setRoles(cfg.roles))} />
       </div>
       <div className="status-box">{status}</div>
       {preview ? <pre className="code-preview">{preview}</pre> : null}
@@ -849,7 +1104,13 @@ function Inspector({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const selectedNode = useExplorerStore((state) => state.selectedNode);
   const node = graph?.nodes.find((item) => item.id === selectedNode);
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<PanelLeft size={14} />} note="selected node" title="Selection Inspector">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Inspect the currently selected node. Select a node from search results or by clicking in the graph viewer."
+      icon={<PanelLeft size={14} />}
+      note="selected node"
+      title="Selection Inspector"
+    >
       {node ? (
         <div className="inspector">
           <strong>{node.label}</strong>
@@ -887,8 +1148,9 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [source, setSource] = useState("");
   const [target, setTarget] = useState("");
   const [concepts, setConcepts] = useState("");
-  const [pathMode, setPathMode] = useState<"pairwise" | "sequence">("pairwise");
+  const [pathMode, setPathMode] = useState<"pairwise" | "sequence" | "stochastic">("pairwise");
   const [pathCutoff, setPathCutoff] = useState(8);
+  const [sampleCount, setSampleCount] = useState(28);
   const [connectors, setConnectors] = useState<PathConnector[]>([]);
   const [ideas, setIdeas] = useState<BridgeIdea[]>([]);
   const [status, setStatus] = useState("");
@@ -897,6 +1159,8 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [ideaBusy, setIdeaBusy] = useState(false);
   const ideaGraphRef = useRef("");
   const seed = selectedNodes.length ? selectedNodes : selectedNode ? [selectedNode] : [];
+  const sourceMatches = useMemo(() => nodeLookupOptions(graph, source, selectedNodes), [graph, selectedNodes, source]);
+  const targetMatches = useMemo(() => nodeLookupOptions(graph, target, selectedNodes), [graph, selectedNodes, target]);
 
   useEffect(() => {
     if (selectedNode && !source) setSource(selectedNode);
@@ -918,11 +1182,22 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
 
   async function showPath() {
     if (!source.trim() || !target.trim()) return;
-    const next = await api.path({ source: source.trim(), target: target.trim(), k: 5, cutoff: 8 });
-    setGraph(next);
-    setHighlightedPaths(next.paths || []);
-    setConnectors([]);
-    setStatus(`${formatNumber(next.paths?.length || 0)} paths`);
+    setPathBusy(true);
+    try {
+      const next = await api.path({ source: source.trim(), target: target.trim(), k: 5, cutoff: pathCutoff });
+      setGraph(next);
+      setHighlightedPaths(next.paths || []);
+      setConnectors([]);
+      if (next.resolved_source) setSource(next.resolved_source);
+      if (next.resolved_target) setTarget(next.resolved_target);
+      setStatus(
+        `${formatNumber(next.paths?.length || 0)} paths between ${nodeLabel(next, next.resolved_source || source)} and ${nodeLabel(next, next.resolved_target || target)}.`,
+      );
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPathBusy(false);
+    }
   }
 
   async function findBridgeNetwork() {
@@ -935,11 +1210,14 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
         mode: pathMode,
         cutoff: pathCutoff,
         anchor_limit: 8,
+        sample_count: sampleCount,
       });
       setGraph(next);
       setHighlightedPaths(next.paths || []);
       setConnectors(next.connectors || []);
-      setStatus(`${formatNumber(next.paths?.length || 0)} paths | ${formatNumber(next.connectors?.length || 0)} connector nodes`);
+      setStatus(
+        `${formatNumber(next.paths?.length || 0)} ${pathMode === "stochastic" ? "sampled " : ""}paths | ${formatNumber(next.connectors?.length || 0)} connector nodes. Highlighted paths are now drawn in the viewer.`,
+      );
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -957,7 +1235,7 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
         setConcepts(res.ideas[0].query);
         setPathMode("pairwise");
       }
-      setStatus(res.ideas?.length ? `${res.ideas.length} bridge ideas loaded` : "No bridge ideas found for this graph.");
+      setStatus(res.ideas?.length ? `${res.ideas.length} bridge ideas loaded. Click one, then run Find Bridges.` : "No bridge ideas found for this graph.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1012,7 +1290,18 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   }
 
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<Network size={14} />} note="paths, neighborhoods" title="Focus Tools">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Build graph focus views. Use selected nodes for local neighborhoods, source-target path finding, or bridge networks across multiple concepts."
+      icon={<Network size={14} />}
+      note="paths, neighborhoods"
+      title="Focus Tools"
+    >
+      <div className="tool-section">
+        <div className="tool-section-head">
+          <strong>Selection Focus</strong>
+          <HelpTip text="Click a node in the center graph or a search result first. Neighborhood keeps nearby nodes; Whole Graph restores the full loaded graph." />
+        </div>
       <div className="control-grid">
         <label>
           Depth
@@ -1024,22 +1313,101 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
         </label>
       </div>
       <div className="button-row">
-        <IconButton disabled={!graph || !seed.length} icon={<Network size={14} />} label="Neighborhood" onClick={focusNeighborhood} />
-        <IconButton disabled={!graph} icon={<RotateCcw size={14} />} label="Whole Graph" onClick={restoreGraph} />
+        <IconButton
+          description="Replace the viewer with the selected node(s) plus nearby neighbors up to the chosen depth and limit."
+          disabled={!graph || !seed.length}
+          icon={<Network size={14} />}
+          label="Neighborhood"
+          onClick={focusNeighborhood}
+        />
+        <IconButton
+          description="Restore the full currently loaded graph and clear highlighted paths."
+          disabled={!graph}
+          icon={<RotateCcw size={14} />}
+          label="Whole Graph"
+          onClick={restoreGraph}
+        />
       </div>
+      </div>
+      <div className="tool-section">
+        <div className="tool-section-head">
+          <strong>Source-Target Path</strong>
+          <HelpTip text="Type a node id or label, choose a close match, or select nodes in the graph and capture them as source/target. Find Paths highlights short routes in the viewer." />
+        </div>
+        <div className="selection-strip">
+          <span>{seed.length ? `${seed.length} selected` : "No selected nodes"}</span>
+          {seed.slice(0, 3).map((id) => (
+            <button key={id} onClick={() => setSource(id)} type="button" title="Use this selected node as the source">
+              {nodeLabel(graph, id)}
+            </button>
+          ))}
+        </div>
       <div className="control-grid">
         <label>
           Source
-          <input onChange={(event) => setSource(event.target.value)} placeholder="source node id" value={source} />
+          <input
+            onChange={(event) => setSource(event.target.value)}
+            placeholder="node id or label"
+            title="Type a node id, exact label, or close label/attribute match."
+            value={source}
+          />
         </label>
         <label>
           Target
-          <input onChange={(event) => setTarget(event.target.value)} placeholder="target node id" value={target} />
+          <input
+            onChange={(event) => setTarget(event.target.value)}
+            placeholder="node id or label"
+            title="Type a node id, exact label, or close label/attribute match."
+            value={target}
+          />
         </label>
       </div>
-      <div className="button-row">
-        <IconButton disabled={!graph || !source.trim() || !target.trim()} icon={<Network size={14} />} label="Paths" onClick={showPath} />
+      <div className="lookup-grid">
+        <div className="node-suggestions">
+          {sourceMatches.map((node) => (
+            <button key={`source-${node.id}`} onClick={() => setSource(node.id)} type="button" title="Use as source">
+              {node.label}
+            </button>
+          ))}
+        </div>
+        <div className="node-suggestions">
+          {targetMatches.map((node) => (
+            <button key={`target-${node.id}`} onClick={() => setTarget(node.id)} type="button" title="Use as target">
+              {node.label}
+            </button>
+          ))}
+        </div>
       </div>
+      <div className="button-row">
+        <IconButton
+          description="Use the most recent selected node as source."
+          disabled={!seed.length}
+          icon={<PanelLeft size={14} />}
+          label="Set Source"
+          onClick={() => setSource(seed[0] || "")}
+        />
+        <IconButton
+          description="Use the most recent second selected node, or current selected node, as target."
+          disabled={!seed.length}
+          icon={<PanelLeft size={14} />}
+          label="Set Target"
+          onClick={() => setTarget(seed[1] || seed[0] || "")}
+        />
+        <IconButton
+          description="Find short source-target paths and highlight them in the graph."
+          disabled={!graph || pathBusy || !source.trim() || !target.trim()}
+          icon={pathBusy ? <Loader2 className="spin" size={14} /> : <Network size={14} />}
+          label="Find Paths"
+          onClick={showPath}
+          tone="primary"
+        />
+      </div>
+      </div>
+      <div className="tool-section">
+        <div className="tool-section-head">
+          <strong>Multi-Concept Bridge</strong>
+          <HelpTip text="A bridge network resolves two or more concept labels/nodes, finds routes among them, and ranks interior connector nodes that repeatedly sit between the concepts." />
+        </div>
       <label>
         Multi-concept bridge
         <textarea
@@ -1057,7 +1425,7 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
               onClick={() => {
                 setConcepts(idea.query);
                 setPathMode("pairwise");
-                setStatus(idea.rationale);
+                setStatus(`${idea.rationale} Run Find Bridges to draw the routes.`);
               }}
               type="button"
             >
@@ -1069,20 +1437,28 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
       ) : null}
       <div className="control-grid">
         <label>
-          Mode
+          Mode <HelpTip text="Pairwise connects every anchor pair. Ordered route connects concepts in the order listed. Stochastic samples alternative routes with randomized edge weights to expose less obvious connectors." />
           <select value={pathMode} onChange={(event) => setPathMode(event.target.value as typeof pathMode)}>
             <option value="pairwise">Pairwise bridge</option>
             <option value="sequence">Ordered route</option>
+            <option value="stochastic">Stochastic sampler</option>
           </select>
         </label>
         <label>
           Max hops
           <input min={2} max={16} onChange={(event) => setPathCutoff(Number(event.target.value))} type="number" value={pathCutoff} />
         </label>
+        {pathMode === "stochastic" ? (
+          <label>
+            Samples
+            <input min={4} max={80} onChange={(event) => setSampleCount(Number(event.target.value))} type="number" value={sampleCount} />
+          </label>
+        ) : null}
       </div>
       <div className="button-row">
         <IconButton
           disabled={!graph || pathBusy || (!concepts.trim() && seed.length < 2)}
+          description="Resolve the listed concepts or current selected nodes, compute bridge paths, and highlight the resulting route network."
           icon={pathBusy ? <Loader2 className="spin" size={14} /> : <Network size={14} />}
           label="Find Bridges"
           onClick={findBridgeNetwork}
@@ -1090,16 +1466,19 @@ function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
         />
         <IconButton
           disabled={!graph || ideaBusy}
+          description="Generate structural bridge candidates from selected nodes and high-centrality graph anchors. Click an idea to load it."
           icon={ideaBusy ? <Loader2 className="spin" size={14} /> : <BrainCircuit size={14} />}
           label="Suggest Ideas"
           onClick={() => suggestBridgeIdeas(false)}
         />
         <IconButton
           disabled={!graph || agentBusy}
+          description="Ask the configured graph_qa/questioner model to interpret highlighted paths or propose bridge queries."
           icon={agentBusy ? <Loader2 className="spin" size={14} /> : <BrainCircuit size={14} />}
           label="Ask Agent"
           onClick={askPathAgent}
         />
+      </div>
       </div>
       {connectors.length ? (
         <div className="connector-list">
@@ -1131,7 +1510,7 @@ function ChatSidebar({
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   return (
     <>
-      <SidebarHeader title="Workspace" subtitle="chat-first graph exploration" />
+      <SidebarHeader title="Workspace" subtitle="left rail switches tools; assistant stays fixed" />
       <section className="panel-card">
         <div className="artifact-card">
           <div>
@@ -1169,7 +1548,7 @@ function SideRail({
       ) : null}
       {activeMode === "graph" ? (
         <>
-          <SidebarHeader title="Graph" subtitle="artifact controls and inspection" />
+          <SidebarHeader title="Graph" subtitle="viewer controls for the center artifact" />
           <Overview />
           <VisualControls defaultOpen />
           <FocusTools defaultOpen />
@@ -1178,21 +1557,21 @@ function SideRail({
       ) : null}
       {activeMode === "search" ? (
         <>
-          <SidebarHeader title="Search" subtitle="find nodes and focus concepts" />
+          <SidebarHeader title="Search" subtitle="find/select nodes, then route or focus" />
           <SearchPanel defaultOpen />
           <FocusTools defaultOpen />
         </>
       ) : null}
       {activeMode === "runs" ? (
         <>
-          <SidebarHeader title="Runs" subtitle="sessions, launch, and monitor" />
+          <SidebarHeader title="Runs" subtitle="load previous folders or launch new runs" />
           <RunExplorer defaultOpen onLoadRun={onLoadRun} />
           <RunMonitor defaultOpen onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
         </>
       ) : null}
       {activeMode === "reports" ? (
         <>
-          <SidebarHeader title="Reports" subtitle="profiling, artifacts, and review" />
+          <SidebarHeader title="Reports" subtitle="generate reports and open artifacts" />
           <RunExplorer onLoadRun={onLoadRun} />
           <ReportStudio defaultOpen onReportReady={onReportReady} />
         </>
@@ -1224,6 +1603,7 @@ function ActivityRail({
   ];
   return (
     <nav className="activity-rail" aria-label="Explorer modes">
+      <span className="rail-kicker" title="These buttons switch the left tool panel. The assistant stays fixed on the right.">Tools</span>
       {modes.map((mode) => (
         <button
           aria-label={mode.label}
@@ -1246,11 +1626,15 @@ function ThreadStage({
   onOpenSearch,
   onOpenRuns,
   onOpenReports,
+  embeddingStatus,
+  onRebuildEmbeddings,
 }: {
   onOpenGraph: () => void;
   onOpenSearch: () => void;
   onOpenRuns: () => void;
   onOpenReports: () => void;
+  embeddingStatus: EmbeddingStatus | null;
+  onRebuildEmbeddings: () => void;
 }) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
@@ -1298,20 +1682,21 @@ function ThreadStage({
           </div>
         </div>
 
-        <div className="thread-session-grid">
-          <div className="session-card">
+        <div className="thread-context-strip" title="Compact status for the current graph workspace. These are indicators, not controls.">
+          <div>
             <span>Selection</span>
             <strong>{selectedNodes.length ? `${formatNumber(selectedNodes.length)} nodes` : "None"}</strong>
           </div>
-          <div className="session-card">
+          <div>
             <span>Graph</span>
             <strong>{graph ? `${formatNumber(stats?.nodes || 0)} / ${formatNumber(stats?.edges || 0)}` : "Not loaded"}</strong>
           </div>
-          <div className="session-card">
+          <div>
             <span>Run</span>
             <strong>{graph?.path ? graph.path.split("/runs/").pop()?.split("/")[0] || graph.name : "No session"}</strong>
           </div>
         </div>
+        <EmbeddingStatusBar status={embeddingStatus} onRebuild={onRebuildEmbeddings} />
       </div>
     </section>
   );
@@ -1324,6 +1709,7 @@ function App() {
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const [activeMode, setActiveMode] = useState<WorkspaceMode>("chat");
   const [activeReportOut, setActiveReportOut] = useState(() => readReportStudioStorage().activeReportOut || "");
+  const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
   const { data: initialGraph } = useQuery({ queryKey: ["graph"], queryFn: api.graph, retry: false });
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.config });
 
@@ -1342,6 +1728,88 @@ function App() {
   useEffect(() => {
     if (config?.roles) setRoles(config.roles);
   }, [config, setRoles]);
+
+  const startEmbeddingIndex = React.useCallback(async (force = false) => {
+    try {
+      setEmbeddingStatus(await api.startEmbeddings({ model: "auto", force }));
+    } catch (error) {
+      setEmbeddingStatus({
+        status: "failed",
+        ready: false,
+        nodes: 0,
+        dimension: 0,
+        error: error instanceof Error ? error.message : String(error),
+        progress: {
+          percent: 0,
+          current: 0,
+          total: 0,
+          message: "Embedding failed",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!graph?.graph_id) {
+      setEmbeddingStatus(null);
+      return undefined;
+    }
+    let cancelled = false;
+    api.startEmbeddings({ model: "auto" })
+      .then((status) => {
+        if (!cancelled) setEmbeddingStatus(status);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setEmbeddingStatus({
+            status: "failed",
+            ready: false,
+            nodes: 0,
+            dimension: 0,
+            error: error instanceof Error ? error.message : String(error),
+            progress: {
+              percent: 0,
+              current: 0,
+              total: 0,
+              message: "Embedding failed",
+              detail: error instanceof Error ? error.message : String(error),
+            },
+          });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [graph?.graph_id]);
+
+  useEffect(() => {
+    if (!embeddingStatus || !["running"].includes(embeddingStatus.status)) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        setEmbeddingStatus(await api.embeddingStatus());
+      } catch (error) {
+        setEmbeddingStatus((state) => ({
+          ...(state || {
+            status: "failed",
+            ready: false,
+            nodes: 0,
+            dimension: 0,
+            progress: { percent: 0, current: 0, total: 0, message: "", detail: "" },
+          }),
+          status: "failed",
+          ready: false,
+          error: error instanceof Error ? error.message : String(error),
+          progress: {
+            ...(state?.progress || { percent: 0, current: 0, total: 0, message: "", detail: "" }),
+            message: "Embedding status unavailable",
+            detail: error instanceof Error ? error.message : String(error),
+          },
+        }));
+      }
+    }, 1800);
+    return () => window.clearInterval(timer);
+  }, [embeddingStatus]);
 
   const loadRun = React.useCallback(
     async (run: string) => {
@@ -1403,10 +1871,13 @@ function App() {
                 </button>
               </div>
             </div>
+            <EmbeddingStatusBar status={embeddingStatus} onRebuild={() => void startEmbeddingIndex(true)} />
             <GraphCanvas />
           </section>
         ) : (
           <ThreadStage
+            embeddingStatus={embeddingStatus}
+            onRebuildEmbeddings={() => void startEmbeddingIndex(true)}
             onOpenGraph={() => setActiveMode("graph")}
             onOpenReports={() => setActiveMode("reports")}
             onOpenRuns={() => setActiveMode("runs")}

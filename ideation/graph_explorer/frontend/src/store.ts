@@ -1,17 +1,19 @@
 import { create } from "zustand";
 import type { ChatMessage, GraphPayload, ModelRole, SearchResult, VisualState } from "./types";
 
+const GEMMA_CHAT_MODEL = "google/gemma-4-E4B";
+
 const defaultRole: ModelRole = {
   provider: "openai",
-  model: "meta-llama/Llama-3.2-3B-Instruct",
-  base_url: "http://localhost:8000/v1",
+  model: GEMMA_CHAT_MODEL,
+  base_url: "http://localhost:1234/v1",
   api_key_env: "",
   temperature: 0.3,
   max_tokens: 1800,
   reasoning_effort: "",
 };
 
-const questionerRole: ModelRole = { ...defaultRole, model: "Qwen/Qwen3-0.6B", base_url: "http://localhost:1234/v1" };
+const questionerRole: ModelRole = { ...defaultRole, model: GEMMA_CHAT_MODEL, base_url: "http://localhost:1234/v1" };
 
 export type ExplorerState = {
   graph: GraphPayload | null;
@@ -34,6 +36,7 @@ export type ExplorerState = {
   setChatRole: (role: string) => void;
   addChatMessage: (message: Omit<ChatMessage, "id">) => string;
   updateChatMessage: (id: string, message: Partial<ChatMessage>) => void;
+  setChatMessages: (messages: ChatMessage[]) => void;
   resetChat: () => void;
 };
 
@@ -108,5 +111,6 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
     set((state) => ({
       chatMessages: state.chatMessages.map((item) => (item.id === id ? { ...item, ...message } : item)),
     })),
+  setChatMessages: (chatMessages) => set({ chatMessages }),
   resetChat: () => set({ chatMessages: [] }),
 }));

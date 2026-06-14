@@ -179,6 +179,9 @@ python path_pair_benchmark.py \
   --force-pairs \
   --force \
   --graph-prompt-mode cues \
+  --graph-synthesis-mode candidates \
+  --graph-candidates 6 \
+  --candidate-temperature 0.85 \
   --judge-mode both \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
@@ -191,10 +194,14 @@ By default this uses strict pair selection: it rejects meta/method nodes such as
 hubs, endpoints without material/mechanism anchor words, and mostly generic bridges. The default
 `--graph-prompt-mode cues` does not force the small model to literalize noisy path edge verbs; it
 shows a filtered cue packet mined from the true path/neighborhood. Use `--graph-prompt-mode path` to
-also show the true path, or `--graph-prompt-mode full` to show the path plus local neighborhood. Use
-`--force-pairs` when rerunning an existing output directory; otherwise the runner intentionally reuses
-the existing `pairs.json`. Use `--judge-mode absolute` to score every answer in a separate standalone
-judge call, `--judge-mode pairwise` for blind preference only, or `--judge-mode both` for both plots.
+also show the true path, or `--graph-prompt-mode full` to show the path plus local neighborhood.
+`--graph-synthesis-mode candidates` is the recommended test-time-compute setting: the graph arm first
+asks Llama to generate several graph-cued hypotheses, then makes a second graph-conditioned call to
+select/recombine/refine the strongest one. Use `--graph-synthesis-mode direct` only for the stricter
+equal-call ablation. Use `--force-pairs` when rerunning an existing output directory; otherwise the
+runner intentionally reuses the existing `pairs.json`. Use `--judge-mode absolute` to score every
+answer in a separate standalone judge call, `--judge-mode pairwise` for blind preference only, or
+`--judge-mode both` for both plots.
 
 Useful controls:
 
@@ -207,6 +214,7 @@ python path_pair_benchmark.py \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
   --graph-prompt-mode cues \
+  --graph-synthesis-mode candidates \
   --force-pairs \
   --dry-run \
   --no-judge
@@ -220,6 +228,7 @@ python path_pair_benchmark.py \
   --max-hops 6 \
   --neighbors 6 \
   --graph-prompt-mode cues \
+  --graph-synthesis-mode candidates \
   --force-pairs \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
@@ -257,6 +266,7 @@ Outputs:
 - `pairs.json`: the 10 concept pairs, raw graph node IDs, true paths, and path scores
 - `tasks.txt`: pairwise judge task descriptions
 - `prompts/baseline/*.txt` and `prompts/graph/*.txt`: exact prompts sent to Llama
+- `candidates/graph/*.txt`: graph-arm candidate hypotheses before final refinement
 - `answers/baseline/*.md` and `answers/graph/*.md`: generated answers
 - `benchmark/pairwise.{png,svg,pdf,json,md}`: blind pairwise judge results
 
@@ -1458,7 +1468,8 @@ candidates, bounded isomorphism analysis, provenance, and data-quality flags. If
 attributes such as `iter`, `depth`, `question`, and `response_id` are present,
 the provenance section can explain where concepts entered the graph; arbitrary GraphML still gets the
 structural/module audit. `report.pdf` is rendered by default with Pandoc when available; add `--no-pdf`
-to skip PDF generation.
+to skip PDF generation. The PDF front matter starts with the report heading, generated timestamp, and a
+short abstract; the table of contents follows that abstract rather than appearing as the first page.
 
 PDF rendering requires **Pandoc** plus a LaTeX engine (`xelatex`, `lualatex`, or `pdflatex`). If a run
 prints `PDF not written: pandoc not found`, the Markdown report and JSON were still written; install the
@@ -1501,7 +1512,7 @@ flowchart TD
     Q -- "no" --> P
     T --> U{"PDF enabled and tools available?"}
     P --> U
-    U -- "yes" --> V["Render report.pdf with Pandoc and LaTeX"]
+    U -- "yes" --> V["Render report.pdf with heading, abstract, TOC, then body"]
     U -- "no" --> W["Keep report.md and note PDF skip/failure"]
     V --> X["Write profile.json with all raw evidence, figures, LLM outputs, diagnostics"]
     W --> X

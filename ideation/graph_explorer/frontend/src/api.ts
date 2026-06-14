@@ -1,6 +1,7 @@
 import type {
   BridgeIdea,
   ConfigPayload,
+  EmbeddingStatus,
   GraphPayload,
   JobStatus,
   ModelRole,
@@ -40,6 +41,9 @@ export const api = {
     request<GraphPayload>("/api/load_graphml", { name, graphml }),
   search: (query: string, limit = 40) =>
     request<{ results: SearchResult[] }>("/api/search", { query, limit }),
+  embeddingStatus: () => request<EmbeddingStatus>("/api/embedding_status"),
+  startEmbeddings: (body?: { model?: string; force?: boolean; batch_size?: number }) =>
+    request<EmbeddingStatus>("/api/embedding_index", body || { model: "auto" }),
   ask: (body: {
     question: string;
     selected_nodes: string[];
@@ -48,12 +52,20 @@ export const api = {
     max_nodes: number;
     max_edges: number;
     model_config: ModelRole & { api_key?: string };
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
   }) => request<{ answer: string; context: { node_count: number; edge_count: number } }>("/api/ask", body),
   neighborhood: (body: { nodes: string[]; depth: number; limit: number }) =>
     request<GraphPayload & { focus_nodes?: string[] }>("/api/neighborhood", body),
   path: (body: { source: string; target: string; k: number; cutoff: number }) =>
-    request<GraphPayload & { paths?: string[][] }>("/api/path", body),
-  multipath: (body: { nodes?: string[]; query?: string; mode: "pairwise" | "sequence"; cutoff: number; anchor_limit?: number }) =>
+    request<GraphPayload & { paths?: string[][]; resolved_source?: string; resolved_target?: string }>("/api/path", body),
+  multipath: (body: {
+    nodes?: string[];
+    query?: string;
+    mode: "pairwise" | "sequence" | "stochastic";
+    cutoff: number;
+    anchor_limit?: number;
+    sample_count?: number;
+  }) =>
     request<GraphPayload & { anchors?: string[]; paths?: string[][]; connectors?: PathConnector[] }>("/api/multipath", body),
   bridgeSuggestions: (body: { selected_nodes?: string[]; limit?: number }) =>
     request<{ ideas: BridgeIdea[] }>("/api/bridge_suggestions", body),

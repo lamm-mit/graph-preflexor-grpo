@@ -2820,13 +2820,48 @@ def _deep_mining_summary(profile: Dict[str, Any]) -> List[str]:
     return lines
 
 
+def _report_abstract(profile: Dict[str, Any]) -> str:
+    gs = profile["global_stats"]
+    mined = profile.get("mined_insights") or {}
+    topic = profile.get("topic") or "the supplied graph"
+    modules = len(profile.get("communities", []))
+    llm = profile.get("llm_summaries") or {}
+    llm_text = (
+        f" LLM interpretation was generated with `{llm.get('model')}`"
+        if llm.get("model")
+        else ""
+    )
+    if llm.get("final_report_review", {}).get("synthesis"):
+        llm_text += " and includes a final completed-report synthesis pass"
+    if llm_text:
+        llm_text += "."
+
+    return (
+        f"This report profiles `{topic}` as a graph with {gs['nodes']} nodes, {gs['edges']} edges, "
+        f"{gs['weak_or_connected_components']} weak/connected components, and {modules} reported "
+        f"communities/modules. It combines deterministic graph statistics, centrality, module structure, "
+        f"critical connectors, provenance, data-quality checks, and mined insight candidates including "
+        f"{len(mined.get('long_range_transitive_paths', []))} long-range transitive paths, "
+        f"{len(mined.get('short_cross_module_bridges', []))} short cross-module bridges, "
+        f"{len(mined.get('relational_motifs', []))} recurring relation motifs, "
+        f"{len(mined.get('structural_analogies', []))} structural analogy candidates, and bounded "
+        f"isomorphism analyses where tractable.{llm_text}"
+    )
+
+
 def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
     path = out_dir / "report.md"
     gs = profile["global_stats"]
+    abstract = _report_abstract(profile)
+    profile["report_abstract"] = abstract
     lines = [
         f"# Graph Profile Report - {_short(Path(gs['source'].get('graph_path', 'graph')).name, 80)}",
         "",
         f"Generated: {profile['generated_at']}",
+        "",
+        "## Abstract",
+        "",
+        abstract,
         "",
         "## Executive Summary",
         "",
@@ -3179,6 +3214,19 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
     return path
 
 
+def _pdf_markdown_with_placed_toc(report_text: str) -> str:
+    if "\\tableofcontents" in report_text:
+        return report_text
+    toc = "\n\\newpage\n\\tableofcontents\n\\newpage\n\n"
+    marker = "\n## Executive Summary\n"
+    if marker in report_text:
+        return report_text.replace(marker, toc + "## Executive Summary\n", 1)
+    first_section = re.search(r"\n##\s+", report_text)
+    if first_section:
+        return report_text[:first_section.start()] + toc + report_text[first_section.start():]
+    return report_text + toc
+
+
 def _write_pdf(report_path: Path, out_dir: Path) -> Tuple[Optional[Path], Optional[str]]:
     pandoc = shutil.which("pandoc")
     if not pandoc:
@@ -3187,12 +3235,14 @@ def _write_pdf(report_path: Path, out_dir: Path) -> Tuple[Optional[Path], Option
     if not engine:
         return None, "no LaTeX PDF engine found (expected xelatex, lualatex, or pdflatex)"
     pdf_path = out_dir / "report.pdf"
+    pdf_input = out_dir / ".report_pdf_input.md"
+    pdf_input.write_text(_pdf_markdown_with_placed_toc(report_path.read_text(encoding="utf-8")),
+                         encoding="utf-8")
     cmd = [
         pandoc,
-        report_path.name,
+        pdf_input.name,
         "-o", pdf_path.name,
         f"--pdf-engine={Path(engine).name}",
-        "--toc",
         "-V", "geometry:margin=0.75in",
         "-V", "colorlinks=true",
     ]
@@ -3200,6 +3250,11 @@ def _write_pdf(report_path: Path, out_dir: Path) -> Tuple[Optional[Path], Option
         r = subprocess.run(cmd, cwd=out_dir, text=True, capture_output=True, check=False)
     except Exception as exc:
         return None, str(exc)
+    finally:
+        try:
+            pdf_input.unlink()
+        except OSError:
+            pass
     if r.returncode != 0:
         msg = "\n".join(x for x in (r.stderr.strip(), r.stdout.strip()) if x)
         return None, msg or f"pandoc exited with code {r.returncode}"

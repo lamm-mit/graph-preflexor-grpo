@@ -78,19 +78,10 @@ const modelPresets = {
     max_tokens: 8000,
     reasoning_effort: "",
   },
-  qwen1234: {
+  gemma1234: {
     provider: "openai",
-    model: "Qwen/Qwen3-0.6B",
+    model: "google/gemma-4-E4B",
     base_url: "http://localhost:1234/v1",
-    api_key_env: "",
-    temperature: 0.3,
-    max_tokens: 8000,
-    reasoning_effort: "",
-  },
-  llama8000: {
-    provider: "openai",
-    model: "meta-llama/Llama-3.2-3B-Instruct",
-    base_url: "http://localhost:8000/v1",
     api_key_env: "",
     temperature: 0.3,
     max_tokens: 1800,
@@ -118,10 +109,10 @@ const modelPresets = {
 
 const defaultModelRoles = {
   generator: { ...modelPresets.graph1234, role: "generator" },
-  questioner: { ...modelPresets.qwen1234, role: "questioner" },
-  graph_qa: { ...modelPresets.llama8000, role: "graph_qa" },
+  questioner: { ...modelPresets.gemma1234, role: "questioner" },
+  graph_qa: { ...modelPresets.gemma1234, role: "graph_qa" },
   judge: { ...modelPresets.openaiJudge, role: "judge" },
-  baseline: { ...modelPresets.llama8000, role: "baseline" },
+  baseline: { ...modelPresets.gemma1234, role: "baseline" },
   embedder: { ...modelPresets.embeddingGemma, role: "embedder" },
 };
 

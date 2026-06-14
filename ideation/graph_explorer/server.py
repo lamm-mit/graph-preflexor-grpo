@@ -13,8 +13,10 @@ import json
 import math
 import mimetypes
 import os
+import random
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -43,6 +45,9 @@ STATE = {
     "topic": "",
     "jobs": {},
     "profile_jobs": {},
+    "embedding_job": None,
+    "embedding_index": None,
+    "embedding_models": {},
     "hf_cache": {},
 }
 LOCK = threading.RLock()
@@ -792,6 +797,8 @@ def _clear_graph():
         STATE["graph_name"] = ""
         STATE["graph_path"] = ""
         STATE["topic"] = ""
+        STATE["embedding_index"] = None
+        STATE["embedding_job"] = None
     return {"ok": True}
 
 
@@ -801,6 +808,275 @@ def _require_graph():
         if G is None:
             raise ValueError("No graph is loaded yet.")
         return G
+
+
+def _resolve_embedding_model():
+    if str(IDEATION_DIR) not in sys.path:
+        sys.path.insert(0, str(IDEATION_DIR))
+    try:
+        from graphstore import DEFAULT_EMBED_MODEL, resolve_embed_model
+    except Exception:
+        DEFAULT_EMBED_MODEL = "google/embeddinggemma-300m"
+
+        def resolve_embed_model(run_dir=None, cli=None, default=DEFAULT_EMBED_MODEL):
+            return cli or default
+
+    cfg, _ = _load_config()
+    configured = cfg.get("embed_model")
+    graph_path = str(STATE.get("graph_path") or "")
+    run_dir = ""
+    if graph_path:
+        path = Path(graph_path)
+        if path.name.endswith(".graphml"):
+            run_dir = str(path.parent)
+    return resolve_embed_model(run_dir or None, configured, DEFAULT_EMBED_MODEL)
+
+
+def _node_embedding_text(node_id, attrs):
+    attrs = dict(attrs or {})
+    label = str(attrs.get("label") or node_id)
+    parts = [label]
+    for key in ("question", "answer", "topic", "relation", "source", "response_id"):
+        value = attrs.get(key)
+        if value not in (None, ""):
+            parts.append(f"{key}: {value}")
+    text = " | ".join(str(part) for part in parts)
+    return text[:1200]
+
+
+def _embedding_status_locked():
+    job = STATE.get("embedding_job")
+    index = STATE.get("embedding_index")
+    if job:
+        public = {k: v for k, v in dict(job).items() if k not in ("thread",)}
+    else:
+        public = {
+            "id": "",
+            "graph_id": STATE.get("graph_id") or "",
+            "model": "",
+            "status": "idle",
+            "started_at": None,
+            "ended_at": None,
+            "error": "",
+            "progress": {"percent": 0.0, "current": 0, "total": 0, "message": "Idle", "detail": ""},
+        }
+    if index and index.get("graph_id") == STATE.get("graph_id"):
+        public.update({
+            "ready": True,
+            "nodes": len(index.get("ids") or []),
+            "dimension": int(index.get("dimension") or 0),
+            "model": index.get("model") or public.get("model") or "",
+        })
+    else:
+        public.setdefault("ready", False)
+        public.setdefault("nodes", 0)
+        public.setdefault("dimension", 0)
+    return public
+
+
+def _embedding_status():
+    with LOCK:
+        return _embedding_status_locked()
+
+
+def _embedding_model(model_name):
+    from sentence_transformers import SentenceTransformer
+
+    with LOCK:
+        model = STATE["embedding_models"].get(model_name)
+    if model is None:
+        model = SentenceTransformer(model_name)
+        with LOCK:
+            STATE["embedding_models"][model_name] = model
+    return model
+
+
+def _encode_embedding_texts(texts, model_name, *, batch_size=64):
+    import numpy as np
+
+    model = _embedding_model(model_name)
+    prompt_name = "STS" if "embeddinggemma" in model_name.lower() else None
+    prompts = getattr(model, "prompts", None) or {}
+    use_prompt = prompt_name if prompt_name in prompts else None
+    kw = {
+        "convert_to_numpy": True,
+        "normalize_embeddings": True,
+        "batch_size": batch_size,
+        "show_progress_bar": False,
+    }
+    if use_prompt:
+        kw["prompt_name"] = use_prompt
+    vectors = model.encode(list(texts), **kw)
+    return vectors.astype(np.float32)
+
+
+def _start_embedding_index(body=None):
+    body = dict(body or {})
+    force = bool(body.get("force"))
+    requested = str(body.get("model") or "auto").strip()
+    model_name = _resolve_embedding_model() if requested in ("", "auto") else requested
+    with LOCK:
+        G = STATE.get("graph")
+        graph_id = STATE.get("graph_id")
+        graph_name = STATE.get("graph_name") or ""
+        if G is None or not graph_id:
+            raise ValueError("Load a graph before building an embedding index.")
+        index = STATE.get("embedding_index")
+        if (
+            not force
+            and index
+            and index.get("graph_id") == graph_id
+            and index.get("model") == model_name
+        ):
+            return _embedding_status_locked()
+        job = STATE.get("embedding_job")
+        if (
+            not force
+            and job
+            and job.get("graph_id") == graph_id
+            and job.get("model") == model_name
+            and job.get("status") == "running"
+        ):
+            return _embedding_status_locked()
+        nodes = [(str(n), dict(d)) for n, d in G.nodes(data=True)]
+        job_id = uuid.uuid4().hex[:10]
+        STATE["embedding_index"] = None
+        STATE["embedding_job"] = {
+            "id": job_id,
+            "graph_id": graph_id,
+            "graph_name": graph_name,
+            "model": model_name,
+            "status": "running",
+            "started_at": time.time(),
+            "ended_at": None,
+            "error": "",
+            "progress": {
+                "percent": 0.02,
+                "current": 0,
+                "total": len(nodes),
+                "message": "Preparing node text",
+                "detail": graph_name,
+            },
+        }
+
+    def worker():
+        import numpy as np
+
+        try:
+            ids = [node_id for node_id, _ in nodes]
+            labels = [str(attrs.get("label") or node_id) for node_id, attrs in nodes]
+            texts = [_node_embedding_text(node_id, attrs) for node_id, attrs in nodes]
+            total = len(texts)
+            batches = []
+            batch_size = max(16, min(96, _safe_int(body.get("batch_size"), 64)))
+            with LOCK:
+                if STATE.get("embedding_job", {}).get("id") == job_id:
+                    STATE["embedding_job"]["progress"] = {
+                        "percent": 0.08,
+                        "current": 0,
+                        "total": total,
+                        "message": "Loading embedding model",
+                        "detail": model_name,
+                    }
+            _embedding_model(model_name)
+            for start in range(0, total, batch_size):
+                stop = min(total, start + batch_size)
+                batch = _encode_embedding_texts(texts[start:stop], model_name, batch_size=batch_size)
+                batches.append(batch)
+                with LOCK:
+                    current = stop
+                    if STATE.get("embedding_job", {}).get("id") == job_id:
+                        STATE["embedding_job"]["progress"] = {
+                            "percent": 0.08 + 0.9 * (current / max(1, total)),
+                            "current": current,
+                            "total": total,
+                            "message": "Embedding graph nodes",
+                            "detail": f"{current}/{total} nodes",
+                        }
+            vectors = np.vstack(batches) if batches else np.zeros((0, 0), dtype=np.float32)
+            with LOCK:
+                if STATE.get("graph_id") == graph_id and STATE.get("embedding_job", {}).get("id") == job_id:
+                    STATE["embedding_index"] = {
+                        "graph_id": graph_id,
+                        "model": model_name,
+                        "ids": ids,
+                        "labels": labels,
+                        "texts": texts,
+                        "vectors": vectors,
+                        "dimension": int(vectors.shape[1]) if len(vectors.shape) == 2 and vectors.shape[0] else 0,
+                        "created_at": time.time(),
+                    }
+                    STATE["embedding_job"]["status"] = "done"
+                    STATE["embedding_job"]["ended_at"] = time.time()
+                    STATE["embedding_job"]["progress"] = {
+                        "percent": 1.0,
+                        "current": total,
+                        "total": total,
+                        "message": "Embedding index ready",
+                        "detail": f"{total} nodes | {model_name}",
+                    }
+        except Exception as exc:
+            with LOCK:
+                if STATE.get("embedding_job", {}).get("id") == job_id:
+                    STATE["embedding_job"]["status"] = "failed"
+                    STATE["embedding_job"]["ended_at"] = time.time()
+                    STATE["embedding_job"]["error"] = str(exc)
+                    progress = dict(STATE["embedding_job"].get("progress") or {})
+                    progress.update({"message": "Embedding failed", "detail": str(exc)})
+                    STATE["embedding_job"]["progress"] = progress
+
+    thread = threading.Thread(target=worker, daemon=True)
+    with LOCK:
+        if STATE.get("embedding_job", {}).get("id") == job_id:
+            STATE["embedding_job"]["thread"] = thread
+    thread.start()
+    return _embedding_status()
+
+
+def _semantic_search_nodes(query, limit=8):
+    q = str(query or "").strip()
+    if not q:
+        return []
+    with LOCK:
+        index = STATE.get("embedding_index")
+        graph_id = STATE.get("graph_id")
+        if not index or index.get("graph_id") != graph_id:
+            return []
+        model_name = index.get("model")
+        ids = list(index.get("ids") or [])
+        labels = list(index.get("labels") or [])
+        vectors = index.get("vectors")
+    if vectors is None or not ids or not model_name:
+        return []
+    try:
+        query_vec = _encode_embedding_texts([q], model_name, batch_size=1)[0]
+        sims = vectors @ query_vec
+        order = sims.argsort()[::-1][:max(1, limit)]
+    except Exception:
+        return []
+    G = _require_graph()
+    metrics = _centrality(G)
+    degree = metrics["degree"]
+    pr = metrics["pagerank"]
+    core = metrics["core"]
+    out = []
+    for idx in order:
+        node_id = ids[int(idx)]
+        if node_id not in G:
+            continue
+        d = G.nodes[node_id]
+        sim = float(sims[int(idx)])
+        out.append({
+            "id": str(node_id),
+            "label": labels[int(idx)] if int(idx) < len(labels) else str(d.get("label") or node_id),
+            "score": float(100.0 + sim * 25.0 + math.log1p(degree.get(node_id, 0))),
+            "degree": int(degree.get(node_id, 0)),
+            "pagerank": float(pr.get(node_id, 0.0)),
+            "core": int(core.get(node_id, 0)),
+            "iter": _int_attr(d, "iter", 0),
+            "semantic_score": sim,
+        })
+    return out
 
 
 def _search_nodes(G, query, limit=50):
@@ -813,6 +1089,7 @@ def _search_nodes(G, query, limit=50):
     pr = metrics["pagerank"]
     core = metrics["core"]
     out = []
+    by_id = {}
     for n, d in G.nodes(data=True):
         attrs = {str(k): str(v) for k, v in dict(d).items()}
         label = str(attrs.get("label") or n)
@@ -821,7 +1098,7 @@ def _search_nodes(G, query, limit=50):
         if q in hay:
             hits += 2
         if hits:
-            out.append({
+            item = {
                 "id": str(n),
                 "label": label,
                 "score": float(hits + math.log1p(degree.get(n, 0)) + pr.get(n, 0.0) * 10.0),
@@ -829,7 +1106,17 @@ def _search_nodes(G, query, limit=50):
                 "pagerank": float(pr.get(n, 0.0)),
                 "core": int(core.get(n, 0)),
                 "iter": _int_attr(d, "iter", 0),
-            })
+            }
+            out.append(item)
+            by_id[item["id"]] = item
+    for item in _semantic_search_nodes(query, limit=max(12, limit)):
+        existing = by_id.get(item["id"])
+        if existing:
+            existing["score"] = max(float(existing.get("score", 0.0)), float(item.get("score", 0.0)))
+            existing["semantic_score"] = item.get("semantic_score")
+        else:
+            out.append(item)
+            by_id[item["id"]] = item
     out.sort(key=lambda x: (x["score"], x["degree"]), reverse=True)
     return out[:limit]
 
@@ -873,6 +1160,9 @@ def _subgraph_payload(nodes, *, name=None):
 def _path_payload(source, target, k=5, cutoff=6):
     G = _require_graph()
     U = G.to_undirected()
+    resolved = _resolve_concept_nodes(G, [source, target], limit=2)
+    if len(resolved) >= 2:
+        source, target = resolved[:2]
     if source not in U or target not in U:
         raise ValueError("Source or target is not in the graph.")
     paths = []
@@ -889,6 +1179,8 @@ def _path_payload(source, target, k=5, cutoff=6):
     nodes = set(x for p in paths for x in p)
     payload = _subgraph_payload(nodes, name=f"path {source} to {target}") if nodes else _subgraph_payload([], name="empty path")
     payload["paths"] = paths
+    payload["resolved_source"] = str(source)
+    payload["resolved_target"] = str(target)
     return payload
 
 
@@ -931,21 +1223,45 @@ def _multipath_payload(body):
     pairs = []
     if mode == "sequence":
         pairs = list(zip(anchors, anchors[1:]))
+    elif mode == "stochastic":
+        base_pairs = [(a, b) for i, a in enumerate(anchors) for b in anchors[i + 1:] if a != b]
+        rng = random.Random(str(body.get("seed") or "|".join(anchors)))
+        sample_count = max(1, min(80, _safe_int(body.get("sample_count"), 28)))
+        pairs = [rng.choice(base_pairs) for _ in range(sample_count)] if base_pairs else []
     else:
         for i, a in enumerate(anchors):
             for b in anchors[i + 1:]:
                 pairs.append((a, b))
 
     paths = []
-    for a, b in pairs[:24]:
+    seen_paths = set()
+    pair_limit = max(1, min(80, _safe_int(body.get("sample_count"), 28))) if mode == "stochastic" else 24
+    for a, b in pairs[:pair_limit]:
         if a not in U or b not in U:
             continue
         try:
-            p = nx.shortest_path(U, a, b)
+            if mode == "stochastic":
+                edge_weights = {}
+                rng = random.Random(f"{a}|{b}|{len(paths)}|{body.get('seed') or ''}")
+                for u, v in U.edges():
+                    key = tuple(sorted((str(u), str(v))))
+                    # Jitter plus a mild hub penalty gives alternative plausible routes without
+                    # ignoring graph distance.
+                    edge_weights[key] = 1.0 + rng.random() * 1.75 + math.log1p(max(degree.get(u, 0), degree.get(v, 0))) * 0.025
+
+                def weight(u, v, _attrs):
+                    return edge_weights.get(tuple(sorted((str(u), str(v)))), 1.0)
+
+                p = nx.shortest_path(U, a, b, weight=weight)
+            else:
+                p = nx.shortest_path(U, a, b)
         except nx.NetworkXNoPath:
             continue
         if cutoff <= 0 or len(p) - 1 <= cutoff:
-            paths.append([str(x) for x in p])
+            key = tuple(str(x) for x in p)
+            if key not in seen_paths:
+                seen_paths.add(key)
+                paths.append(list(key))
 
     path_nodes = set(x for p in paths for x in p)
     if not path_nodes:
@@ -1223,7 +1539,17 @@ def _answer_question(body):
         "Answer directly. Refer to node labels and path structure when they matter."
     )
     provider = cfg.get("provider", "openai")
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    messages = [{"role": "system", "content": system}]
+    raw_history = body.get("history") or []
+    if isinstance(raw_history, list):
+        for item in raw_history[-8:]:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            content = str(item.get("content") or "").strip()
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content[:5000]})
+    messages.append({"role": "user", "content": user})
     if provider == "hf":
         answer = _call_hf(cfg, messages)
     else:
@@ -1691,6 +2017,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_job_status((qs.get("id") or [""])[0]))
             elif parsed.path == "/api/profile_job":
                 self._json(_profile_job_status((qs.get("id") or [""])[0]))
+            elif parsed.path == "/api/embedding_status":
+                self._json(_embedding_status())
             elif parsed.path == "/api/report_asset":
                 self._file(_resolve_report_asset((qs.get("out") or [""])[0], (qs.get("file") or [""])[0]))
             elif parsed.path == "/api/config":
@@ -1718,6 +2046,8 @@ class Handler(SimpleHTTPRequestHandler):
             elif parsed.path == "/api/search":
                 G = _require_graph()
                 self._json({"results": _search_nodes(G, body.get("query", ""), int(body.get("limit", 50)))})
+            elif parsed.path == "/api/embedding_index":
+                self._json(_start_embedding_index(body))
             elif parsed.path == "/api/neighborhood":
                 G = _require_graph()
                 seeds = [str(x) for x in body.get("nodes", [])]

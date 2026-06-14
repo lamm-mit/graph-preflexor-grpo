@@ -80,6 +80,7 @@ export function RunExplorer({
   return (
     <Drawer
       defaultOpen={defaultOpen}
+      description="Browse existing run folders under ideation/runs. Loading a run opens its latest graph snapshot in the viewer; use the top path box for an explicit folder or GraphML path."
       icon={<FolderOpen size={14} />}
       note={`${runsQuery.data?.runs.length || 0} folders`}
       title="Run Explorer"
@@ -92,6 +93,7 @@ export function RunExplorer({
         />
         <IconButton
           disabled={runsQuery.isFetching}
+          description="Rescan run folders and refresh graph readiness, node counts, and status metadata."
           icon={runsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
           label="Refresh"
           onClick={() => void runsQuery.refetch()}
@@ -227,7 +229,13 @@ export function RunMonitor({
   const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);
 
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<Play size={14} />} note={job?.status || "idle"} title="Run Monitor">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Launch a new ideation CLI run, stop it, and monitor progress from the run logs. The monitor persists so navigation within the app will not lose the run."
+      icon={<Play size={14} />}
+      note={job?.status || "idle"}
+      title="Run Monitor"
+    >
       <textarea onChange={(event) => setTopic(event.target.value)} placeholder="topic or benchmark task" rows={3} value={topic} />
       <div className="control-grid">
         <label>
@@ -265,6 +273,7 @@ export function RunMonitor({
       <div className="button-row">
         <IconButton
           disabled={busy}
+          description="Start a new CLI run with the selected strategy, call budget, iteration count, and output folder."
           icon={busy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
           label="Start"
           onClick={start}
@@ -272,6 +281,7 @@ export function RunMonitor({
         />
         <IconButton
           disabled={!job || job.status !== "running"}
+          description="Ask the running CLI process to stop and keep the partial output folder."
           icon={<CircleStop size={14} />}
           label="Stop"
           onClick={stop}

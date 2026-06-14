@@ -211,10 +211,20 @@ label {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     padding: 10px 6px;
     border-right: 1px solid var(--line-soft);
     background: #f3f1ea;
+  }
+
+  .rail-kicker {
+    writing-mode: vertical-rl;
+    margin-bottom: 3px;
+    color: var(--quiet);
+    font-size: 9.5px;
+    font-weight: 850;
+    letter-spacing: 0;
+    text-transform: uppercase;
   }
 
   .rail-button {
@@ -438,6 +448,40 @@ label {
     white-space: nowrap;
   }
 
+  .thread-context-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 2px;
+  }
+
+  .thread-context-strip div {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    border: 1px solid #e4dfd5;
+    border-radius: 999px;
+    background: #fffefa;
+    padding: 4px 8px;
+  }
+
+  .thread-context-strip span {
+    color: var(--quiet);
+    font-size: 10px;
+    font-weight: 820;
+    text-transform: uppercase;
+  }
+
+  .thread-context-strip strong {
+    max-width: 220px;
+    overflow: hidden;
+    color: #3d3931;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .section-head,
   .chat-head {
     display: flex;
@@ -525,6 +569,98 @@ label {
     display: grid;
     gap: 9px;
     padding: 0 12px 12px;
+  }
+
+  .drawer-help,
+  .micro-help {
+    border: 1px solid #e4dfd5;
+    border-radius: 8px;
+    background: #fbfaf4;
+    color: var(--muted);
+    padding: 7px 8px;
+    line-height: 1.35;
+  }
+
+  .help-tip {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border: 1px solid #d6d1c5;
+    border-radius: 999px;
+    background: #fffefa;
+    color: #827a6c;
+    cursor: help;
+  }
+
+  .tool-section {
+    display: grid;
+    gap: 8px;
+    border-top: 1px solid var(--line-soft);
+    padding-top: 10px;
+  }
+
+  .tool-section:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .tool-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .tool-section-head strong {
+    font-size: 11.5px;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  .selection-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .selection-strip span {
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 780;
+  }
+
+  .selection-strip button,
+  .node-suggestions button {
+    max-width: 100%;
+    overflow: hidden;
+    border: 1px solid #ded8ca;
+    border-radius: 999px;
+    background: #fffefa;
+    color: #4b463e;
+    padding: 4px 7px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .selection-strip button:hover,
+  .node-suggestions button:hover {
+    background: #f0ede4;
+  }
+
+  .lookup-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .node-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-height: 24px;
   }
 
   .control-grid {
@@ -622,10 +758,16 @@ label {
     background: #f4f1ea;
   }
 
+  .result-item.active {
+    border-color: #a9bcae;
+    background: #eef5ef;
+    box-shadow: inset 3px 0 0 var(--green);
+  }
+
   .artifact-stage {
     position: relative;
     display: grid;
-    grid-template-rows: 44px minmax(0, 1fr);
+    grid-template-rows: 44px auto minmax(0, 1fr);
     min-width: 0;
     overflow: hidden;
     background: #f8f7f2;
@@ -688,6 +830,85 @@ label {
   .artifact-actions a:hover {
     border-color: #c8c2b6;
     background: #ece9df;
+  }
+
+  .embedding-status {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 190px auto;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #dedbd2;
+    background: #fbfaf6;
+    padding: 7px 12px;
+  }
+
+  .thread-inner > .embedding-status {
+    border: 1px solid #dedbd2;
+    border-radius: 10px;
+    box-shadow: 0 8px 18px rgb(40 36 30 / 0.04);
+  }
+
+  .embedding-status.ready {
+    background: #f5faf4;
+  }
+
+  .embedding-status.failed {
+    background: #fff5f2;
+  }
+
+  .embedding-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .embedding-copy strong {
+    font-size: 12px;
+  }
+
+  .embedding-copy span {
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .embedding-meter {
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    align-items: center;
+    gap: 7px;
+  }
+
+  .embedding-meter span {
+    color: var(--muted);
+    font-weight: 800;
+    text-align: right;
+  }
+
+  .embedding-meter progress {
+    width: 100%;
+    height: 8px;
+    accent-color: var(--green);
+  }
+
+  .embedding-status.failed .embedding-meter progress {
+    accent-color: #bb665f;
+  }
+
+  .embedding-status button {
+    height: 28px;
+    border: 1px solid #d8d4ca;
+    border-radius: 7px;
+    background: #fffefa;
+    color: #34312c;
+    padding: 0 9px;
+    font-weight: 720;
+    cursor: pointer;
+  }
+
+  .embedding-status button:hover {
+    background: #f1eee6;
   }
 
   .graph-shell {
@@ -862,22 +1083,72 @@ label {
 
   .prompt-row {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
   }
 
   .prompt-row button {
-    height: 28px;
+    min-height: 32px;
     border: 1px solid var(--line);
-    border-radius: 999px;
+    border-radius: 8px;
     background: #faf8f2;
     color: #3d3931;
+    padding: 5px 7px;
     font-weight: 720;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     cursor: pointer;
+  }
+
+  .prompt-row button span {
+    margin-right: 5px;
+    color: var(--quiet);
+    font-size: 10px;
+    text-transform: uppercase;
   }
 
   .prompt-row button:hover {
     border-color: #c7c1b5;
+  }
+
+  .prompt-row button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .command-menu {
+    display: grid;
+    gap: 5px;
+    border: 1px solid #ddd7ca;
+    border-radius: 10px;
+    background: #fffefa;
+    padding: 6px;
+    box-shadow: 0 12px 24px rgb(40 36 30 / 0.08);
+  }
+
+  .command-menu button {
+    display: grid;
+    gap: 2px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    padding: 7px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .command-menu button:hover {
+    background: #f1eee6;
+  }
+
+  .command-menu strong {
+    color: #34312c;
+  }
+
+  .command-menu span {
+    color: var(--muted);
   }
 
   .chat-composer textarea {

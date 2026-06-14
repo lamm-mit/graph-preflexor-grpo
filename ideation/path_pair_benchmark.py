@@ -9,11 +9,13 @@ This benchmark asks a clean question:
 For each sampled pair:
 
   A. baseline: concept A + concept B only
-  B. graph:    concept A + concept B + true graph path/neighborhood
+  B. graph:    concept A + concept B + true graph path/neighborhood/cues
 
 The script samples concrete endpoint pairs from an existing run's graph.graphml,
 generates both answer sets with the same model, then reuses compare.py's blind
-pairwise judge and plots.
+pairwise or absolute judge and plots. By default, the graph arm uses a small
+candidate/refinement loop so the graph is used as test-time compute; pass
+--graph-synthesis-mode direct for a single-call equal-compute ablation.
 """
 from __future__ import annotations
 
@@ -528,6 +530,59 @@ def _graph_prompt(topic, pair, neighborhood, cue_block, args):
     return header + path_block + f"Local neighborhood around the path:\n{neighborhood}\n\n" + task
 
 
+def _graph_context_block(topic, pair, neighborhood, cue_block, args):
+    header = (
+        f"# Topic\n{topic}\n\n"
+        f"# Concept A\n{pair['concept_a']}\n\n"
+        f"# Concept B\n{pair['concept_b']}\n\n"
+    )
+    if args.graph_prompt_mode == "cues":
+        return (
+            header
+            + f"# Graph-derived mechanism cues\n{CUES_NOTE}\n\n"
+            + f"Filtered cue packet:\n{cue_block}\n"
+        )
+    path_block = (
+        f"# Graph-derived bridge\n{GRAPH_NOTE}\n\n"
+        f"Path: {pair['chain']}\n\n"
+        f"Mechanistically useful bridge concepts: {', '.join(pair.get('bridge_concepts') or pair['path_labels'][1:-1])}\n\n"
+    )
+    if args.graph_prompt_mode == "path":
+        return header + path_block + f"Filtered cue packet:\n{cue_block}\n"
+    return header + path_block + f"Local neighborhood around the path:\n{neighborhood}\n"
+
+
+def _graph_candidate_prompt(topic, pair, neighborhood, cue_block, args):
+    return (
+        f"{_graph_context_block(topic, pair, neighborhood, cue_block, args)}\n\n"
+        "# Candidate-generation task\n"
+        f"Generate {args.graph_candidates} distinct candidate hypotheses/design claims that connect "
+        "Concept A and Concept B. Each candidate must use at least one graph-derived cue, but only if "
+        "it improves plausibility. For each candidate include:\n"
+        "ID; selected cue(s); hypothesis/design claim; concrete material chemistry/process; mechanism; "
+        "falsifying experiment; expected discriminating result; main risk or reason to reject.\n\n"
+        "Rules: reject candidates that merely paraphrase the concepts, ignore either endpoint concept, "
+        "lack a causal mechanism, lack a concrete falsifying experiment, or depend on chemically/physically "
+        "implausible cue use. Be bold, but keep the mechanism defensible."
+    )
+
+
+def _graph_refine_prompt(topic, pair, neighborhood, cue_block, candidates, args):
+    return (
+        f"{_graph_context_block(topic, pair, neighborhood, cue_block, args)}\n\n"
+        "# Candidate hypotheses generated from graph cues\n"
+        f"{candidates}\n\n"
+        "# Selection and final-answer task\n"
+        "Choose the single strongest candidate, or recombine candidates if that gives a better answer. "
+        "Optimize for novelty, insight, concrete mechanism, testability, task fit, specificity, and "
+        "plausibility. Discard candidates that are generic, incoherent, weakly testable, or do not use "
+        "both endpoint concepts non-trivially.\n\n"
+        f"# Required final answer\n{ANSWER_INSTRUCTION}\n\n"
+        "Write only the final answer in the required structure. Do not mention candidates, graph cues, "
+        "or the selection process."
+    )
+
+
 def _answer(args, prompt):
     if args.backend == "openai":
         return S.answer_openai(SYSTEM, prompt, model=args.model, base_url=args.base_url,
@@ -537,6 +592,15 @@ def _answer(args, prompt):
                        max_tokens=args.max_tokens, device=args.device, dtype=args.dtype or "auto")
 
 
+def _answer_temp(args, prompt, temperature):
+    old = args.temperature
+    args.temperature = temperature
+    try:
+        return _answer(args, prompt)
+    finally:
+        args.temperature = old
+
+
 def _write_answer(path, topic, pair, answer):
     header = (
         f"*Topic:* {topic}\n\n"
@@ -544,6 +608,33 @@ def _write_answer(path, topic, pair, answer):
         f"*Concept B:* {pair['concept_b']}\n\n---\n\n"
     )
     Path(path).write_text(header + answer.strip() + "\n", encoding="utf-8")
+
+
+def _write_graph_answer(args, *, topic, pair, out, prompt_path, candidate_path,
+                        neighborhood, cue_block, dry_run=False):
+    Path(prompt_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(candidate_path).parent.mkdir(parents=True, exist_ok=True)
+    if args.graph_synthesis_mode == "direct":
+        prompt = _graph_prompt(topic, pair, neighborhood, cue_block, args)
+        Path(prompt_path).write_text(SYSTEM + "\n\n" + prompt, encoding="utf-8")
+        if dry_run:
+            print(f"+ generate graph -> {out}")
+            return
+        _write_answer(out, topic, pair, _answer(args, prompt))
+        return
+
+    cand_prompt = _graph_candidate_prompt(topic, pair, neighborhood, cue_block, args)
+    Path(str(prompt_path).replace(".txt", ".candidates_prompt.txt")).write_text(
+        SYSTEM + "\n\n" + cand_prompt, encoding="utf-8")
+    if dry_run:
+        print(f"+ generate graph candidates -> {candidate_path}")
+        print(f"+ refine graph answer -> {out}")
+        return
+    candidates = _answer_temp(args, cand_prompt, args.candidate_temperature).strip()
+    Path(candidate_path).write_text(candidates + "\n", encoding="utf-8")
+    final_prompt = _graph_refine_prompt(topic, pair, neighborhood, cue_block, candidates, args)
+    Path(prompt_path).write_text(SYSTEM + "\n\n" + final_prompt, encoding="utf-8")
+    _write_answer(out, topic, pair, _answer(args, final_prompt))
 
 
 def _clear_generated_files(*dirs):
@@ -560,8 +651,9 @@ def run(args):
     answer_graph = out / "answers" / "graph"
     prompt_base = out / "prompts" / "baseline"
     prompt_graph = out / "prompts" / "graph"
+    candidate_graph = out / "candidates" / "graph"
     bench_dir = out / "benchmark"
-    for d in (answer_base, answer_graph, prompt_base, prompt_graph, bench_dir):
+    for d in (answer_base, answer_graph, prompt_base, prompt_graph, candidate_graph, bench_dir):
         d.mkdir(parents=True, exist_ok=True)
 
     G = _read_graph(run_dir)
@@ -586,7 +678,7 @@ def run(args):
         )
         json.dump({"run": str(run_dir), "topic": topic, "pairs": pairs}, open(pairs_path, "w"), indent=2)
     if resampled_pairs:
-        _clear_generated_files(answer_base, answer_graph, prompt_base, prompt_graph)
+        _clear_generated_files(answer_base, answer_graph, prompt_base, prompt_graph, candidate_graph)
 
     tasks = [_task_text(topic, p) for p in pairs]
     tasks_file = out / "tasks.txt"
@@ -597,15 +689,9 @@ def run(args):
         base_md = answer_base / f"{name}.md"
         graph_md = answer_graph / f"{name}.md"
         base_prompt = _baseline_prompt(topic, pair)
-        graph_prompt = _graph_prompt(
-            topic,
-            pair,
-            _neighborhood_block(G, pair["path"], args.neighbors, topic, args),
-            _cue_block(G, pair["path"], topic, args),
-            args,
-        )
+        neighborhood = _neighborhood_block(G, pair["path"], args.neighbors, topic, args)
+        cue_block = _cue_block(G, pair["path"], topic, args)
         (prompt_base / f"{name}.txt").write_text(SYSTEM + "\n\n" + base_prompt, encoding="utf-8")
-        (prompt_graph / f"{name}.txt").write_text(SYSTEM + "\n\n" + graph_prompt, encoding="utf-8")
         print(f"[path_pair_benchmark] {i+1}/{len(pairs)} {pair['concept_a']} <-> {pair['concept_b']}", flush=True)
         if args.force or not base_md.exists():
             if args.dry_run:
@@ -615,10 +701,17 @@ def run(args):
         else:
             print(f"[path_pair_benchmark] reusing {base_md}", flush=True)
         if args.force or not graph_md.exists():
-            if args.dry_run:
-                print(f"+ generate graph -> {graph_md}")
-            else:
-                _write_answer(graph_md, topic, pair, _answer(args, graph_prompt))
+            _write_graph_answer(
+                args,
+                topic=topic,
+                pair=pair,
+                out=graph_md,
+                prompt_path=prompt_graph / f"{name}.txt",
+                candidate_path=candidate_graph / f"{name}.txt",
+                neighborhood=neighborhood,
+                cue_block=cue_block,
+                dry_run=args.dry_run,
+            )
         else:
             print(f"[path_pair_benchmark] reusing {graph_md}", flush=True)
 
@@ -635,6 +728,9 @@ def run(args):
             "max_hops": args.max_hops,
             "neighbors": args.neighbors,
             "graph_prompt_mode": args.graph_prompt_mode,
+            "graph_synthesis_mode": args.graph_synthesis_mode,
+            "graph_candidates": args.graph_candidates,
+            "candidate_temperature": args.candidate_temperature,
             "max_cues": args.max_cues,
             "quality_mode": args.quality_mode,
             "allow_meta": args.allow_meta,
@@ -692,6 +788,12 @@ def main():
                    help="specific off-path neighbors shown per path node in graph arm")
     p.add_argument("--graph-prompt-mode", choices=["cues", "path", "full"], default="cues",
                    help="cues gives filtered graph-derived terms; path also shows the true path; full shows path + neighborhood")
+    p.add_argument("--graph-synthesis-mode", choices=["candidates", "direct"], default="candidates",
+                   help="candidates makes graph-conditioned candidate hypotheses then refines one final answer; direct uses one graph-conditioned call")
+    p.add_argument("--graph-candidates", type=int, default=6,
+                   help="candidate hypotheses generated before graph-answer refinement")
+    p.add_argument("--candidate-temperature", type=float, default=0.85,
+                   help="temperature for graph-arm candidate generation; final refinement uses --temperature")
     p.add_argument("--max-cues", type=int, default=10,
                    help="maximum filtered graph-derived cue labels shown in cues/path prompt modes")
     p.add_argument("--quality-mode", choices=["strict", "permissive"], default="strict",

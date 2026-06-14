@@ -75,6 +75,7 @@ export type SearchResult = {
   core?: number;
   iter: number;
   score: number;
+  semantic_score?: number;
 };
 
 export type ModelRole = {
@@ -92,6 +93,29 @@ export type ConfigPayload = {
   exists: boolean;
   path: string;
   roles: Record<string, ModelRole>;
+};
+
+export type EmbeddingProgress = {
+  percent: number;
+  current: number;
+  total: number;
+  message: string;
+  detail: string;
+};
+
+export type EmbeddingStatus = {
+  id?: string;
+  graph_id?: string;
+  graph_name?: string;
+  model?: string;
+  status: "idle" | "running" | "done" | "failed";
+  ready: boolean;
+  nodes: number;
+  dimension: number;
+  started_at?: number | null;
+  ended_at?: number | null;
+  error?: string;
+  progress: EmbeddingProgress;
 };
 
 export type JobProgress = {

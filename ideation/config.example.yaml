@@ -12,10 +12,17 @@ generator:                                # Graph-PRefLexOR
   max_tokens: 8000
 
 questioner:
-  model: meta-llama/Llama-3.2-3B-Instruct
-  base_url: "http://localhost:8000/v1"
+  model: "google/gemma-4-E4B"
+  base_url: "http://localhost:1234/v1"
   api_key: "x"
   temperature: 0.9
+
+graph_qa:                                  # Explorer main chat / Ask Agent
+  model: "google/gemma-4-E4B"
+  base_url: "http://localhost:1234/v1"
+  api_key: "x"
+  temperature: 0.3
+  max_tokens: 1800
 
 # Optional head-to-head baseline (a frontier API or another local model on its own endpoint).
 # baseline:

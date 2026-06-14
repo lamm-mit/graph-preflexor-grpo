@@ -266,7 +266,13 @@ export function ReportStudio({
   const canStart = sourceMode === "run" ? Boolean(options.run?.trim()) : Boolean(options.graph?.trim());
 
   return (
-    <Drawer defaultOpen={defaultOpen} icon={<FileText size={14} />} note={job?.status || "profile"} title="Report Studio">
+    <Drawer
+      defaultOpen={defaultOpen}
+      description="Generate and review graph profile reports. It runs profile_graph.py, tracks progress from logs, lists report folders, renders report.md, and exposes PDF/JSON artifacts when present."
+      icon={<FileText size={14} />}
+      note={job?.status || "profile"}
+      title="Report Studio"
+    >
       <div className="segmented-control">
         <button className={cx(sourceMode === "run" && "active")} onClick={() => setSourceMode("run")} type="button">
           Run Folder
@@ -330,6 +336,7 @@ export function ReportStudio({
       <div className="button-row">
         <IconButton
           disabled={busy || !canStart}
+          description="Start profile_graph.py with the selected source, preset, model, and output folder."
           icon={busy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
           label="Generate"
           onClick={start}
@@ -337,6 +344,7 @@ export function ReportStudio({
         />
         <IconButton
           disabled={!job || job.status !== "running"}
+          description="Stop the active profile report job and keep any partial output."
           icon={<CircleStop size={14} />}
           label="Stop"
           onClick={stop}
@@ -344,6 +352,7 @@ export function ReportStudio({
         />
         <IconButton
           disabled={!options.run || reportsQuery.isFetching}
+          description="Refresh discovered report folders for the selected run."
           icon={reportsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
           label="Reports"
           onClick={() => void reportsQuery.refetch()}
