@@ -1368,21 +1368,27 @@ python profile_graph.py --graph /path/to/graph.graphml --out graph_profile
 # Add embedding-based semantic diagnostics
 python profile_graph.py --run runs/exp_leap --embed-model auto --out runs/exp_leap/profile
 
-# Add evidence-grounded LLM summaries plus a paper-level deep-dive interpretation
+# Add evidence-grounded LLM summaries plus a paper-level deep-dive interpretation.
+# Default LLM backend is the OpenAI Responses API with high reasoning effort.
 python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 \
-    --deep-dive-tokens 6000 --out runs/exp_leap/profile
-python profile_graph.py --graph graph.graphml --llm --backend openai \
+    --reasoning-effort high --llm-deep-passes 3 --deep-dive-tokens 6000 \
+    --out runs/exp_leap/profile
+
+# For local OpenAI-compatible servers that do not implement Responses API, use chat.
+python profile_graph.py --graph graph.graphml --llm --backend chat \
     --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
     --deep-dive-tokens 4000
 ```
 
-For OpenAI-compatible local servers, use `--backend openai --base-url ... --model ...`; for direct
-Hugging Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files
-do not always contain the original embedding model context. The CLI prints stage-by-stage progress
-while it runs, including per-module LLM summary calls and the final paper-level deep-dive call; add
-`--quiet` to suppress progress output. The deep-dive text is written near the top of `report.md`
-under **Paper-Level Graph Interpretation** and stored in `profile.json` at
-`llm_summaries.deep_dive`.
+For OpenAI models, `--backend responses` (also accepted as `--backend openai`) uses the Responses API
+with `reasoning={"effort": "high"}` by default; adjust with `--reasoning-effort`. For direct Hugging
+Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files do not
+always contain the original embedding model context. The CLI prints stage-by-stage progress while it
+runs, including per-module summaries, extra evidence-pass calls (`--llm-deep-passes`, default 3), and
+the final paper-level synthesis; add `--quiet` to suppress progress output. The deep-dive text is
+written near the top of `report.md` under **Paper-Level Graph Interpretation** and stored in
+`profile.json` at `llm_summaries.deep_dive`; the supporting LLM evidence memos are stored at
+`llm_summaries.deep_dive_passes`.
 
 ## Files
 

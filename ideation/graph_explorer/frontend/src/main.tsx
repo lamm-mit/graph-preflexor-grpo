@@ -40,6 +40,8 @@ import { useExplorerStore } from "./store";
 import type { GraphNode, JobStatus, ModelRole, SearchResult } from "./types";
 import "./styles.css";
 
+type WorkspaceMode = "chat" | "graph" | "search" | "runs" | "models";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -196,11 +198,20 @@ function Overview() {
   );
 }
 
-function VisualControls() {
+function SidebarHeader({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="sidebar-header">
+      <h2>{title}</h2>
+      <span>{subtitle}</span>
+    </div>
+  );
+}
+
+function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const visual = useExplorerStore((state) => state.visual);
   const setVisual = useExplorerStore((state) => state.setVisual);
   return (
-    <Drawer icon={<SlidersHorizontal size={14} />} note="layout, color, size" title="Visual Mapping">
+    <Drawer defaultOpen={defaultOpen} icon={<SlidersHorizontal size={14} />} note="layout, color, size" title="Visual Mapping">
       <div className="control-grid">
         <label>
           Layout
@@ -266,7 +277,7 @@ function VisualControls() {
   );
 }
 
-function SearchPanel() {
+function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const results = useExplorerStore((state) => state.searchResults);
   const setSearchResults = useExplorerStore((state) => state.setSearchResults);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
@@ -301,7 +312,7 @@ function SearchPanel() {
   }
 
   return (
-    <Drawer icon={<Search size={14} />} note={`${results.length} results`} title="Search & Select">
+    <Drawer defaultOpen={defaultOpen} icon={<Search size={14} />} note={`${results.length} results`} title="Search & Select">
       <div className="row">
         <input
           onChange={(event) => setQuery(event.target.value)}
@@ -544,7 +555,7 @@ function ChatPanel() {
   );
 }
 
-function ModelSettings() {
+function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const roles = useExplorerStore((state) => state.roles);
   const updateRole = useExplorerStore((state) => state.updateRole);
   const setRoles = useExplorerStore((state) => state.setRoles);
@@ -574,7 +585,7 @@ function ModelSettings() {
   }
 
   return (
-    <Drawer icon={<Settings2 size={14} />} note="roles, presets, config" title="Model Settings">
+    <Drawer defaultOpen={defaultOpen} icon={<Settings2 size={14} />} note="roles, presets, config" title="Model Settings">
       <div className="control-grid">
         <label>
           Role
@@ -623,7 +634,7 @@ function ModelSettings() {
   );
 }
 
-function RunMonitor({ onRunGraphReady }: { onRunGraphReady: (run: string) => Promise<void> }) {
+function RunMonitor({ onRunGraphReady, defaultOpen = false }: { onRunGraphReady: (run: string) => Promise<void>; defaultOpen?: boolean }) {
   const [topic, setTopic] = useState("");
   const [strategy, setStrategy] = useState("frontier");
   const [calls, setCalls] = useState(50);
@@ -666,7 +677,7 @@ function RunMonitor({ onRunGraphReady }: { onRunGraphReady: (run: string) => Pro
   const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);
 
   return (
-    <Drawer icon={<Play size={14} />} note={job?.status || "idle"} title="Run Monitor">
+    <Drawer defaultOpen={defaultOpen} icon={<Play size={14} />} note={job?.status || "idle"} title="Run Monitor">
       <textarea onChange={(event) => setTopic(event.target.value)} placeholder="topic or benchmark task" rows={3} value={topic} />
       <div className="control-grid">
         <label>
@@ -716,12 +727,12 @@ function RunMonitor({ onRunGraphReady }: { onRunGraphReady: (run: string) => Pro
   );
 }
 
-function Inspector() {
+function Inspector({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNode = useExplorerStore((state) => state.selectedNode);
   const node = graph?.nodes.find((item) => item.id === selectedNode);
   return (
-    <Drawer icon={<PanelLeft size={14} />} note="selected node" title="Selection Inspector">
+    <Drawer defaultOpen={defaultOpen} icon={<PanelLeft size={14} />} note="selected node" title="Selection Inspector">
       {node ? (
         <div className="inspector">
           <strong>{node.label}</strong>
@@ -743,7 +754,7 @@ function Inspector() {
   );
 }
 
-function FocusTools() {
+function FocusTools({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNode = useExplorerStore((state) => state.selectedNode);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
@@ -779,7 +790,7 @@ function FocusTools() {
   }
 
   return (
-    <Drawer icon={<Network size={14} />} note="paths, neighborhoods" title="Focus Tools">
+    <Drawer defaultOpen={defaultOpen} icon={<Network size={14} />} note="paths, neighborhoods" title="Focus Tools">
       <div className="control-grid">
         <label>
           Depth
@@ -812,36 +823,92 @@ function FocusTools() {
   );
 }
 
-function SideRail({ onRunGraphReady }: { onRunGraphReady: (run: string) => Promise<void> }) {
+function ChatSidebar({ onRunGraphReady }: { onRunGraphReady: (run: string) => Promise<void> }) {
+  const graph = useExplorerStore((state) => state.graph);
+  const selectedNodes = useExplorerStore((state) => state.selectedNodes);
+  return (
+    <>
+      <SidebarHeader title="Workspace" subtitle="chat-first graph exploration" />
+      <section className="panel-card">
+        <div className="artifact-card">
+          <div>
+            <strong>{graph?.name || "No graph loaded"}</strong>
+            <span>{contextSummary(graph, selectedNodes)}</span>
+          </div>
+          <Network size={16} />
+        </div>
+      </section>
+      <SearchPanel />
+      <RunMonitor onRunGraphReady={onRunGraphReady} />
+    </>
+  );
+}
+
+function SideRail({ activeMode, onRunGraphReady }: { activeMode: WorkspaceMode; onRunGraphReady: (run: string) => Promise<void> }) {
   return (
     <aside className="side-panel">
-      <Overview />
-      <VisualControls />
-      <SearchPanel />
-      <FocusTools />
-      <RunMonitor onRunGraphReady={onRunGraphReady} />
+      {activeMode === "chat" ? <ChatSidebar onRunGraphReady={onRunGraphReady} /> : null}
+      {activeMode === "graph" ? (
+        <>
+          <SidebarHeader title="Graph" subtitle="artifact controls and inspection" />
+          <Overview />
+          <VisualControls defaultOpen />
+          <FocusTools defaultOpen />
+          <Inspector defaultOpen />
+        </>
+      ) : null}
+      {activeMode === "search" ? (
+        <>
+          <SidebarHeader title="Search" subtitle="find nodes and focus concepts" />
+          <SearchPanel defaultOpen />
+          <FocusTools defaultOpen />
+        </>
+      ) : null}
+      {activeMode === "runs" ? (
+        <>
+          <SidebarHeader title="Runs" subtitle="launch, monitor, and refresh" />
+          <RunMonitor defaultOpen onRunGraphReady={onRunGraphReady} />
+        </>
+      ) : null}
+      {activeMode === "models" ? (
+        <>
+          <SidebarHeader title="Models" subtitle="roles, endpoints, and config" />
+          <ModelSettings defaultOpen />
+        </>
+      ) : null}
     </aside>
   );
 }
 
-function ActivityRail() {
+function ActivityRail({
+  activeMode,
+  onModeChange,
+}: {
+  activeMode: WorkspaceMode;
+  onModeChange: (mode: WorkspaceMode) => void;
+}) {
+  const modes: Array<{ id: WorkspaceMode; label: string; icon: React.ReactNode }> = [
+    { id: "chat", label: "Chat", icon: <BrainCircuit size={17} /> },
+    { id: "graph", label: "Graph", icon: <Network size={17} /> },
+    { id: "search", label: "Search", icon: <Search size={17} /> },
+    { id: "runs", label: "Runs", icon: <Play size={17} /> },
+    { id: "models", label: "Models", icon: <Settings2 size={17} /> },
+  ];
   return (
     <nav className="activity-rail" aria-label="Explorer modes">
-      <button className="rail-button active" title="Graph" type="button">
-        <Network size={17} />
-      </button>
-      <button className="rail-button" title="Visual mapping" type="button">
-        <SlidersHorizontal size={17} />
-      </button>
-      <button className="rail-button" title="Search" type="button">
-        <Search size={17} />
-      </button>
-      <button className="rail-button" title="Runs" type="button">
-        <Play size={17} />
-      </button>
-      <button className="rail-button" title="Models" type="button">
-        <Settings2 size={17} />
-      </button>
+      {modes.map((mode) => (
+        <button
+          aria-label={mode.label}
+          aria-pressed={activeMode === mode.id}
+          className={cx("rail-button", activeMode === mode.id && "active")}
+          key={mode.id}
+          onClick={() => onModeChange(mode.id)}
+          title={mode.label}
+          type="button"
+        >
+          {mode.icon}
+        </button>
+      ))}
     </nav>
   );
 }
@@ -850,6 +917,8 @@ function App() {
   const setGraph = useExplorerStore((state) => state.setGraph);
   const setRoles = useExplorerStore((state) => state.setRoles);
   const graph = useExplorerStore((state) => state.graph);
+  const selectedNodes = useExplorerStore((state) => state.selectedNodes);
+  const [activeMode, setActiveMode] = useState<WorkspaceMode>("chat");
   const { data: initialGraph } = useQuery({ queryKey: ["graph"], queryFn: api.graph, retry: false });
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: api.config });
 
@@ -873,13 +942,23 @@ function App() {
     <div className="app">
       <Header onLoadRun={loadRun} />
       <main className="workspace">
-        <ActivityRail />
-        <SideRail onRunGraphReady={loadRun} />
-        <GraphCanvas />
+        <ActivityRail activeMode={activeMode} onModeChange={setActiveMode} />
+        <SideRail activeMode={activeMode} onRunGraphReady={loadRun} />
+        <section className="artifact-stage">
+          <div className="artifact-toolbar">
+            <div>
+              <strong>Graph artifact</strong>
+              <span>{contextSummary(graph, selectedNodes)}</span>
+            </div>
+            <div className="artifact-actions">
+              <button type="button" onClick={() => setActiveMode("graph")}>Controls</button>
+              <button type="button" onClick={() => setActiveMode("search")}>Search</button>
+            </div>
+          </div>
+          <GraphCanvas />
+        </section>
         <aside className="assistant-panel">
           <ChatPanel />
-          <ModelSettings />
-          <Inspector />
           {!graph ? (
             <div className="empty-state">
               <BrainCircuit size={18} />

@@ -18,10 +18,14 @@ Examples
     # Add semantic figures/mined bridges by re-embedding labels.
     python profile_graph.py --run runs/exp_leap --embed-model all-MiniLM-L6-v2
 
-    # Use an OpenAI-compatible model, including a local endpoint, for summaries and deep dive.
-    python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 --deep-dive-tokens 6000
-    python profile_graph.py --graph graph.graphml --llm --model meta-llama/Llama-3.2-3B-Instruct \
-        --base-url http://localhost:8000/v1 --deep-dive-tokens 4000
+    # Use the Responses API with high reasoning effort for summaries and deep dive.
+    python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 \
+        --reasoning-effort high --deep-dive-tokens 6000
+
+    # Local servers without Responses API can use the chat backend.
+    python profile_graph.py --graph graph.graphml --llm --backend chat \
+        --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
+        --deep-dive-tokens 4000
 """
 from __future__ import annotations
 
@@ -60,13 +64,15 @@ GENERIC_LABELS = {
 @dataclass
 class LLMOptions:
     enabled: bool = False
-    backend: str = "openai"
+    backend: str = "responses"
     model: str = "gpt-5.5"
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     temperature: float = 0.2
     max_tokens: int = 1200
     deep_tokens: int = 4000
+    reasoning_effort: str = "high"
+    deep_passes: int = 3
     device: Optional[str] = None
     dtype: str = "auto"
 
@@ -753,12 +759,171 @@ def _semantic_audit(G: nx.Graph, vecs: Optional[Dict[Any, np.ndarray]], module_o
     }
 
 
-def _call_llm(system: str, user: str, opts: LLMOptions) -> str:
-    if opts.backend == "hf":
-        import synthesize as S
-        return S.answer_hf(system, user, model=opts.model, temperature=opts.temperature,
-                           max_tokens=opts.max_tokens, device=opts.device, dtype=opts.dtype)
+def _node_packet(G: nx.Graph, n: Any, cents: Dict[str, Dict[Any, float]],
+                 module_of: Dict[Any, int]) -> Dict[str, Any]:
+    return {
+        "id": str(n),
+        "label": _label(G, n),
+        "module": module_of.get(n),
+        "degree": cents["degree"].get(n, 0.0),
+        "pagerank": cents["pagerank"].get(n, 0.0),
+        "betweenness": cents["betweenness"].get(n, 0.0),
+        "iter": _node_iter(G, n),
+        "depth": _node_depth(G, n),
+        "question": _short(G.nodes[n].get("question", ""), 180),
+    }
 
+
+def _epoch_label(it: Optional[int], q25: float, q75: float) -> str:
+    if it is None:
+        return "unknown"
+    if it <= q25:
+        return "early"
+    if it <= q75:
+        return "middle"
+    return "late"
+
+
+def _hub_free_paths(G: nx.Graph, cents: Dict[str, Dict[Any, float]], module_of: Dict[Any, int],
+                    hub_nodes: set, max_paths: int = 20) -> List[Dict[str, Any]]:
+    U = _get_undirected(G)
+    candidates = [n for n, _ in sorted(cents["pagerank"].items(), key=lambda x: x[1], reverse=True)
+                  if n not in hub_nodes][:80]
+    paths = []
+    seen = set()
+    for i, a in enumerate(candidates):
+        for b in candidates[i + 1:]:
+            if module_of.get(a) == module_of.get(b):
+                continue
+            try:
+                p = nx.shortest_path(U, a, b)
+            except Exception:
+                continue
+            if len(p) < 3 or len(p) > 8:
+                continue
+            if any(n in hub_nodes for n in p):
+                continue
+            key = tuple(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            score = (
+                cents["pagerank"].get(a, 0.0) + cents["pagerank"].get(b, 0.0)
+                + sum(cents["betweenness"].get(n, 0.0) for n in p[1:-1])
+            )
+            paths.append((score, p))
+    paths.sort(key=lambda x: x[0], reverse=True)
+    out = []
+    for score, p in paths[:max_paths]:
+        out.append({
+            "score": float(score),
+            "text": _path_text(G, p),
+            "nodes": [_label(G, n) for n in p],
+            "modules": [module_of.get(n) for n in p],
+        })
+    return out
+
+
+def _deep_graph_evidence(G: nx.Graph, cents: Dict[str, Dict[Any, float]],
+                         module_of: Dict[Any, int], profile: Dict[str, Any]) -> Dict[str, Any]:
+    nodes = list(G.nodes)
+    hub_nodes = {n for n, _ in sorted(cents["degree"].items(), key=lambda x: x[1], reverse=True)[:10]}
+    non_hubs = [n for n in nodes if n not in hub_nodes]
+    iter_values = [_node_iter(G, n) for n in nodes if _node_iter(G, n) is not None]
+    q25 = float(np.quantile(iter_values, 0.25)) if iter_values else 0.0
+    q75 = float(np.quantile(iter_values, 0.75)) if iter_values else 0.0
+
+    late_nodes = [n for n in non_hubs if (_node_iter(G, n) is not None and _node_iter(G, n) >= q75)]
+    early_nodes = [n for n in nodes if (_node_iter(G, n) is not None and _node_iter(G, n) <= q25)]
+    U = _get_undirected(G)
+    boundary = []
+    for n in non_hubs:
+        ext = 0
+        if U.has_node(n):
+            for nb in U.neighbors(n):
+                if module_of.get(nb) != module_of.get(n):
+                    ext += 1
+        if ext:
+            row = _node_packet(G, n, cents, module_of)
+            row["external_neighbors"] = ext
+            boundary.append(row)
+    boundary.sort(key=lambda r: (r["external_neighbors"], r["betweenness"], r["pagerank"]), reverse=True)
+
+    epoch_labels: Dict[str, List[str]] = defaultdict(list)
+    epoch_relations: Dict[str, Counter] = defaultdict(Counter)
+    for n in nodes:
+        epoch_labels[_epoch_label(_node_iter(G, n), q25, q75)].append(_label(G, n))
+    for u, v, d in G.edges(data=True):
+        its = [_node_iter(G, u), _node_iter(G, v), _edge_iter(d)]
+        valid = [it for it in its if it is not None]
+        it = max(valid) if valid else None
+        epoch_relations[_epoch_label(it, q25, q75)][_edge_relation(d)] += 1
+
+    module_nonhub = []
+    for m in profile["communities"][:15]:
+        mids = {str(n) for n in hub_nodes}
+        top = [r for r in m["top_nodes"] if r["id"] not in mids][:8]
+        module_nonhub.append({
+            "module": m["id"],
+            "size": m["size"],
+            "top_terms": m["top_terms"][:10],
+            "top_nonhub_nodes": top,
+            "boundary_nodes": [b for b in m["boundary_nodes"] if b["id"] not in mids][:8],
+        })
+
+    return {
+        "global_hubs_removed_for_some_views": [_node_packet(G, n, cents, module_of)
+                                               for n in sorted(hub_nodes, key=lambda x: cents["degree"].get(x, 0.0), reverse=True)],
+        "non_hub_top_pagerank": [_node_packet(G, n, cents, module_of)
+                                 for n in sorted(non_hubs, key=lambda x: cents["pagerank"].get(x, 0.0), reverse=True)[:25]],
+        "non_hub_top_betweenness": [_node_packet(G, n, cents, module_of)
+                                    for n in sorted(non_hubs, key=lambda x: cents["betweenness"].get(x, 0.0), reverse=True)[:25]],
+        "late_arriving_high_degree": [_node_packet(G, n, cents, module_of)
+                                      for n in sorted(late_nodes, key=lambda x: cents["degree"].get(x, 0.0), reverse=True)[:25]],
+        "late_arriving_high_pagerank": [_node_packet(G, n, cents, module_of)
+                                        for n in sorted(late_nodes, key=lambda x: cents["pagerank"].get(x, 0.0), reverse=True)[:25]],
+        "early_hubs": [_node_packet(G, n, cents, module_of)
+                       for n in sorted(early_nodes, key=lambda x: cents["degree"].get(x, 0.0), reverse=True)[:20]],
+        "non_hub_boundary_bridges": boundary[:30],
+        "hub_free_cross_module_paths": _hub_free_paths(G, cents, module_of, hub_nodes, max_paths=20),
+        "module_nonhub_summaries": module_nonhub,
+        "epoch_terms": {k: _top_terms(v, top=15) for k, v in epoch_labels.items()},
+        "epoch_relations": {k: c.most_common(15) for k, c in epoch_relations.items()},
+    }
+
+
+def _response_text(r: Any) -> str:
+    parts = []
+    output_text = getattr(r, "output_text", None)
+    if output_text:
+        parts.append(str(output_text))
+    reasoning = getattr(r, "reasoning", None)
+    if isinstance(reasoning, str) and reasoning:
+        parts.append(reasoning)
+    for item in (getattr(r, "output", None) or []):
+        for content in (getattr(item, "content", None) or []):
+            text = getattr(content, "text", None)
+            if isinstance(text, str) and text:
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _call_responses_llm(system: str, user: str, opts: LLMOptions) -> str:
+    from openai import OpenAI
+    client = OpenAI(base_url=opts.base_url or None,
+                    api_key=opts.api_key or os.environ.get("OPENAI_API_KEY") or "x")
+    kwargs = {
+        "model": opts.model,
+        "instructions": system,
+        "input": user,
+        "max_output_tokens": opts.max_tokens,
+        "reasoning": {"effort": opts.reasoning_effort},
+    }
+    r = client.responses.create(**kwargs)
+    return _response_text(r)
+
+
+def _call_chat_llm(system: str, user: str, opts: LLMOptions) -> str:
     from openai import OpenAI
     client = OpenAI(base_url=opts.base_url or None,
                     api_key=opts.api_key or os.environ.get("OPENAI_API_KEY") or "x")
@@ -768,12 +933,17 @@ def _call_llm(system: str, user: str, opts: LLMOptions) -> str:
         "temperature": opts.temperature,
         "max_completion_tokens": opts.max_tokens,
     }
-    for _ in range(4):
+    if opts.reasoning_effort:
+        kwargs["reasoning_effort"] = opts.reasoning_effort
+    for _ in range(5):
         try:
             r = client.chat.completions.create(**kwargs)
             return (r.choices[0].message.content or "").strip()
         except Exception as exc:
             msg = str(exc).lower()
+            if "reasoning_effort" in kwargs and "reasoning_effort" in msg:
+                kwargs.pop("reasoning_effort")
+                continue
             if "max_completion_tokens" in kwargs and "max_completion_tokens" in msg:
                 kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")
                 continue
@@ -782,6 +952,18 @@ def _call_llm(system: str, user: str, opts: LLMOptions) -> str:
                 continue
             raise
     return ""
+
+
+def _call_llm(system: str, user: str, opts: LLMOptions) -> str:
+    if opts.backend == "hf":
+        import synthesize as S
+        return S.answer_hf(system, user, model=opts.model, temperature=opts.temperature,
+                           max_tokens=opts.max_tokens, device=opts.device, dtype=opts.dtype)
+    if opts.backend == "chat":
+        return _call_chat_llm(system, user, opts)
+    if opts.backend in {"responses", "openai"}:
+        return _call_responses_llm(system, user, opts)
+    raise ValueError(f"unknown LLM backend: {opts.backend}")
 
 
 def _module_prompt(module: Dict[str, Any]) -> str:
@@ -874,6 +1056,7 @@ def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str,
             "distant_connected_paths": sem.get("distant_connected_paths", [])[:15],
             "embedding_error": profile.get("embedding_error") if not sem else None,
         },
+        "deep_evidence": profile.get("deep_evidence", {}),
     }
     return (
         "Write a paper-level deep dive interpreting this knowledge graph as the final artifact of an "
@@ -900,6 +1083,98 @@ def _paper_deep_dive_prompt(profile: Dict[str, Any], modules: Sequence[Dict[str,
     )
 
 
+def _deep_pass_prompt(name: str, profile: Dict[str, Any], modules: Sequence[Dict[str, Any]]) -> str:
+    deep = profile.get("deep_evidence", {})
+    prov = profile["provenance"]
+    sem = profile.get("semantic_audit") or {}
+    common = {
+        "original_topic": profile.get("topic"),
+        "graph_scope": {
+            "nodes": profile["global_stats"]["nodes"],
+            "edges": profile["global_stats"]["edges"],
+            "modularity": profile["global_stats"].get("modularity"),
+            "largest_component_fraction": profile["global_stats"]["largest_component_frac"],
+        },
+    }
+    if name == "mechanistic_programs":
+        payload = {
+            **common,
+            "major_modules": [_slim_module(m, top_nodes=10) for m in modules],
+            "module_nonhub_summaries": deep.get("module_nonhub_summaries", []),
+            "epoch_terms": deep.get("epoch_terms", {}),
+            "epoch_relations": deep.get("epoch_relations", {}),
+            "top_relations": profile["global_stats"]["relations"][:30],
+        }
+        task = (
+            "Analyze the graph's major mechanistic programs for the original topic. Explain the "
+            "research programs or design logics represented by the module structure. Identify what "
+            "is central, what is secondary after removing generic hubs, and how mechanisms appear "
+            "to evolve from early to late search epochs."
+        )
+    elif name == "bridges_and_hypotheses":
+        payload = {
+            **common,
+            "global_hubs_removed": deep.get("global_hubs_removed_for_some_views", []),
+            "non_hub_top_pagerank": deep.get("non_hub_top_pagerank", []),
+            "non_hub_top_betweenness": deep.get("non_hub_top_betweenness", []),
+            "non_hub_boundary_bridges": deep.get("non_hub_boundary_bridges", []),
+            "hub_free_cross_module_paths": deep.get("hub_free_cross_module_paths", []),
+            "inter_module_edges": profile["module_edges"][:35],
+            "critical_connectors": profile["critical_connectors"],
+            "representative_paths": profile["representative_paths"][:25],
+        }
+        task = (
+            "Analyze bridge concepts and graph-generated hypotheses. Focus on non-obvious bridges "
+            "after obvious hubs are removed. Extract candidate hypotheses that a researcher should "
+            "inspect, and cite the exact paths, relation verbs, module ids, and node labels that "
+            "support each hypothesis."
+        )
+    elif name == "search_dynamics_reliability":
+        payload = {
+            **common,
+            "late_arriving_high_degree": deep.get("late_arriving_high_degree", []),
+            "late_arriving_high_pagerank": deep.get("late_arriving_high_pagerank", []),
+            "early_hubs": deep.get("early_hubs", []),
+            "provenance": {
+                "transcript_rows": prov["n_transcript_rows"],
+                "top_source_questions_by_new_nodes": prov["source_questions_by_new_nodes"][:30],
+                "zero_yield_count": len(prov["zero_yield_iterations"]),
+                "high_token_zero_yield_examples": prov["high_token_zero_yield_iterations"][:15],
+            },
+            "quality": {
+                "n_flagged_labels": profile["quality"]["n_flagged_labels"],
+                "flagged_examples": profile["quality"]["flagged_labels"][:40],
+                "duplicate_normalized_examples": profile["quality"]["duplicate_normalized_labels"][:25],
+            },
+            "semantic_audit": {
+                "embedding_model": profile.get("embedding_model"),
+                "embedding_spread": sem.get("embedding_spread"),
+                "semantic_outliers": sem.get("semantic_outliers", [])[:20],
+                "distant_connected_paths": sem.get("distant_connected_paths", [])[:20],
+                "embedding_error": profile.get("embedding_error") if not sem else None,
+            },
+        }
+        task = (
+            "Analyze search dynamics, reliability, and noise. Explain what the provenance says about "
+            "how the graph grew, which late concepts look important, where the run may have drifted, "
+            "and which data-quality problems should temper interpretation."
+        )
+    else:
+        raise ValueError(f"unknown deep pass: {name}")
+
+    return (
+        f"{task}\n\n"
+        "Use only the payload. Write a dense Markdown memo with evidence bullets and short analytic "
+        "paragraphs. Mark speculative implications as hypotheses, not facts.\n\n"
+        + json.dumps(payload, indent=2)
+    )
+
+
+def _deep_pass_names(n: int) -> List[str]:
+    names = ["mechanistic_programs", "bridges_and_hypotheses", "search_dynamics_reliability"]
+    return names[:max(0, min(n, len(names)))]
+
+
 def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
                    progress: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
     if not opts.enabled:
@@ -908,7 +1183,8 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
               "domain facts. You are allowed to synthesize research implications only when you mark "
               "them as graph-generated hypotheses. Be specific and cite labels/relations from the payload.")
     modules = profile["communities"][:max_modules]
-    out = {"model": opts.model, "backend": opts.backend, "modules": {}}
+    out = {"model": opts.model, "backend": opts.backend, "reasoning_effort": opts.reasoning_effort,
+           "modules": {}}
     for i, m in enumerate(modules, 1):
         if progress:
             progress(f"LLM module summary {i}/{len(modules)}: module {m['id']} ({m['size']} nodes)")
@@ -933,10 +1209,25 @@ def _llm_summaries(profile: Dict[str, Any], opts: LLMOptions, max_modules: int,
         + json.dumps(overview_payload, indent=2)
     )
     out["overview"] = _call_llm(system, user, opts)
+
+    pass_names = _deep_pass_names(opts.deep_passes)
+    out["deep_dive_passes"] = {}
+    for i, name in enumerate(pass_names, 1):
+        if progress:
+            progress(f"LLM deep evidence pass {i}/{len(pass_names)}: {name}")
+        out["deep_dive_passes"][name] = _call_llm(system, _deep_pass_prompt(name, profile, modules), opts)
+
     if progress:
-        progress("LLM paper-level deep dive")
+        progress("LLM final paper-level synthesis")
     deep_opts = replace(opts, max_tokens=max(opts.max_tokens, opts.deep_tokens))
-    out["deep_dive"] = _call_llm(system, _paper_deep_dive_prompt(profile, modules), deep_opts)
+    final_prompt = _paper_deep_dive_prompt(profile, modules)
+    if out["deep_dive_passes"]:
+        final_prompt += (
+            "\n\nPrior LLM evidence-pass memos are below. Use them as secondary notes, but keep the "
+            "final synthesis grounded in the graph payload above.\n\n"
+            + json.dumps(out["deep_dive_passes"], indent=2)
+        )
+    out["deep_dive"] = _call_llm(system, final_prompt, deep_opts)
     out["deep_dive_tokens_requested"] = deep_opts.max_tokens
     return out
 
@@ -1117,6 +1408,11 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
                 "`--deep-dive-tokens` value if the model truncated or returned an empty answer.",
                 "",
             ]
+        if llm.get("deep_dive_passes"):
+            lines += ["## LLM Supporting Evidence Passes", ""]
+            for name, text in llm["deep_dive_passes"].items():
+                title = name.replace("_", " ").title()
+                lines += [f"### {title}", "", text, ""]
 
     lines += [
         "## Source",
@@ -1129,6 +1425,9 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
             ("input multigraph", gs["source"].get("input_multigraph")),
             ("input directed", gs["source"].get("input_directed")),
             ("llm model", llm.get("model") if llm else None),
+            ("llm backend", llm.get("backend") if llm else None),
+            ("llm reasoning effort", llm.get("reasoning_effort") if llm else None),
+            ("llm deep passes", len(llm.get("deep_dive_passes", {})) if llm else None),
         ], ["field", "value"]),
         "",
         "## Global Statistics",
@@ -1383,6 +1682,7 @@ def profile_graph(graph_path: Optional[str] = None, run_dir: Optional[str] = Non
         "report_limits": {"modules_in_markdown": min(max_modules, 18)},
         "_centrality_values": cents,
     }
+    profile["deep_evidence"] = _deep_graph_evidence(G, cents, module_of, profile)
 
     progress.step("Writing diagnostic figures")
     profile["figures"] = _save_figures(profile, G, vecs, module_of, out_dir)
@@ -1413,8 +1713,8 @@ def main() -> None:
     p.add_argument("--llm", action="store_true",
                    help="ask an LLM for module summaries, overview, and a paper-level deep dive")
     p.add_argument("--llm-modules", type=int, default=12, help="number of largest modules to summarize")
-    p.add_argument("--backend", choices=["openai", "hf"], default="openai",
-                   help="LLM backend. openai also covers OpenAI-compatible local servers.")
+    p.add_argument("--backend", choices=["responses", "openai", "chat", "hf"], default="responses",
+                   help="LLM backend. responses/openai use OpenAI Responses API; chat is for local OpenAI-compatible servers without Responses.")
     p.add_argument("--model", default="gpt-5.5", help="summary model id")
     p.add_argument("--base-url", help="OpenAI-compatible base URL, e.g. http://localhost:8000/v1")
     p.add_argument("--api-key", help="API key, else $OPENAI_API_KEY or 'x' for local servers")
@@ -1422,6 +1722,10 @@ def main() -> None:
     p.add_argument("--max-summary-tokens", type=int, default=1200)
     p.add_argument("--deep-dive-tokens", type=int, default=4000,
                    help="output-token budget for the paper-level LLM deep dive")
+    p.add_argument("--reasoning-effort", default="high", choices=["minimal", "low", "medium", "high"],
+                   help="[responses/openai] reasoning effort for the LLM analysis calls")
+    p.add_argument("--llm-deep-passes", type=int, default=3,
+                   help="number of extra LLM evidence passes before the final deep dive; 0 disables")
     p.add_argument("--device", help="[hf] device_map")
     p.add_argument("--dtype", default="auto", choices=["auto", "float16", "bfloat16", "float32"])
     p.add_argument("--quiet", action="store_true", help="suppress progress output")
@@ -1431,6 +1735,8 @@ def main() -> None:
                       base_url=args.base_url, api_key=args.api_key,
                       temperature=args.temperature, max_tokens=args.max_summary_tokens,
                       deep_tokens=args.deep_dive_tokens,
+                      reasoning_effort=args.reasoning_effort,
+                      deep_passes=args.llm_deep_passes,
                       device=args.device, dtype=args.dtype)
     prof = profile_graph(graph_path=args.graph, run_dir=args.run, out=args.out,
                          embed_model=args.embed_model, top_nodes=args.top_nodes,
