@@ -18,8 +18,8 @@ Reads the graph directly; insights.json is not used.
         --judge-model gpt-5.5 --out runs/exp/benchmark/graphrag
 
 Other modes: `--mode graphleads` (path-based Graph-RAG insights in a two-arm answer benchmark),
-`--mode coverage` (validated idea-space coverage vs single-shot resampling), and `--mode pairwise`
-(legacy single-answer judge over two answer dirs).
+`--mode coverage` (validated idea-space coverage vs single-shot resampling), `--mode pairwise`
+(blind preference judge over two answer dirs), and `--mode absolute` (standalone per-answer scores).
 """
 import argparse
 import glob
@@ -1370,6 +1370,239 @@ def _judge_pairwise(call, task, answer_a, answer_b, dims, schema):
     return {"error": "invalid_judge_json", "raw": raw}
 
 
+def _validate_absolute(v, dims):
+    if not isinstance(v, dict):
+        return None
+    clean = {}
+    for d in dims:
+        try:
+            x = int(v[d])
+        except Exception:
+            return None
+        if x < 1 or x > 5:
+            return None
+        clean[d] = float(x)
+    clean["primary"] = _pair_primary(clean)
+    clean["rationale"] = str(v.get("rationale", "")).strip()
+    return clean
+
+
+def _absolute_schema(dims):
+    score = {"type": "integer", "enum": [1, 2, 3, 4, 5]}
+    return {"type": "json_schema", "json_schema": {"name": "absolute_verdict", "strict": True,
+            "schema": {"type": "object", "additionalProperties": False,
+                       "required": list(dims) + ["rationale"],
+                       "properties": dict({d: score for d in dims},
+                                          rationale={"type": "string"})}}}
+
+
+def _judge_absolute(call, task, answer, dims, schema):
+    dd = "\n".join(f"- {d}: {PAIR_DIMS[d]}" for d in dims)
+    system = (
+        "You are an impartial expert reviewer for a hypothesis-generation benchmark. "
+        "Score the answer as a standalone response to the task. You do not know which system "
+        "produced it. Score substance only; do not reward verbosity, confident tone, formatting "
+        "polish, or citations unless they support a better hypothesis. Penalize generic answers "
+        "and penalize implausible speculation."
+    )
+    user = (
+        "Score this ONE answer independently from 1 to 5 on every dimension.\n\n"
+        "Rubric:\n"
+        f"{dd}\n\n"
+        f"TASK:\n{task}\n\n--- ANSWER ---\n{answer}\n\n"
+        "Return only the requested JSON."
+    )
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+    raw = ""
+    for attempt in range(2):
+        raw = call(messages, 0.0, 1200, schema)
+        parsed = _validate_absolute(_parse_json(raw), dims)
+        if parsed is not None:
+            parsed["raw"] = raw
+            return parsed
+        messages = messages + [
+            {"role": "assistant", "content": raw[:2000]},
+            {"role": "user", "content": "The previous response was not valid for the required schema. "
+                                      "Return only valid JSON with all dimension scores and rationale."},
+        ]
+    return {"error": "invalid_judge_json", "raw": raw}
+
+
+def run_absolute(args):
+    dims = list(PAIR_DIMS)
+    tasks = [ln.strip() for ln in open(args.tasks, encoding="utf-8") if ln.strip()]
+    sysa, basea = _read_answers(args.system), _read_answers(args.baseline)
+    n = min(len(tasks), len(sysa), len(basea))
+    if n == 0:
+        raise SystemExit("need matching tasks + --system + --baseline answers")
+    if len(tasks) != len(sysa) or len(tasks) != len(basea):
+        print(f"[compare/absolute] warning: using first {n} aligned items "
+              f"(tasks={len(tasks)}, system={len(sysa)}, baseline={len(basea)})", flush=True)
+    call = _make_call(args.jm, args.jbu, args.jak, reasoning_effort=args.judge_effort)
+    schema = _absolute_schema(dims)
+    sc = {d: {"g": [], "b": []} for d in dims + ["primary"]}
+    per_task, skipped = [], []
+    try:
+        from tqdm import tqdm
+        iterator = tqdm(range(n), desc="[compare/absolute] judging", unit="task")
+    except Exception:
+        iterator = range(n)
+
+    for i in iterator:
+        gv = _judge_absolute(call, tasks[i], sysa[i]["text"], dims, schema)
+        bv = _judge_absolute(call, tasks[i], basea[i]["text"], dims, schema)
+        bad = []
+        if "primary" not in gv:
+            bad.append({"arm": "system", "error": gv.get("error", "invalid_judge_json"),
+                        "raw": gv.get("raw", "")})
+        if "primary" not in bv:
+            bad.append({"arm": "baseline", "error": bv.get("error", "invalid_judge_json"),
+                        "raw": bv.get("raw", "")})
+        if bad:
+            skipped.append({"index": i, "task": tasks[i], "errors": bad})
+            if hasattr(iterator, "set_postfix"):
+                iterator.set_postfix(skipped=len(skipped))
+            else:
+                print(f"[compare/absolute] task {i+1}/{n}: skipped invalid judge output", flush=True)
+            continue
+        for d in dims + ["primary"]:
+            sc[d]["g"].append(float(gv[d])); sc[d]["b"].append(float(bv[d]))
+        per_task.append({
+            "index": i,
+            "task": tasks[i],
+            "system_file": sysa[i]["path"],
+            "baseline_file": basea[i]["path"],
+            "scores": {"system": gv, "baseline": bv},
+            "delta_primary": float(gv["primary"] - bv["primary"]),
+            "rationale": {"system": gv.get("rationale", ""), "baseline": bv.get("rationale", "")},
+            "judge_raw": {"system": gv.get("raw", ""), "baseline": bv.get("raw", "")},
+        })
+        if hasattr(iterator, "set_postfix"):
+            iterator.set_postfix(graph=f"{gv['primary']:.2f}", baseline=f"{bv['primary']:.2f}",
+                                 skipped=len(skipped))
+        else:
+            print(f"[compare/absolute] task {i+1}/{n}: graph={gv['primary']:.2f} "
+                  f"baseline={bv['primary']:.2f}", flush=True)
+    if not per_task:
+        raise SystemExit("no valid absolute judge results")
+    _render_absolute(args, dims, sc, per_task, skipped)
+
+
+def _render_absolute(args, dims, sc, per_task, skipped):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams.update({"font.size": 10, "axes.spines.top": False, "axes.spines.right": False,
+                         "figure.dpi": 150})
+    all_dims = dims + ["primary"]
+    agg = {d: {"system": _ms(sc[d]["g"]), "baseline": _ms(sc[d]["b"]),
+               "delta": _ms([g - b for g, b in zip(sc[d]["g"], sc[d]["b"])])}
+           for d in all_dims}
+    n = len(per_task)
+    better = sum(1 for r in per_task if r["delta_primary"] > 0)
+    worse = sum(1 for r in per_task if r["delta_primary"] < 0)
+    tie = n - better - worse
+    primary_delta = agg["primary"]["delta"][0]
+    if primary_delta > 0:
+        outcome = "graph_higher"
+        title = "Absolute judge scores: graph-assisted answers higher"
+    elif primary_delta < 0:
+        outcome = "baseline_higher"
+        title = "Absolute judge scores: baseline answers higher"
+    else:
+        outcome = "mixed_or_neutral"
+        title = "Absolute judge scores: graph-assisted vs baseline"
+
+    fig, ax = plt.subplots(1, 2, figsize=(14.5, 5.8), gridspec_kw={"width_ratios": [1.35, 0.9]})
+    x = np.arange(len(all_dims)); w = 0.36
+    sys_means = [agg[d]["system"][0] for d in all_dims]
+    base_means = [agg[d]["baseline"][0] for d in all_dims]
+    sys_err = [agg[d]["system"][1] for d in all_dims]
+    base_err = [agg[d]["baseline"][1] for d in all_dims]
+    a = ax[0]
+    a.bar(x - w / 2, sys_means, w, yerr=sys_err, capsize=3, color="#d62728", label="graph insights")
+    a.bar(x + w / 2, base_means, w, yerr=base_err, capsize=3, color="#1f77b4", label="baseline")
+    a.set_xticks(x); a.set_xticklabels(all_dims, rotation=18, ha="right")
+    a.set_ylim(0, 5.35); a.set_ylabel("GPT judge score (1-5, mean +/- s.e.)")
+    a.set_title("Standalone absolute scores by dimension")
+    a.legend(frameon=False, fontsize=9)
+
+    a = ax[1]; a.axis("off")
+    delta = agg["primary"]["delta"]
+    cap = (
+        f"n scored: {n}\n"
+        f"judge: {args.jm}  effort={args.judge_effort}\n\n"
+        f"outcome: {outcome.replace('_', ' ')}\n"
+        f"primary: system {agg['primary']['system'][0]:.2f} vs "
+        f"baseline {agg['primary']['baseline'][0]:.2f}\n"
+        f"paired delta: {delta[0]:+.2f} +/- {delta[1]:.2f}\n\n"
+        f"task-level primary:\n"
+        f"  graph higher: {better} ({100.0 * better / max(1, n):.0f}%)\n"
+        f"  baseline higher: {worse} ({100.0 * worse / max(1, n):.0f}%)\n"
+        f"  equal: {tie} ({100.0 * tie / max(1, n):.0f}%)\n\n"
+        "Each answer was scored in a separate\n"
+        "judge call with no competing answer visible.\n"
+        "Primary = mean core dims, capped by\n"
+        "plausibility when plausibility < 3.\n"
+        f"Skipped invalid judge calls: {len(skipped)}"
+    )
+    a.text(0, 1, cap, va="top", fontsize=9.0, family="monospace")
+    fig.suptitle(title, y=1.02, fontsize=12.5)
+    fig.tight_layout()
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    for ext in ("png", "svg", "pdf"):
+        fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")
+    plt.close(fig)
+
+    report = {
+        "mode": "absolute",
+        "judge": args.jm,
+        "judge_effort": args.judge_effort,
+        "n_scored": n,
+        "n_skipped": len(skipped),
+        "dimensions": PAIR_DIMS,
+        "primary_definition": {
+            "core_dimensions": PAIR_PRIMARY_DIMS,
+            "plausibility_rule": "if plausibility < 3, primary = min(core_mean, plausibility)",
+        },
+        "aggregate": agg,
+        "task_level_primary": {"system_higher": better, "baseline_higher": worse, "equal": tie},
+        "outcome": outcome,
+        "per_task": per_task,
+        "skipped": skipped,
+    }
+    json.dump(report, open(f"{args.out}.json", "w"), indent=2)
+
+    lines = [f"# Absolute hypothesis benchmark\n",
+             f"*{n} scored tasks · judge {args.jm} · each answer scored standalone · "
+             f"graph answers in `{args.system}` · baseline answers in `{args.baseline}`*\n",
+             "| dimension | graph insights | baseline | paired delta |",
+             "|---|---:|---:|---:|"]
+    for d in all_dims:
+        lines.append(f"| {d} | {agg[d]['system'][0]:.2f} +/- {agg[d]['system'][1]:.2f} | "
+                     f"{agg[d]['baseline'][0]:.2f} +/- {agg[d]['baseline'][1]:.2f} | "
+                     f"{agg[d]['delta'][0]:+.2f} +/- {agg[d]['delta'][1]:.2f} |")
+    lines += ["",
+              f"Outcome: **{outcome.replace('_', ' ')}**.",
+              "",
+              f"Task-level primary: graph higher **{better}**, baseline higher **{worse}**, equal **{tie}**.",
+              "",
+              "Each answer was scored in a separate judge call with no competing answer visible.",
+              "",
+              "Primary score: mean of novelty, insight, mechanism, testability, and specificity; "
+              "if plausibility is below 3, the primary score is capped by plausibility.",
+              ""]
+    if skipped:
+        lines.append(f"Skipped invalid judge calls: {len(skipped)}.")
+    open(f"{args.out}.md", "w").write("\n".join(lines) + "\n")
+
+    print(f"wrote {args.out}.png/.svg/.pdf")
+    print(f"wrote {args.out}.json / {args.out}.md")
+    print("[compare/absolute] " + " · ".join(
+        f"{d}: graph={agg[d]['system'][0]:.2f} baseline={agg[d]['baseline'][0]:.2f}"
+        for d in all_dims) + f" | graph higher on primary {100.0 * better / max(1, n):.0f}%")
+
+
 def run_pairwise(args):
     dims = list(PAIR_DIMS)
     tasks = [ln.strip() for ln in open(args.tasks, encoding="utf-8") if ln.strip()]
@@ -1550,7 +1783,7 @@ def _render_pairwise(args, dims, sc, prefs, per_task, skipped):
 # --------------------------------------------------------------------------- #
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--mode", choices=["graphrag", "graphleads", "coverage", "pairwise", "insights"],
+    p.add_argument("--mode", choices=["graphrag", "graphleads", "coverage", "pairwise", "absolute", "insights"],
                    default="graphrag")
     p.add_argument("--tasks", help="tasks file, one per line (required for all modes except 'insights')")
     p.add_argument("--out", default="figures/graphrag", help="output basename")
@@ -1599,9 +1832,9 @@ def main():
     p.add_argument("--embed-model", dest="embed_model", default=None, help="sentence-transformers id")
     p.add_argument("--max-iter", dest="max_iter", type=int, default=None,
                    help="truncate the graph to iter <= this when mining leads (matched-compute cutoff)")
-    # pairwise (legacy)
-    p.add_argument("--system", help="[pairwise] dir of system answers")
-    p.add_argument("--baseline", help="[pairwise] dir of baseline answers")
+    # answer-dir judging
+    p.add_argument("--system", help="[pairwise/absolute] dir of system answers")
+    p.add_argument("--baseline", help="[pairwise/absolute] dir of baseline answers")
     p.add_argument("--seed", type=int, default=0)
     # judge (both modes)
     p.add_argument("--judge-model", dest="jm", default="gpt-5.5")
@@ -1631,6 +1864,10 @@ def main():
         if not (args.system and args.baseline):
             raise SystemExit("--mode pairwise needs --system and --baseline answer dirs")
         return run_pairwise(args)
+    if args.mode == "absolute":
+        if not (args.system and args.baseline):
+            raise SystemExit("--mode absolute needs --system and --baseline answer dirs")
+        return run_absolute(args)
     if args.mode == "coverage":
         if not (args.run or args.insights):
             raise SystemExit("--mode coverage needs --run <dir> (or --insights <file.json>)")

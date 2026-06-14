@@ -1,4 +1,17 @@
-import type { BridgeIdea, ConfigPayload, GraphPayload, JobStatus, ModelRole, PathConnector, RunSummary, SearchResult } from "./types";
+import type {
+  BridgeIdea,
+  ConfigPayload,
+  GraphPayload,
+  JobStatus,
+  ModelRole,
+  PathConnector,
+  ProfileJobStatus,
+  ProfileOptions,
+  ProfileReportPayload,
+  ProfileArtifacts,
+  RunSummary,
+  SearchResult,
+} from "./types";
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const init =
@@ -53,6 +66,13 @@ export const api = {
   }) => request<JobStatus>("/api/ideate", body),
   job: (id: string) => request<JobStatus>(`/api/job?id=${encodeURIComponent(id)}`),
   stopJob: (id: string) => request<JobStatus>("/api/stop_job", { id }),
+  profileGraph: (body: ProfileOptions) => request<ProfileJobStatus>("/api/profile_graph", body),
+  profileJob: (id: string) => request<ProfileJobStatus>(`/api/profile_job?id=${encodeURIComponent(id)}`),
+  stopProfileJob: (id: string) => request<ProfileJobStatus>("/api/stop_profile_job", { id }),
+  profileReports: (run: string) => request<{ run: string; reports: ProfileArtifacts[] }>("/api/profile_reports", { run }),
+  profileReport: (out: string) => request<ProfileReportPayload>("/api/profile_report", { out }),
+  reportAssetUrl: (out: string, file: string) =>
+    `/api/report_asset?out=${encodeURIComponent(out)}&file=${encodeURIComponent(file)}`,
   modelStatus: (role: ModelRole) =>
     request<{ ok: boolean; url?: string; message?: string; models?: string[] }>("/api/model_status", { role }),
   configPreview: (roles: Record<string, ModelRole>) =>

@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import math
+import mimetypes
 import os
 import re
 import subprocess
@@ -41,6 +42,7 @@ STATE = {
     "graph_path": "",
     "topic": "",
     "jobs": {},
+    "profile_jobs": {},
     "hf_cache": {},
 }
 LOCK = threading.RLock()
@@ -439,6 +441,35 @@ def _resolve_run_path(run_value):
         if candidate.parent.exists():
             return candidate
     return candidates[0]
+
+
+def _relative_to_ideation(path):
+    try:
+        return str(Path(path).resolve().relative_to(IDEATION_DIR))
+    except Exception:
+        return str(path)
+
+
+def _safe_workspace_path(raw, *, default_base=IDEATION_DIR, require_safe_root=True):
+    value = str(raw or "").strip()
+    if not value:
+        raise ValueError("path is required")
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        if path.parts and path.parts[0] == IDEATION_DIR.name:
+            path = PROJECT_DIR / path
+        else:
+            path = default_base / path
+    resolved = path.resolve()
+    if require_safe_root:
+        roots = [PROJECT_DIR.resolve(), Path(tempfile.gettempdir()).resolve()]
+        if not any(resolved == root or root in resolved.parents for root in roots):
+            raise ValueError(f"path is outside the project workspace: {resolved}")
+    return resolved
+
+
+def _resolve_profile_out(out_value):
+    return _safe_workspace_path(out_value, default_base=IDEATION_DIR, require_safe_root=True)
 
 
 def _graphml_candidates(run_dir):
@@ -1310,6 +1341,281 @@ def _stop_job(body):
     return _job_status(job_id)
 
 
+def _profile_summary_from_json(path):
+    if not path.exists():
+        return {}
+    try:
+        with path.open(errors="replace") as f:
+            profile = json.load(f) or {}
+    except Exception:
+        return {}
+    stats = dict(profile.get("global_stats") or {})
+    source = dict(stats.get("source") or {})
+    llm = dict(profile.get("llm_summaries") or {})
+    return {
+        "topic": str(profile.get("topic") or ""),
+        "generated_at": str(profile.get("generated_at") or ""),
+        "nodes": _safe_int(stats.get("nodes")),
+        "edges": _safe_int(stats.get("edges")),
+        "density": _safe_float(stats.get("density")),
+        "components": _safe_int(stats.get("components")),
+        "modules": len(profile.get("communities") or []),
+        "modularity": _safe_float(stats.get("modularity")),
+        "embed_model": str(profile.get("embedding_model") or ""),
+        "embed_error": str(profile.get("embedding_error") or ""),
+        "llm_model": str(llm.get("model") or ""),
+        "llm_backend": str(llm.get("backend") or ""),
+        "pdf_error": str(profile.get("pdf_error") or ""),
+        "source": str(source.get("graph_path") or source.get("run_dir") or ""),
+    }
+
+
+def _profile_artifacts(out_value):
+    out_dir = _resolve_profile_out(out_value)
+    report = out_dir / "report.md"
+    profile_json = out_dir / "profile.json"
+    pdf = out_dir / "report.pdf"
+    figures_dir = out_dir / "figures"
+    figures = []
+    if figures_dir.exists():
+        for path in sorted(figures_dir.iterdir()):
+            if path.is_file() and path.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp", ".svg", ".pdf"):
+                figures.append(str(path.relative_to(out_dir)))
+    mtimes = []
+    for path in [out_dir, report, profile_json, pdf, *[out_dir / fig for fig in figures]]:
+        try:
+            if path.exists():
+                mtimes.append(path.stat().st_mtime)
+        except OSError:
+            pass
+    return {
+        "out": _relative_to_ideation(out_dir),
+        "absolute_out": str(out_dir),
+        "ready": report.exists() or profile_json.exists(),
+        "report_path": str(report) if report.exists() else "",
+        "profile_path": str(profile_json) if profile_json.exists() else "",
+        "pdf_path": str(pdf) if pdf.exists() else "",
+        "figures": figures,
+        "summary": _profile_summary_from_json(profile_json),
+        "updated_at": max(mtimes) if mtimes else 0,
+    }
+
+
+def _profile_reports_payload(run_value):
+    run_dir = _resolve_run_path(run_value)
+    if run_dir.is_file():
+        run_dir = run_dir.parent
+    if not run_dir.exists():
+        return {"run": _relative_to_ideation(run_dir), "reports": []}
+    candidates = []
+    for child in run_dir.iterdir():
+        if child.is_dir() and (child.name.startswith("profile") or (child / "report.md").exists() or (child / "profile.json").exists()):
+            candidates.append(child)
+    direct = run_dir / "profile"
+    if direct.exists() and direct not in candidates:
+        candidates.append(direct)
+    reports = []
+    for path in sorted(candidates):
+        try:
+            artifacts = _profile_artifacts(str(path))
+        except Exception:
+            continue
+        if artifacts.get("ready"):
+            reports.append(artifacts)
+    reports.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
+    return {"run": _relative_to_ideation(run_dir), "reports": reports}
+
+
+def _profile_progress(log_text, status):
+    matches = re.findall(r"^\[(\d{1,2})/(\d{1,2})\]\s+(.+)$", log_text, flags=re.MULTILINE)
+    current = total = 0
+    message = ""
+    if matches:
+        current, total, message = matches[-1]
+        current, total = int(current), int(total)
+    lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+    detail = lines[-1] if lines else ""
+    percent = (current / total) if total else 0.0
+    if status == "done":
+        percent = 1.0
+    return {
+        "percent": max(0.0, min(1.0, percent)),
+        "current": current,
+        "total": total,
+        "message": message,
+        "detail": detail,
+    }
+
+
+def _profile_job_public(job):
+    return {k: v for k, v in dict(job).items() if k != "proc"}
+
+
+def _add_optional_arg(cmd, body, name, flag=None):
+    value = body.get(name)
+    if value not in (None, ""):
+        cmd.extend([flag or f"--{name.replace('_', '-')}", str(value)])
+
+
+def _start_profile_job(body):
+    run = str(body.get("run") or "").strip()
+    graph = str(body.get("graph") or "").strip()
+    if bool(run) == bool(graph):
+        raise ValueError("Choose exactly one source: run or graph.")
+
+    out = str(body.get("out") or "").strip()
+    if not out:
+        if run:
+            run_dir = _resolve_run_path(run)
+            out = str(run_dir / "profile")
+        else:
+            out = "graph_profile"
+    _resolve_profile_out(out)
+
+    cmd = ["python", "profile_graph.py"]
+    if run:
+        cmd.extend(["--run", run])
+    else:
+        cmd.extend(["--graph", graph])
+    cmd.extend(["--out", out])
+
+    _add_optional_arg(cmd, body, "embed_model")
+    _add_optional_arg(cmd, body, "top_nodes")
+    _add_optional_arg(cmd, body, "max_modules")
+    _add_optional_arg(cmd, body, "profile_preset")
+    if bool(body.get("llm")):
+        cmd.append("--llm")
+    _add_optional_arg(cmd, body, "llm_modules")
+    _add_optional_arg(cmd, body, "backend")
+    _add_optional_arg(cmd, body, "model")
+    _add_optional_arg(cmd, body, "base_url")
+    _add_optional_arg(cmd, body, "temperature")
+    _add_optional_arg(cmd, body, "max_summary_tokens")
+    _add_optional_arg(cmd, body, "deep_pass_tokens")
+    _add_optional_arg(cmd, body, "deep_dive_tokens")
+    _add_optional_arg(cmd, body, "reasoning_effort")
+    _add_optional_arg(cmd, body, "llm_deep_passes")
+    _add_optional_arg(cmd, body, "report_review_tokens")
+    _add_optional_arg(cmd, body, "report_review_max_chunks")
+    _add_optional_arg(cmd, body, "report_review_chunk_chars")
+    _add_optional_arg(cmd, body, "report_review_memo_chars")
+    _add_optional_arg(cmd, body, "device")
+    _add_optional_arg(cmd, body, "dtype")
+    if body.get("llm_report_review") is False:
+        cmd.append("--no-llm-report-review")
+    if body.get("pdf") is False:
+        cmd.append("--no-pdf")
+
+    job_id = uuid.uuid4().hex[:10]
+    log_path = ROOT / f"profile_job_{job_id}.log"
+    log = open(log_path, "w")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=IDEATION_DIR,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    job = {
+        "id": job_id,
+        "cmd": cmd,
+        "cwd": str(IDEATION_DIR),
+        "run": run,
+        "graph": graph,
+        "out": out,
+        "log_path": str(log_path),
+        "status": "running",
+        "returncode": None,
+        "started_at": time.time(),
+        "ended_at": None,
+        "stop_requested": False,
+        "proc": proc,
+    }
+    with LOCK:
+        STATE["profile_jobs"][job_id] = job
+
+    def wait():
+        rc = proc.wait()
+        log.close()
+        with LOCK:
+            if job.get("stop_requested"):
+                job["status"] = "stopped"
+            else:
+                job["status"] = "done" if rc == 0 else "failed"
+            job["returncode"] = rc
+            job["ended_at"] = time.time()
+
+    threading.Thread(target=wait, daemon=True).start()
+    return _profile_job_status(job_id)
+
+
+def _profile_job_status(job_id):
+    with LOCK:
+        job = STATE["profile_jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown profile job id.")
+        out = _profile_job_public(job)
+    try:
+        log_tail = Path(out["log_path"]).read_text(errors="replace")[-12000:]
+    except Exception:
+        log_tail = ""
+    out["log_tail"] = log_tail
+    out["progress"] = _profile_progress(log_tail, out.get("status"))
+    try:
+        out["artifacts"] = _profile_artifacts(out["out"])
+    except Exception as exc:
+        out["artifacts"] = {"out": out.get("out", ""), "ready": False, "error": str(exc)}
+    return out
+
+
+def _stop_profile_job(body):
+    job_id = str(body.get("id") or "").strip()
+    if not job_id:
+        raise ValueError("Profile job id is required.")
+    with LOCK:
+        job = STATE["profile_jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown profile job id.")
+        proc = job.get("proc")
+        if job.get("status") not in ("running", "stopping"):
+            return _profile_job_status(job_id)
+        job["stop_requested"] = True
+        job["status"] = "stopping"
+    if proc and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, 15)
+        except Exception:
+            proc.terminate()
+    return _profile_job_status(job_id)
+
+
+def _profile_report_payload(body):
+    artifacts = _profile_artifacts(body.get("out") or "")
+    markdown = ""
+    report_value = artifacts.get("report_path") or ""
+    report_path = Path(report_value) if report_value else None
+    if report_path and report_path.exists() and report_path.is_file():
+        markdown = report_path.read_text(errors="replace")
+    return {
+        "artifacts": artifacts,
+        "markdown": markdown,
+    }
+
+
+def _resolve_report_asset(out_value, file_value):
+    out_dir = _resolve_profile_out(out_value)
+    file_name = str(file_value or "").strip()
+    if not file_name:
+        raise ValueError("file is required")
+    target = (out_dir / file_name).resolve()
+    if not (target == out_dir or out_dir in target.parents):
+        raise ValueError("report asset path escapes the output directory")
+    if not target.exists() or not target.is_file():
+        raise ValueError(f"report asset not found: {file_name}")
+    return target
+
+
 class Handler(SimpleHTTPRequestHandler):
     server_version = "GraphExplorer/0.1"
 
@@ -1352,6 +1658,16 @@ class Handler(SimpleHTTPRequestHandler):
     def _error(self, exc, status=400):
         self._json({"error": str(exc), "trace": traceback.format_exc(limit=4)}, status=status)
 
+    def _file(self, path):
+        path = Path(path)
+        raw = path.read_bytes()
+        ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
@@ -1373,6 +1689,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_runs_payload())
             elif parsed.path == "/api/job":
                 self._json(_job_status((qs.get("id") or [""])[0]))
+            elif parsed.path == "/api/profile_job":
+                self._json(_profile_job_status((qs.get("id") or [""])[0]))
+            elif parsed.path == "/api/report_asset":
+                self._file(_resolve_report_asset((qs.get("out") or [""])[0], (qs.get("file") or [""])[0]))
             elif parsed.path == "/api/config":
                 self._json(_config_payload())
             else:
@@ -1424,6 +1744,14 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_clear_graph())
             elif parsed.path == "/api/stop_job":
                 self._json(_stop_job(body))
+            elif parsed.path == "/api/profile_graph":
+                self._json(_start_profile_job(body))
+            elif parsed.path == "/api/stop_profile_job":
+                self._json(_stop_profile_job(body))
+            elif parsed.path == "/api/profile_reports":
+                self._json(_profile_reports_payload(body.get("run") or ""))
+            elif parsed.path == "/api/profile_report":
+                self._json(_profile_report_payload(body))
             elif parsed.path == "/api/model_status":
                 self._json(_model_status(body))
             elif parsed.path == "/api/config_preview":

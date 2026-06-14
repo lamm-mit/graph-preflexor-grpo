@@ -134,6 +134,93 @@ export type JobStatus = {
   progress?: JobProgress;
 };
 
+export type ProfileSummary = {
+  topic?: string;
+  generated_at?: string;
+  nodes?: number;
+  edges?: number;
+  density?: number;
+  components?: number;
+  modules?: number;
+  modularity?: number;
+  embed_model?: string;
+  embed_error?: string;
+  llm_model?: string;
+  llm_backend?: string;
+  pdf_error?: string;
+  source?: string;
+};
+
+export type ProfileArtifacts = {
+  out: string;
+  absolute_out?: string;
+  ready: boolean;
+  report_path?: string;
+  profile_path?: string;
+  pdf_path?: string;
+  figures: string[];
+  summary: ProfileSummary;
+  updated_at: number;
+  error?: string;
+};
+
+export type ProfileProgress = {
+  percent: number;
+  current: number;
+  total: number;
+  message: string;
+  detail: string;
+};
+
+export type ProfileOptions = {
+  run?: string;
+  graph?: string;
+  out: string;
+  embed_model?: string;
+  top_nodes?: number;
+  max_modules?: number;
+  profile_preset?: "full" | "light";
+  llm: boolean;
+  llm_modules?: number;
+  backend: "responses" | "openai" | "chat" | "hf";
+  model: string;
+  base_url?: string;
+  temperature?: number;
+  max_summary_tokens?: number;
+  deep_pass_tokens?: number;
+  deep_dive_tokens?: number;
+  reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  llm_deep_passes?: number;
+  llm_report_review?: boolean;
+  report_review_tokens?: number;
+  report_review_max_chunks?: number;
+  report_review_chunk_chars?: number;
+  report_review_memo_chars?: number;
+  device?: string;
+  dtype?: "auto" | "float16" | "bfloat16" | "float32";
+  pdf?: boolean;
+};
+
+export type ProfileJobStatus = {
+  id: string;
+  cmd: string[];
+  run?: string;
+  graph?: string;
+  out: string;
+  status: "running" | "stopping" | "stopped" | "done" | "failed";
+  returncode: number | null;
+  started_at: number;
+  ended_at: number | null;
+  log_tail?: string;
+  progress?: ProfileProgress;
+  artifacts?: ProfileArtifacts;
+};
+
+export type ProfileReportPayload = {
+  artifacts: ProfileArtifacts;
+  markdown: string;
+};
+
 export type RunSummary = {
   name: string;
   path: string;

@@ -652,17 +652,22 @@ def run(args):
         print(f"[path_pair_benchmark] wrote {out}; skipping judge", flush=True)
         return
 
-    compare.run_pairwise(SimpleNamespace(
+    judge_args = SimpleNamespace(
         tasks=str(tasks_file),
         system=str(answer_graph),
         baseline=str(answer_base),
-        out=str(bench_dir / "pairwise"),
         seed=args.seed,
         jm=args.judge_model,
         jbu=args.judge_base_url,
         jak=args.judge_api_key,
         judge_effort=args.judge_effort,
-    ))
+    )
+    if args.judge_mode in ("pairwise", "both"):
+        judge_args.out = str(bench_dir / "pairwise")
+        compare.run_pairwise(judge_args)
+    if args.judge_mode in ("absolute", "both"):
+        judge_args.out = str(bench_dir / "absolute")
+        compare.run_absolute(judge_args)
 
 
 def main():
@@ -714,6 +719,8 @@ def main():
     p.add_argument("--dtype", default=None, choices=["auto", "float16", "bfloat16", "float32"])
 
     p.add_argument("--no-judge", action="store_true")
+    p.add_argument("--judge-mode", choices=["pairwise", "absolute", "both"], default="pairwise",
+                   help="pairwise blind preference, standalone absolute scoring, or both")
     p.add_argument("--judge-model", dest="judge_model", default="gpt-5.5")
     p.add_argument("--judge-base-url", dest="judge_base_url", default=None)
     p.add_argument("--judge-api-key", dest="judge_api_key", default=None)

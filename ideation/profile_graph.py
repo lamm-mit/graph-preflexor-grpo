@@ -24,6 +24,11 @@ Examples
         --reasoning-effort high --deep-pass-tokens 5000 --deep-dive-tokens 12000 \
         --report-review-tokens 10000
 
+    # Faster deep report: keeps deterministic mining and paper-level LLM analysis,
+    # but uses fewer LLM calls/tokens and skips the final report-review pass.
+    python profile_graph.py --run runs/exp_leap --profile-preset light \
+        --embed-model auto --backend responses --model gpt-5.5
+
     # Local servers without Responses API can use the chat backend.
     python profile_graph.py --graph graph.graphml --llm --backend chat \
         --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1 \
@@ -41,6 +46,7 @@ import re
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
@@ -88,6 +94,42 @@ class LLMOptions:
     report_review_memo_chars: int = 0
     device: Optional[str] = None
     dtype: str = "auto"
+
+
+LIGHT_PROFILE_PRESET = {
+    "llm": True,
+    "llm_modules": 6,
+    "llm_deep_passes": 1,
+    "max_summary_tokens": 900,
+    "deep_pass_tokens": 2500,
+    "deep_dive_tokens": 6000,
+    "reasoning_effort": "medium",
+    "llm_report_review": False,
+}
+
+
+def _has_cli_flag(argv: Sequence[str], flags: Sequence[str]) -> bool:
+    flag_set = set(flags)
+    return any(arg in flag_set or any(arg.startswith(f"{flag}=") for flag in flag_set) for arg in argv)
+
+
+def _apply_profile_preset(args: argparse.Namespace, argv: Sequence[str]) -> None:
+    if args.profile_preset != "light":
+        return
+
+    flag_map = {
+        "llm": ("--llm",),
+        "llm_modules": ("--llm-modules",),
+        "llm_deep_passes": ("--llm-deep-passes",),
+        "max_summary_tokens": ("--max-summary-tokens",),
+        "deep_pass_tokens": ("--deep-pass-tokens",),
+        "deep_dive_tokens": ("--deep-dive-tokens",),
+        "reasoning_effort": ("--reasoning-effort",),
+        "llm_report_review": ("--llm-report-review", "--no-llm-report-review"),
+    }
+    for attr, value in LIGHT_PROFILE_PRESET.items():
+        if not _has_cli_flag(argv, flag_map[attr]):
+            setattr(args, attr, value)
 
 
 def _now() -> str:
@@ -3332,6 +3374,10 @@ def main() -> None:
                    help="optional sentence-transformers model for semantic audit; use 'auto' for run/default")
     p.add_argument("--top-nodes", type=int, default=25)
     p.add_argument("--max-modules", type=int, default=30)
+    p.add_argument("--profile-preset", choices=["full", "light"], default="full",
+                   help=("convenience preset. full keeps current defaults; light implies --llm, "
+                         "keeps deterministic mining, uses fewer LLM calls/tokens, and skips "
+                         "the final report-review pass unless explicitly re-enabled."))
     p.add_argument("--llm", action="store_true",
                    help="ask an LLM for module summaries, overview, and a paper-level deep dive")
     p.add_argument("--llm-modules", type=int, default=12, help="number of largest modules to summarize")
@@ -3369,6 +3415,7 @@ def main() -> None:
     p.add_argument("--no-pdf", dest="pdf", action="store_false", help="skip report.pdf rendering")
     p.add_argument("--quiet", action="store_true", help="suppress progress output")
     args = p.parse_args()
+    _apply_profile_preset(args, sys.argv[1:])
 
     opts = LLMOptions(enabled=args.llm, backend=args.backend, model=args.model,
                       base_url=args.base_url, api_key=args.api_key,

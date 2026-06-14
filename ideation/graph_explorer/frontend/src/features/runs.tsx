@@ -1,0 +1,285 @@
+import { useQuery } from "@tanstack/react-query";
+import { CircleStop, FolderOpen, Loader2, Play, RotateCcw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../api";
+import { cx, Drawer, formatRunTime, IconButton } from "../components/common";
+import { formatNumber } from "../graph-utils";
+import { useExplorerStore } from "../store";
+import type { JobStatus, RunSummary } from "../types";
+
+const RUN_MONITOR_STORAGE_KEY = "graph-preflexor-explorer.run-monitor.v1";
+const IDEATION_STRATEGIES = ["frontier", "node", "answer", "edge", "novelty", "leap", "converse", "mixed"] as const;
+type IdeationStrategy = (typeof IDEATION_STRATEGIES)[number];
+
+function normalizeStrategy(value: string | undefined): IdeationStrategy {
+  return IDEATION_STRATEGIES.includes(value as IdeationStrategy) ? (value as IdeationStrategy) : "frontier";
+}
+
+type StoredRunMonitor = {
+  topic?: string;
+  strategy?: string;
+  calls?: number;
+  iters?: number;
+  out?: string;
+  job?: JobStatus | null;
+  jobId?: string;
+};
+
+function readRunMonitorStorage(): StoredRunMonitor {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(RUN_MONITOR_STORAGE_KEY) || "{}") as StoredRunMonitor;
+  } catch {
+    return {};
+  }
+}
+
+function writeRunMonitorStorage(value: StoredRunMonitor) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(RUN_MONITOR_STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() }));
+}
+
+export function RunExplorer({
+  onLoadRun,
+  defaultOpen = false,
+}: {
+  onLoadRun: (run: string) => Promise<void>;
+  defaultOpen?: boolean;
+}) {
+  const graph = useExplorerStore((state) => state.graph);
+  const [filter, setFilter] = useState("");
+  const [status, setStatus] = useState("");
+  const [loadingRun, setLoadingRun] = useState("");
+  const runsQuery = useQuery({
+    queryKey: ["runs"],
+    queryFn: api.runs,
+    refetchInterval: 5000,
+  });
+  const runs = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    const items = runsQuery.data?.runs || [];
+    if (!query) return items;
+    return items.filter((run) =>
+      [run.name, run.path, run.topic, run.strategy].some((value) => String(value || "").toLowerCase().includes(query)),
+    );
+  }, [filter, runsQuery.data?.runs]);
+
+  async function loadRun(run: RunSummary) {
+    setLoadingRun(run.path);
+    setStatus("");
+    try {
+      await onLoadRun(run.path);
+      setStatus(`Loaded ${run.name}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingRun("");
+    }
+  }
+
+  return (
+    <Drawer
+      defaultOpen={defaultOpen}
+      icon={<FolderOpen size={14} />}
+      note={`${runsQuery.data?.runs.length || 0} folders`}
+      title="Run Explorer"
+    >
+      <div className="row run-filter-row">
+        <input
+          onChange={(event) => setFilter(event.target.value)}
+          placeholder="filter runs, topics, strategies"
+          value={filter}
+        />
+        <IconButton
+          disabled={runsQuery.isFetching}
+          icon={runsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
+          label="Refresh"
+          onClick={() => void runsQuery.refetch()}
+        />
+      </div>
+      <div className="run-list">
+        {runs.map((run) => {
+          const isCurrent = Boolean(graph?.path && (graph.path.includes(`/${run.name}/`) || graph.path.endsWith(`${run.name}/graph.graphml`)));
+          return (
+            <button
+              className={cx("run-item", isCurrent && "active")}
+              disabled={!run.graph_ready || loadingRun === run.path}
+              key={run.path}
+              onClick={() => loadRun(run)}
+              title={run.graph_ready ? `Load ${run.path}` : "No graph snapshot is available yet"}
+              type="button"
+            >
+              <div className="run-row">
+                <strong>{run.name}</strong>
+                <span>{formatRunTime(run.updated_at)}</span>
+              </div>
+              <span className="run-topic">{run.topic || run.path}</span>
+              <div className="run-metrics">
+                <span>{formatNumber(run.nodes)} nodes</span>
+                <span>{formatNumber(run.edges)} edges</span>
+                <span>{run.strategy || "strategy?"}</span>
+                <span>{run.graph_ready ? "ready" : "pending"}</span>
+              </div>
+            </button>
+          );
+        })}
+        {!runs.length ? <div className="status-box">{runsQuery.error ? String(runsQuery.error) : "No runs found."}</div> : null}
+      </div>
+      {status ? <div className="status-box">{status}</div> : null}
+    </Drawer>
+  );
+}
+
+export function RunMonitor({
+  onRunGraphReady,
+  onRunStart,
+  defaultOpen = false,
+}: {
+  onRunGraphReady: (run: string) => Promise<void>;
+  onRunStart?: () => Promise<void> | void;
+  defaultOpen?: boolean;
+}) {
+  const storedRunRef = useRef<StoredRunMonitor | null>(null);
+  if (!storedRunRef.current) storedRunRef.current = readRunMonitorStorage();
+  const storedRun = storedRunRef.current;
+  const [topic, setTopic] = useState(storedRun.topic || "");
+  const [strategy, setStrategy] = useState<IdeationStrategy>(normalizeStrategy(storedRun.strategy));
+  const [calls, setCalls] = useState(storedRun.calls || 50);
+  const [iters, setIters] = useState(storedRun.iters || 50);
+  const [out, setOut] = useState(storedRun.out || "runs/explorer_run");
+  const [job, setJob] = useState<JobStatus | null>(storedRun.job || null);
+  const [monitorStatus, setMonitorStatus] = useState(storedRun.job ? "Restored saved run monitor." : "");
+  const [busy, setBusy] = useState(false);
+  const lastSnapshotRef = useRef<string>("");
+
+  useEffect(() => {
+    writeRunMonitorStorage({ topic, strategy, calls, iters, out, job, jobId: job?.id });
+  }, [calls, iters, job, out, strategy, topic]);
+
+  useEffect(() => {
+    const restoredJobId = storedRun.jobId || storedRun.job?.id;
+    if (!restoredJobId) return undefined;
+    let cancelled = false;
+    api.job(restoredJobId)
+      .then((next) => {
+        if (!cancelled) {
+          setJob(next);
+          setMonitorStatus(`Reconnected to run ${restoredJobId}.`);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setJob(null);
+          setMonitorStatus(`Saved run ${restoredJobId} is not active on this server: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!job || !["running", "stopping"].includes(job.status)) return undefined;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await api.job(job.id);
+        setJob(next);
+        setMonitorStatus("");
+        const snapshot = next.snapshot_id || (next.graph_ready ? `${next.graph_path || next.out}:ready` : "");
+        if (next.graph_ready && next.out && snapshot && snapshot !== lastSnapshotRef.current) {
+          lastSnapshotRef.current = snapshot;
+          void onRunGraphReady(next.out);
+        }
+      } catch (error) {
+        setMonitorStatus(error instanceof Error ? error.message : String(error));
+      }
+    }, 2200);
+    return () => window.clearInterval(timer);
+  }, [job, onRunGraphReady]);
+
+  async function start() {
+    if (!topic.trim()) return;
+    setBusy(true);
+    try {
+      setJob(null);
+      setMonitorStatus("Clearing current graph and starting run...");
+      lastSnapshotRef.current = "";
+      try {
+        await onRunStart?.();
+      } catch (error) {
+        setMonitorStatus(error instanceof Error ? error.message : String(error));
+      }
+      const next = await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out });
+      setJob(next);
+      setMonitorStatus(`Started run ${next.id}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (!job) return;
+    const next = await api.stopJob(job.id);
+    setJob(next);
+    setMonitorStatus(`Stop requested for run ${next.id}.`);
+  }
+
+  const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);
+
+  return (
+    <Drawer defaultOpen={defaultOpen} icon={<Play size={14} />} note={job?.status || "idle"} title="Run Monitor">
+      <textarea onChange={(event) => setTopic(event.target.value)} placeholder="topic or benchmark task" rows={3} value={topic} />
+      <div className="control-grid">
+        <label>
+          Strategy
+          <select onChange={(event) => setStrategy(event.target.value as IdeationStrategy)} value={strategy}>
+            {IDEATION_STRATEGIES.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Calls
+          <input min={1} onChange={(event) => setCalls(Number(event.target.value))} type="number" value={calls} />
+        </label>
+        <label>
+          Iters
+          <input min={1} onChange={(event) => setIters(Number(event.target.value))} type="number" value={iters} />
+        </label>
+        <label>
+          Out
+          <input onChange={(event) => setOut(event.target.value)} value={out} />
+        </label>
+      </div>
+      <div className="progress-card">
+        <div>
+          <b>{progress}%</b>
+          <span>
+            {formatNumber(job?.progress?.nodes || 0)} nodes | {formatNumber(job?.progress?.edges || 0)} edges
+          </span>
+        </div>
+        <progress max={100} value={progress} />
+      </div>
+      <div className="button-row">
+        <IconButton
+          disabled={busy}
+          icon={busy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
+          label="Start"
+          onClick={start}
+          tone="primary"
+        />
+        <IconButton
+          disabled={!job || job.status !== "running"}
+          icon={<CircleStop size={14} />}
+          label="Stop"
+          onClick={stop}
+          tone="danger"
+        />
+      </div>
+      {monitorStatus ? <div className="status-box">{monitorStatus}</div> : null}
+      {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
+    </Drawer>
+  );
+}

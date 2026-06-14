@@ -169,7 +169,7 @@ usable information to the same small model:
   true mined path/neighborhood connecting them
 
 The script samples 10 concrete endpoint pairs from `graph.graphml`, writes both prompts and answer
-sets, then calls the same blind pairwise GPT judge/plotter used by `compare.py`.
+sets, then calls `compare.py` for pairwise judging, standalone absolute judging, or both.
 
 ```bash
 python path_pair_benchmark.py \
@@ -179,6 +179,7 @@ python path_pair_benchmark.py \
   --force-pairs \
   --force \
   --graph-prompt-mode cues \
+  --judge-mode both \
   --model meta-llama/Llama-3.2-3B-Instruct \
   --base-url http://localhost:8000/v1 \
   --judge-model gpt-5.5 \
@@ -192,7 +193,8 @@ hubs, endpoints without material/mechanism anchor words, and mostly generic brid
 shows a filtered cue packet mined from the true path/neighborhood. Use `--graph-prompt-mode path` to
 also show the true path, or `--graph-prompt-mode full` to show the path plus local neighborhood. Use
 `--force-pairs` when rerunning an existing output directory; otherwise the runner intentionally reuses
-the existing `pairs.json`.
+the existing `pairs.json`. Use `--judge-mode absolute` to score every answer in a separate standalone
+judge call, `--judge-mode pairwise` for blind preference only, or `--judge-mode both` for both plots.
 
 Useful controls:
 
@@ -223,6 +225,15 @@ python path_pair_benchmark.py \
   --base-url http://localhost:8000/v1 \
   --judge-model gpt-5.5 \
   --judge-effort high
+
+# Score existing answer dirs independently rather than pairwise.
+python compare.py --mode absolute \
+  --tasks runs/exp_leap/benchmark/path_pairs_v3/tasks.txt \
+  --system runs/exp_leap/benchmark/path_pairs_v3/answers/graph \
+  --baseline runs/exp_leap/benchmark/path_pairs_v3/answers/baseline \
+  --judge-model gpt-5.5 \
+  --judge-effort high \
+  --out runs/exp_leap/benchmark/path_pairs_v3/benchmark/absolute
 
 # Inspect the noisy/unfiltered graph region deliberately.
 python path_pair_benchmark.py \
@@ -1532,6 +1543,54 @@ python profile_graph.py --graph /path/to/graph.graphml --out graph_profile
 # Add embedding-based semantic diagnostics
 python profile_graph.py --run runs/exp_leap --embed-model auto --out runs/exp_leap/profile
 
+# Faster deep report. This keeps the full deterministic mining/figures/JSON/PDF and still runs
+# module summaries plus a paper-level LLM interpretation, but uses fewer LLM calls/tokens and skips
+# the final completed-report review pass.
+python profile_graph.py \
+    --run runs/exp_leap \
+    --out runs/exp_leap/profile_gpt55_light \
+    --embed-model auto \
+    --profile-preset light \
+    --backend responses \
+    --model gpt-5.5
+
+# The light preset is equivalent to these compute-saving LLM settings:
+# --llm --llm-modules 6 --llm-deep-passes 1 --max-summary-tokens 900
+# --deep-pass-tokens 2500 --deep-dive-tokens 6000 --reasoning-effort medium
+# --no-llm-report-review
+```
+
+Full mode is the default, so existing commands behave as before. The light preset changes only the LLM
+compute profile:
+
+| Stage / output | Full run (`--profile-preset full`, default) | Light run (`--profile-preset light`) |
+| --- | --- | --- |
+| Deterministic graph audit | Same full audit | Same full audit |
+| Deep graph mining | Same long paths, bridges, motifs, analogies, isomorphism analysis, broker nodes | Same long paths, bridges, motifs, analogies, isomorphism analysis, broker nodes |
+| Embedding semantic audit | Runs when `--embed-model` is supplied | Runs when `--embed-model` is supplied |
+| Figures, Markdown, JSON, PDF | Same outputs | Same outputs |
+| LLM enabled | Only when `--llm` is supplied | Implied by the preset |
+| Module summaries | Default 12 modules, or `--llm-modules` | Default 6 modules, unless overridden |
+| Deep evidence LLM passes | Default 4 passes | Default 1 pass |
+| Summary output tokens | User/default setting, often 1200-1600 | Default 900 |
+| Deep-pass output tokens | Default/user setting, often 5000 | Default 2500 |
+| Paper-level deep-dive tokens | Default/user setting, often 10000-12000 | Default 6000 |
+| Responses reasoning effort | Default/user setting, usually `high` | Default `medium`, unless overridden |
+| Final completed-report LLM review | On by default with `--llm` | Off by default |
+| Best use | Maximum paper-level synthesis and final integrated review | Faster deep report for iteration, local models, or lower-cost comparisons |
+
+```bash
+# You can override any preset value explicitly. For example, keep high reasoning but still skip
+# the final report-review pass:
+python profile_graph.py \
+    --run runs/exp_leap \
+    --out runs/exp_leap/profile_gpt55_light_high \
+    --embed-model auto \
+    --profile-preset light \
+    --backend responses \
+    --model gpt-5.5 \
+    --reasoning-effort high
+
 # GPT-5.5 paper-level deep dive via OpenAI Responses API.
 # Use a separate output directory if you plan to compare against a local model.
 python profile_graph.py \
@@ -1548,6 +1607,16 @@ python profile_graph.py \
     --deep-pass-tokens 5000 \
     --deep-dive-tokens 12000 \
     --report-review-tokens 10000
+
+# Faster local Llama comparison with the same light preset.
+python profile_graph.py \
+    --run runs/exp_leap \
+    --out runs/exp_leap/profile_llama_light \
+    --embed-model auto \
+    --profile-preset light \
+    --backend chat \
+    --model meta-llama/Llama-3.2-3B-Instruct \
+    --base-url http://localhost:8000/v1
 
 # Local Llama comparison on an OpenAI-compatible server at localhost:8000.
 # Most local servers expose chat-completions, not Responses API, so use --backend chat.
@@ -1585,11 +1654,15 @@ python profile_graph.py \
 ```
 
 For OpenAI models, `--backend responses` (also accepted as `--backend openai`) uses the Responses API
-with `reasoning={"effort": "high"}` by default; adjust with `--reasoning-effort`. For direct Hugging
-Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files do not
-always contain the original embedding model context. The deterministic mining layer still runs without
-embeddings, using lexical distance instead of embedding distance, but `--embed-model auto` usually gives
-better long-range and analogy candidates. The report includes near-top **Mined Graph Insights -
+with `reasoning={"effort": "high"}` by default; adjust with `--reasoning-effort`. The faster deep-report
+mode is `--profile-preset light`: it implies `--llm`, summarizes fewer modules, runs one extra deep
+evidence pass instead of four, reduces token budgets, sets medium reasoning by default, and disables the
+final report-review pass. It does not disable deterministic graph mining, semantic diagnostics, figures,
+JSON, Markdown, or PDF output. For direct Hugging Face generation, use `--backend hf --model ...`.
+Embeddings are optional because GraphML files do not always contain the original embedding model context.
+The deterministic mining layer still runs without embeddings, using lexical distance instead of embedding
+distance, but `--embed-model auto` usually gives better long-range and analogy candidates. The report
+includes near-top **Mined Graph Insights -
 Executive Discoveries** and **Deep Mining Evidence - Executive Audit** summaries plus a full
 **Mined Graph Insights** evidence section with long transitive paths, compact cross-module bridges,
 recurring two-step motifs, local role-equivalence analogies, exact rooted ego-net isomorphism classes,
