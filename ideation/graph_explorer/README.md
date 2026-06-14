@@ -2,7 +2,7 @@
 
 Interactive browser explorer for Graph-PRefLexOR `graph.graphml` files.
 
-It runs as a local Python server and a Three.js browser app. The app can:
+It runs as a local Python server and a React/Sigma.js browser app. The app can:
 
 - upload any GraphML file from a Graph-PRefLexOR run
 - load an existing run directory such as `runs/exp_leap`
@@ -18,7 +18,7 @@ It runs as a local Python server and a Three.js browser app. The app can:
 From `ideation/`:
 
 ```bash
-python graph_explorer/server.py --port 8765
+graph_explorer/launch.sh --port 8765
 ```
 
 Open:
@@ -27,12 +27,19 @@ Open:
 http://127.0.0.1:8765
 ```
 
-The browser imports Three.js from `unpkg.com`; the page will warn you if that module cannot load.
+The launcher installs the frontend dependencies the first time, builds the React app, then starts
+the Python API/static server.
 
 Optionally preload a run:
 
 ```bash
-python graph_explorer/server.py --run runs/exp_leap --port 8765
+graph_explorer/launch.sh --run runs/exp_leap --port 8765
+```
+
+For React development with hot reload:
+
+```bash
+graph_explorer/launch.sh --dev --run runs/exp_leap --port 8765 --vite-port 5177
 ```
 
 ## LLM Backends

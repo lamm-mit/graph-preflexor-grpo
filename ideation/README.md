@@ -1348,13 +1348,45 @@ all runs to a common length, `--max-points` subsamples the scatter/KDE for big g
 wider spread is only a *result* if the new concepts are **on-topic** — verify with `insights.py` first
 (drift inflates spread without adding real novelty).
 
+## Deep graph profile report (`profile_graph.py`)
+
+`profile_graph.py` makes a single-graph audit report for a completed run, a mid-run snapshot, or any
+GraphML file. It reads the graph directly and writes a browsable Markdown report, machine-readable JSON,
+and diagnostic figures covering graph statistics, top nodes, relation types, connected components,
+communities/modules, bridge edges, articulation points, cross-module paths, provenance, and data-quality
+flags. If Graph-PRefLexOR attributes such as `iter`, `depth`, `question`, and `response_id` are present,
+the provenance section can explain where concepts entered the graph; arbitrary GraphML still gets the
+structural/module audit.
+
+```bash
+# Completed run; writes runs/exp_leap/profile/{report.md,profile.json,figures/*}
+python profile_graph.py --run runs/exp_leap --out runs/exp_leap/profile
+
+# Any standalone GraphML file
+python profile_graph.py --graph /path/to/graph.graphml --out graph_profile
+
+# Add embedding-based semantic diagnostics
+python profile_graph.py --run runs/exp_leap --embed-model auto --out runs/exp_leap/profile
+
+# Add evidence-grounded LLM summaries for the overview and top modules
+python profile_graph.py --run runs/exp_leap --llm --model gpt-5.5 --out runs/exp_leap/profile
+python profile_graph.py --graph graph.graphml --llm --backend openai \
+    --model meta-llama/Llama-3.2-3B-Instruct --base-url http://localhost:8000/v1
+```
+
+For OpenAI-compatible local servers, use `--backend openai --base-url ... --model ...`; for direct
+Hugging Face generation, use `--backend hf --model ...`. Embeddings are optional because GraphML files
+do not always contain the original embedding model context.
+
 ## Files
 
 `ideate.py` (CLI) · `loop.py` (budget + context modes) · `strategies.py` (expansion policies) ·
 `graphstore.py` (accumulate + embed dedup) · `parse.py` (`<graph_json>` extractor) ·
 `clients.py` (Responses API) · `metrics.py` · `plot_ideation.py` (figures) · `scaling.py` (surprise vs compute) ·
 `dynamics.py` (how the graph grows, size-robust: explore-vs-consolidate, theme structure, recombination distance, late bloomers, exploration radius) ·
-`embedmap.py` (joint shared-PCA coverage comparison) · `insights.py` (mine the graph for novel leads:
+`embedmap.py` (joint shared-PCA coverage comparison) · `profile_graph.py` (single-graph audit report:
+stats, modules, critical connectors, paths, provenance, figures, optional LLM summaries) ·
+`insights.py` (mine the graph for novel leads:
 7 structural/embedding miners + cross-miner actionability) ·
 `novelty.py` (novelty stats + paper figure) · `synthesize.py` (LLM answer from query + insights,
 or `--no-insights` baseline) · `compare.py` (**Graph-RAG** benchmark — closed-book vs flat-RAG vs

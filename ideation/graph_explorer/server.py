@@ -30,6 +30,7 @@ import networkx as nx
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
+REACT_DIST_DIR = ROOT / "frontend" / "dist"
 IDEATION_DIR = ROOT.parent
 PROJECT_DIR = IDEATION_DIR.parent
 
@@ -1059,7 +1060,15 @@ class Handler(SimpleHTTPRequestHandler):
     server_version = "GraphExplorer/0.1"
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=str(STATIC_DIR), **kwargs)
+        directory = REACT_DIST_DIR if (REACT_DIST_DIR / "index.html").exists() else STATIC_DIR
+        super().__init__(*args, directory=str(directory), **kwargs)
+
+    def translate_path(self, path):
+        root = Path(self.directory)
+        translated = Path(super().translate_path(path))
+        if root == REACT_DIST_DIR and not translated.exists() and not path.startswith("/api/"):
+            return str(REACT_DIST_DIR / "index.html")
+        return str(translated)
 
     def end_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
