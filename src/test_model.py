@@ -37,6 +37,24 @@ TEST_PROMPTS = [
 ]
 
 
+def get_config_vocab_size(config):
+    """Return vocab size from standard or nested multimodal configs."""
+    for attr in ("vocab_size",):
+        value = getattr(config, attr, None)
+        if value is not None:
+            return value
+
+    for nested_attr in ("text_config", "language_config", "llm_config"):
+        nested = getattr(config, nested_attr, None)
+        if nested is None:
+            continue
+        value = getattr(nested, "vocab_size", None)
+        if value is not None:
+            return value
+
+    return None
+
+
 def load_model_and_tokenizer(model_path: str, device: str = "auto"):
     """Load model and tokenizer from local path or Hub (with PEFT adapter support)."""
     print(f"Loading model: {model_path}")
@@ -106,7 +124,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto"):
             trust_remote_code=True,
         )
 
-        base_vocab_size = model.config.vocab_size
+        base_vocab_size = get_config_vocab_size(model.config)
         adapter_tokenizer_size = len(tokenizer)
         print(f"  Base vocab: {base_vocab_size}, Adapter tokenizer: {adapter_tokenizer_size}")
 
