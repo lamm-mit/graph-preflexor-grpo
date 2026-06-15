@@ -175,7 +175,7 @@ python src/run_orpo_graph.py \
   --lora_alpha 64 \
   --lora_dropout 0.05 \
   --lr 1e-5 \
-  --epochs 1 \
+  --epochs 3 \
   --batch_size 3 \
   --grad_accum 8 \
   --max_length 3072 \
