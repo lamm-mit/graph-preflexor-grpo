@@ -171,16 +171,16 @@ python src/run_orpo_graph.py \
   --output_dir "$SFT_OUT" \
   --mode sft \
   --lora_target_modules all-linear \
-  --lora_r 16 \
-  --lora_alpha 16 \
-  --lora_dropout 0 \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
   --lr 1e-5 \
   --epochs 1 \
-  --batch_size 1 \
+  --batch_size 3 \
   --grad_accum 8 \
   --max_length 3072 \
-  --save_steps 250 \
-  --eval_steps 250 \
+  --save_steps 100 \
+  --eval_steps 100 \
   --logging_steps 10 \
   --push_to_hub \
   --hub_model_id "$SFT_HUB" \
@@ -189,8 +189,6 @@ python src/run_orpo_graph.py \
 
 Notes:
 
-- If training is stable and underusing memory, `--batch_size 2` can be tried.
-- If tags are still not emitted, the likely fix is a training prompt prefix that explicitly asks for the Graph-PRefLexOR format, not just more LR.
 - Native Gemma thinking stays disabled for this baseline.
 
 ## SFT Structure Test
@@ -318,9 +316,9 @@ python src/run_grpo_graph.py \
   --scale_rewards batch \
   --loss_type dapo \
   --lora_target_modules all-linear \
-  --lora_r 16 \
-  --lora_alpha 16 \
-  --lora_dropout 0 \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
   --save_steps 100 \
   --logging_steps 10 \
   --chat_template_enable_thinking false \
@@ -356,7 +354,6 @@ python src/test_model.py \
 
 - For text-only Gemma 4 tuning, train language layers, attention modules, and MLP modules; leave vision off.
 - HF/PEFT equivalent is broad linear targeting such as `all-linear`.
-- Unsloth examples use `r=8`, `alpha=8`, `dropout=0`; this note uses `r=16`, `alpha=16`, `dropout=0` as a stronger but still conservative setting.
 - For RL/GRPO, start around `5e-6`.
 - Do not mix native Gemma thought channels with custom visible `<think>` XML-style blocks in the same baseline.
-- Keep native Gemma thinking disabled for this Graph-PRefLexOR baseline.
+- We keep native Gemma thinking disabled for this Graph-PRefLexOR baseline.
