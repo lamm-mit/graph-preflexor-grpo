@@ -531,6 +531,7 @@ python src/run_grpo_graph.py \
 | Argument | Description |
 |----------|-------------|
 | `--base_model_dir` | Path to ORPO-trained model |
+| `--tokenizer_model` | Optional tokenizer source to use when a merged checkpoint has stale tokenizer metadata |
 | `--judge_model` | Model for reward evaluation |
 | `--weight_correctness` | Reward weight for answer correctness (default: 0.4) |
 | `--weight_format` | Reward weight for format compliance (default: 0.3) |
@@ -1010,7 +1011,7 @@ from transformers import AutoConfig, AutoTokenizer
 
 model_id = "google/gemma-4-E4B-it"
 cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, extra_special_tokens={})
 
 print("torch:", torch.__version__)
 print("cuda:", torch.cuda.is_available())
@@ -1089,7 +1090,9 @@ print("Loading ORPO adapter:", adapter)
 model = PeftModel.from_pretrained(model, adapter)
 model = model.merge_and_unload()
 
-tok = AutoTokenizer.from_pretrained(adapter, trust_remote_code=True)
+# This baseline does not add special tokens, so keep the clean base tokenizer.
+# Loading from the adapter can preserve stale Gemma tokenizer metadata.
+tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 
 print("Saving merged ORPO:", out)
 model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
@@ -1109,6 +1112,7 @@ export WANDB_TAGS="grpo,gemma4-e4b,graph_reasoning_1K,vllm"
 
 python src/run_grpo_graph.py \
   --base_model_dir "$ORPO_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
   --dataset "$DATASET" \
   --output_dir "$GRPO_OUT" \
   --judge_model gpt-5-mini \
@@ -1199,7 +1203,7 @@ print("transformers:", transformers.__version__)
 print("config:", type(cfg))
 print("architectures:", getattr(cfg, "architectures", None))
 
-tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, extra_special_tokens={})
 print("tokenizer ok:", len(tok))
 
 proc = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
@@ -1275,7 +1279,9 @@ print("Loading ORPO adapter:", adapter)
 model = PeftModel.from_pretrained(model, adapter)
 model = model.merge_and_unload()
 
-tok = AutoTokenizer.from_pretrained(adapter, trust_remote_code=True)
+# This baseline does not add special tokens, so keep the clean base tokenizer.
+# Loading from the adapter can preserve stale Gemma tokenizer metadata.
+tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 
 print("Saving merged ORPO:", out)
 model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
@@ -1295,6 +1301,7 @@ export WANDB_TAGS="grpo,gemma4-12b,graph_reasoning_1K,vllm"
 
 python src/run_grpo_graph.py \
   --base_model_dir "$ORPO_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
   --dataset "$DATASET" \
   --output_dir "$GRPO_OUT" \
   --judge_model gpt-5-mini \

@@ -60,7 +60,7 @@ from huggingface_hub import login
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from peft import LoraConfig, get_peft_model, PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
 from trl import GRPOConfig, GRPOTrainer
 from chat_template_utils import add_chat_template_args, apply_chat_template, parse_chat_template_enable_thinking
@@ -98,6 +98,39 @@ def build_grpo_config(**kwargs) -> GRPOConfig:
     if skipped:
         print(f"Skipping unsupported GRPOConfig args for installed TRL: {', '.join(skipped)}")
     return GRPOConfig(**filtered)
+
+
+def load_tokenizer_with_fallback(model_path: str, tokenizer_model: Optional[str] = None):
+    """Load tokenizer, falling back when merged checkpoints contain stale tokenizer metadata."""
+    candidates = [model_path]
+
+    if tokenizer_model:
+        candidates.append(tokenizer_model)
+    else:
+        try:
+            cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+            config_source = getattr(cfg, "_name_or_path", None)
+            if config_source and config_source not in candidates:
+                candidates.append(config_source)
+        except Exception as exc:
+            print(f"Could not inspect config for tokenizer fallback: {exc}")
+
+    errors = []
+    for candidate in candidates:
+        for label, kwargs in (
+            ("default", {}),
+            ("extra_special_tokens override", {"extra_special_tokens": {}}),
+        ):
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(candidate, trust_remote_code=True, **kwargs)
+                if candidate != model_path or kwargs:
+                    print(f"Loaded tokenizer from {candidate} ({label})")
+                return tokenizer
+            except Exception as exc:
+                errors.append(f"{candidate} ({label}): {type(exc).__name__}: {exc}")
+                print(f"Tokenizer load failed from {candidate} ({label}): {exc}")
+
+    raise RuntimeError("Could not load tokenizer from any candidate:\n" + "\n".join(errors))
 
 # ----- Graph schema -----
 
@@ -780,6 +813,12 @@ def make_reward_function(
 def main():
     parser = argparse.ArgumentParser(description="Run GRPO for graph-native reasoning.")
     parser.add_argument("--base_model_dir", type=str, required=True, help="Directory of ORPO-trained model")
+    parser.add_argument(
+        "--tokenizer_model",
+        type=str,
+        default=None,
+        help="Optional tokenizer source. Useful when a merged checkpoint has stale tokenizer metadata.",
+    )
     parser.add_argument("--dataset", type=str, required=True)
     parser.add_argument("--output_dir", type=str, default="./grpo_graph_model")
 
@@ -884,7 +923,7 @@ def main():
         raise ValueError(f"Dataset {args.dataset} missing required columns: {missing}")
 
     # Load tokenizer first (needed for chat template)
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model_dir, trust_remote_code=True)
+    tokenizer = load_tokenizer_with_fallback(args.base_model_dir, args.tokenizer_model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"  # for generation

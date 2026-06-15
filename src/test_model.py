@@ -23,8 +23,9 @@ Usage:
 import argparse
 import json
 import os
+from typing import Optional
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
 from chat_template_utils import add_chat_template_args, apply_chat_template, parse_chat_template_enable_thinking
@@ -55,7 +56,40 @@ def get_config_vocab_size(config):
     return None
 
 
-def load_model_and_tokenizer(model_path: str, device: str = "auto"):
+def load_tokenizer_with_fallback(model_path: str, tokenizer_model: Optional[str] = None):
+    """Load tokenizer, falling back when merged checkpoints contain stale tokenizer metadata."""
+    candidates = [model_path]
+
+    if tokenizer_model:
+        candidates.append(tokenizer_model)
+    else:
+        try:
+            cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+            config_source = getattr(cfg, "_name_or_path", None)
+            if config_source and config_source not in candidates:
+                candidates.append(config_source)
+        except Exception as exc:
+            print(f"Could not inspect config for tokenizer fallback: {exc}")
+
+    errors = []
+    for candidate in candidates:
+        for label, kwargs in (
+            ("default", {}),
+            ("extra_special_tokens override", {"extra_special_tokens": {}}),
+        ):
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(candidate, trust_remote_code=True, **kwargs)
+                if candidate != model_path or kwargs:
+                    print(f"Loaded tokenizer from {candidate} ({label})")
+                return tokenizer
+            except Exception as exc:
+                errors.append(f"{candidate} ({label}): {type(exc).__name__}: {exc}")
+                print(f"Tokenizer load failed from {candidate} ({label}): {exc}")
+
+    raise RuntimeError("Could not load tokenizer from any candidate:\n" + "\n".join(errors))
+
+
+def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_model: Optional[str] = None):
     """Load model and tokenizer from local path or Hub (with PEFT adapter support)."""
     print(f"Loading model: {model_path}")
 
@@ -111,8 +145,8 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto"):
         print(f"  Base model: {base_model_name}")
         print(f"  Adapter: {model_path}")
 
-        # Load tokenizer from adapter
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        # Load tokenizer from adapter, falling back to base model if adapter metadata is stale.
+        tokenizer = load_tokenizer_with_fallback(model_path, tokenizer_model or base_model_name)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -153,7 +187,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto"):
         print("  Adapter merged into base model")
     else:
         # Load as regular model
-        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        tokenizer = load_tokenizer_with_fallback(model_path, tokenizer_model)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -284,6 +318,12 @@ def run_interactive(model, tokenizer, max_new_tokens: int, temperature: float, c
 def main():
     parser = argparse.ArgumentParser(description="Test model checkpoints with generation.")
     parser.add_argument("--model", type=str, required=True, help="Model path (local or Hub)")
+    parser.add_argument(
+        "--tokenizer_model",
+        type=str,
+        default=None,
+        help="Optional tokenizer source. Useful when a merged checkpoint has stale tokenizer metadata.",
+    )
     parser.add_argument("--prompt", type=str, default=None, help="Single prompt to run")
     parser.add_argument("--test", action="store_true", help="Run built-in test prompts")
     parser.add_argument("--max_tokens", type=int, default=4096, help="Max new tokens (default: 4096)")
@@ -294,7 +334,7 @@ def main():
     args = parser.parse_args()
     chat_template_enable_thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 
-    model, tokenizer = load_model_and_tokenizer(args.model, args.device)
+    model, tokenizer = load_model_and_tokenizer(args.model, args.device, args.tokenizer_model)
     print_separator()
 
     if args.prompt:

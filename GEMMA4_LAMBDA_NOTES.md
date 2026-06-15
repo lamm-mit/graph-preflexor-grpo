@@ -106,7 +106,7 @@ from transformers import AutoConfig, AutoTokenizer
 
 model_id = "google/gemma-4-E4B-it"
 cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, extra_special_tokens={})
 
 print("torch:", torch.__version__)
 print("cuda:", torch.cuda.is_available())
@@ -125,7 +125,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 model_id = "google/gemma-4-E4B-it"
-tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, extra_special_tokens={})
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
     dtype=torch.bfloat16,
@@ -249,7 +249,9 @@ print("Loading SFT adapter:", adapter)
 model = PeftModel.from_pretrained(model, adapter)
 model = model.merge_and_unload()
 
-tok = AutoTokenizer.from_pretrained(adapter, trust_remote_code=True)
+# This baseline does not add special tokens, so keep the clean base tokenizer.
+# Loading from the adapter can preserve stale Gemma tokenizer metadata.
+tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 
 print("Saving merged SFT:", out)
 model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
@@ -295,6 +297,7 @@ export WANDB_TAGS="grpo,gemma4-e4b,graph_reasoning_10K,vllm"
 
 python src/run_grpo_graph.py \
   --base_model_dir "$SFT_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
   --dataset "$DATASET_GRPO" \
   --output_dir "$GRPO_OUT" \
   --judge_model gpt-5-mini \
@@ -305,9 +308,9 @@ python src/run_grpo_graph.py \
   --weight_graph_networkx 0.10 \
   --weight_graph_diversity 0.10 \
   --weight_graph_structure 0.10 \
-  --per_device_train_batch_size 1 \
+  --per_device_train_batch_size 2 \
   --gradient_accumulation_steps 8 \
-  --num_generations 4 \
+  --num_generations 8 \
   --learning_rate 5e-6 \
   --epochs 1 \
   --max_completion_length 8000 \
