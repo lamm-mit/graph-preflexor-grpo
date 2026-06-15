@@ -227,7 +227,7 @@ python - <<'PY'
 import os
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 base = os.environ["MODEL_ID"]
 adapter = os.environ["SFT_OUT"]
@@ -251,17 +251,30 @@ model = model.merge_and_unload()
 
 # This baseline does not add special tokens, so keep the clean base tokenizer.
 # Loading from the adapter can preserve stale Gemma tokenizer metadata.
+processor = AutoProcessor.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 
 print("Saving merged SFT:", out)
 model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
 tok.save_pretrained(out)
 
 print("Pushing merged SFT:", hub)
 model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
 tok.push_to_hub(hub, private=True, token=token)
 PY
 ```
+
+```bash
+python src/test_model.py \
+  --model "$SFT_MERGED_HUB" \
+  --prompt "Explain how spider silk achieves high toughness." \
+  --max_tokens 4096 \
+  --temperature 0.2 \
+  --chat_template_enable_thinking false
+```
+
 
 ## Install vLLM Only Before GRPO
 
@@ -333,6 +346,48 @@ python src/run_grpo_graph.py \
   --debug_rewards
 ```
 
+Without vLLM (comp issues - vLLM requires an older `transformers` library, which in turn does not support Gemma-4):
+
+```bash
+export GRPO_OUT="./gemma4-e4b-grpo-graph-10k"
+export GRPO_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-graph-10k"
+export WANDB_NAME="gemma4-e4b-grpo-graph_reasoning_10K"
+export WANDB_TAGS="grpo,gemma4-e4b,graph_reasoning_10K,vllm"
+
+python src/run_grpo_graph.py \
+  --base_model_dir "$SFT_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
+  --dataset "$DATASET_GRPO" \
+  --output_dir "$GRPO_OUT" \
+  --judge_model gpt-5-mini \
+  --judge_api_key "$OPENAI_API_KEY" \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 8 \
+  --learning_rate 5e-6 \
+  --epochs 1 \
+  --max_completion_length 8000 \
+  --temperature 1.0 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --save_steps 100 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --push_to_hub \
+  --hub_model_id "$GRPO_HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards
+```
 If memory is comfortable, increase later:
 
 ```bash
@@ -341,11 +396,70 @@ If memory is comfortable, increase later:
 --vllm_gpu_memory_utilization 0.4
 ```
 
+## Merge Final GRPO Adapter
+
+Use the newest `checkpoint-*` directory after training. If there are no checkpoint directories, this falls back to `$GRPO_OUT`.
+
+```bash
+export GRPO_FINAL_MERGED_OUT="./gemma4-e4b-grpo-graph-10k-merged"
+export GRPO_FINAL_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-graph-10k-merged"
+
+python - <<'PY'
+import os
+from pathlib import Path
+
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+
+base = os.environ["SFT_MERGED_HUB"]
+grpo_out = Path(os.environ["GRPO_OUT"])
+out = os.environ["GRPO_FINAL_MERGED_OUT"]
+hub = os.environ["GRPO_FINAL_MERGED_HUB"]
+token = os.environ["HF_TOKEN"]
+processor_source = os.environ["MODEL_ID"]
+
+checkpoints = sorted(
+    [p for p in grpo_out.glob("checkpoint-*") if p.is_dir()],
+    key=lambda p: int(p.name.split("-")[-1]),
+)
+adapter = str(checkpoints[-1] if checkpoints else grpo_out)
+
+dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+print("Loading SFT merged base:", base)
+model = AutoModelForCausalLM.from_pretrained(
+    base,
+    dtype=dtype,
+    device_map="auto",
+    trust_remote_code=True,
+)
+
+print("Loading final GRPO adapter:", adapter)
+model = PeftModel.from_pretrained(model, adapter)
+model = model.merge_and_unload()
+
+processor = AutoProcessor.from_pretrained(processor_source, trust_remote_code=True, extra_special_tokens={})
+tok = AutoTokenizer.from_pretrained(processor_source, trust_remote_code=True, extra_special_tokens={})
+
+print("Saving merged GRPO:", out)
+model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
+tok.save_pretrained(out)
+
+print("Pushing merged GRPO:", hub)
+model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
+tok.push_to_hub(hub, private=True, token=token)
+PY
+```
+
 ## Final Test
 
 ```bash
 python src/test_model.py \
-  --model "$GRPO_OUT" \
+  --model "$GRPO_FINAL_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
   --test \
   --max_tokens 3072 \
   --temperature 1.0 \

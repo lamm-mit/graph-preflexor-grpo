@@ -1068,7 +1068,7 @@ python - <<'PY'
 import os
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 base = os.environ["MODEL_ID"]
 adapter = os.environ["ORPO_OUT"]
@@ -1090,16 +1090,19 @@ print("Loading ORPO adapter:", adapter)
 model = PeftModel.from_pretrained(model, adapter)
 model = model.merge_and_unload()
 
-# This baseline does not add special tokens, so keep the clean base tokenizer.
+# This baseline does not add special tokens, so keep the clean base tokenizer/processor.
 # Loading from the adapter can preserve stale Gemma tokenizer metadata.
+processor = AutoProcessor.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 
 print("Saving merged ORPO:", out)
 model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
 tok.save_pretrained(out)
 
 print("Pushing merged ORPO:", hub)
 model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
 tok.push_to_hub(hub, private=True, token=token)
 PY
 ```
@@ -1257,7 +1260,7 @@ python - <<'PY'
 import os
 import torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 
 base = os.environ["MODEL_ID"]
 adapter = os.environ["ORPO_OUT"]
@@ -1279,16 +1282,19 @@ print("Loading ORPO adapter:", adapter)
 model = PeftModel.from_pretrained(model, adapter)
 model = model.merge_and_unload()
 
-# This baseline does not add special tokens, so keep the clean base tokenizer.
+# This baseline does not add special tokens, so keep the clean base tokenizer/processor.
 # Loading from the adapter can preserve stale Gemma tokenizer metadata.
+processor = AutoProcessor.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
 
 print("Saving merged ORPO:", out)
 model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
 tok.save_pretrained(out)
 
 print("Pushing merged ORPO:", hub)
 model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
 tok.push_to_hub(hub, private=True, token=token)
 PY
 ```
