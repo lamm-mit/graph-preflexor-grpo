@@ -1,0 +1,4 @@
+interface:
+  display_name: "GraphML Deep Analysis"
+  short_description: "Deep analysis for GraphML ideation graphs"
+  default_prompt: "Use $graphml-deep-analysis to analyze the selected GraphML snapshot and answer my research question."
