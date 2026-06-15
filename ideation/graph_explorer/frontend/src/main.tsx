@@ -23,6 +23,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  ScanSearch,
   Send,
   Settings2,
   SlidersHorizontal,
@@ -1003,10 +1004,10 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   return (
     <Drawer
       defaultOpen={defaultOpen}
-      description="Search node ids, labels, and attributes. Clicking a result selects it in the graph; hold Shift while clicking graph nodes to add more selections."
-      icon={<Search size={14} />}
+      description="Use graph search, selection, and focus tools to inspect nodes, extract paths, and build graph context."
+      icon={<ScanSearch size={14} />}
       note={`${results.length} results`}
-      title="Search & Select"
+      title="Graph Lens"
     >
       <div className="row">
         <input
@@ -2997,7 +2998,7 @@ function GraphRagExplorerTool({ defaultOpen = false }: { defaultOpen?: boolean }
         max_edges: 620,
       });
       applyContext(res.context.nodes || []);
-      setStatus(`Retrieved ${formatNumber(res.context.node_count)} nodes and ${formatNumber(res.context.edge_count)} edges. Results are also available in Search.`);
+      setStatus(`Retrieved ${formatNumber(res.context.node_count)} nodes and ${formatNumber(res.context.edge_count)} edges. Results are also available in Graph Lens.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -3077,7 +3078,7 @@ function GraphRagExplorerTool({ defaultOpen = false }: { defaultOpen?: boolean }
       <div className="button-row">
         <IconButton
           disabled={!graph || busy}
-          description="Retrieve Graph-RAG context without calling the chat model. The surfaced nodes are sent to Search."
+          description="Retrieve Graph-RAG context without calling the chat model. The surfaced nodes are sent to Graph Lens."
           icon={busy ? <Loader2 className="spin" size={14} /> : <Search size={14} />}
           label="Retrieve"
           onClick={retrieve}
@@ -3095,7 +3096,7 @@ function GraphRagExplorerTool({ defaultOpen = false }: { defaultOpen?: boolean }
         <div className="rag-tool-results">
           <div>
             <strong>Surfaced nodes</strong>
-            <span>{formatNumber(nodes.length)} shown here; full list is in Search</span>
+            <span>{formatNumber(nodes.length)} shown here; full list is in Graph Lens</span>
           </div>
           <div className="rag-node-chips">
             {nodes.slice(0, 36).map((node) => (
@@ -3709,9 +3710,9 @@ function ChatSidebar({
             </div>
           </button>
           <button disabled={!graph} onClick={onOpenSearch} type="button">
-            <Search size={14} />
+            <ScanSearch size={14} />
             <div>
-              <strong>Search and focus</strong>
+              <strong>Graph Lens</strong>
               <span>Find nodes, select concepts, and compute bridge paths.</span>
             </div>
           </button>
@@ -3771,7 +3772,7 @@ function SideRail({
       ) : null}
       {activeMode === "search" ? (
         <>
-          <SidebarHeader title="Search" subtitle="find/select nodes, then route or focus" />
+          <SidebarHeader title="Graph Lens" subtitle="find/select nodes, then route or focus" />
           <SearchPanel defaultOpen />
           <FocusTools defaultOpen />
         </>
@@ -3818,7 +3819,7 @@ function ActivityRail({
   const coreModes: Array<{ id: CoreWorkspaceMode; label: string; icon: React.ReactNode }> = [
     { id: "chat", label: "Home", icon: <BrainCircuit size={17} /> },
     { id: "graph", label: "Graph", icon: <Network size={17} /> },
-    { id: "search", label: "Search", icon: <Search size={17} /> },
+    { id: "search", label: "Graph Lens", icon: <ScanSearch size={17} /> },
     { id: "runs", label: "Runs", icon: <Play size={17} /> },
     { id: "models", label: "Settings", icon: <Settings2 size={17} /> },
   ];
@@ -4293,9 +4294,9 @@ function ThreadStage({
               <Network size={13} />
               Graph
             </button>
-            <button type="button" onClick={onOpenSearch} title="Search and select nodes">
-              <Search size={13} />
-              Search
+            <button type="button" onClick={onOpenSearch} title="Open Graph Lens">
+              <ScanSearch size={13} />
+              Graph Lens
             </button>
           </div>
         </div>
@@ -4590,7 +4591,7 @@ function App() {
                   Controls
                 </button>
                 <button type="button" onClick={() => setActiveMode("search")}>
-                  Search
+                  Graph Lens
                 </button>
               </div>
             </div>

@@ -3848,6 +3848,52 @@ label {
     white-space: pre-wrap;
   }
 
+  .run-status-log {
+    border: 1px solid #ded8ca;
+    border-radius: 9px;
+    background: #fffefa;
+    overflow: hidden;
+  }
+
+  .run-status-log summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 31px;
+    padding: 0 8px;
+    color: #3d3931;
+    font-weight: 780;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .run-status-log summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .run-status-log summary em {
+    color: var(--muted);
+    font-size: 10.5px;
+    font-style: normal;
+    font-weight: 760;
+  }
+
+  .run-status-log .status-box {
+    margin: 7px;
+  }
+
+  .run-status-log .run-log {
+    margin: 7px;
+  }
+
+  .run-log {
+    border-color: #242c34;
+    background: #080d12;
+    color: #dbe7ee;
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.04);
+  }
+
   .progress-card {
     display: grid;
     gap: 6px;

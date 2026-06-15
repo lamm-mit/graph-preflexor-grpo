@@ -12,8 +12,13 @@ import numpy as np
 import networkx as nx
 
 
+def _quoted_topic(topic):
+    quote = '"' if "'" in topic else "'"
+    return f"{quote}{topic}{quote}"
+
+
 def _q(text, topic):
-    return text if topic.lower() in text.lower() else f"In the context of {topic}: {text}"
+    return text if topic.lower() in text.lower() else f"In the context of {_quoted_topic(topic)}: {text}"
 
 
 # ---- breadth: one question per newly discovered node ----

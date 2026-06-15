@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CircleStop, FolderOpen, Loader2, Play, RotateCcw, Sparkles, Upload } from "lucide-react";
+import { CircleStop, FolderOpen, Loader2, Play, Rocket, RotateCcw, Sparkles, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { cx, Drawer, formatRunTime, IconButton } from "../components/common";
@@ -271,7 +271,7 @@ export function RunMonitor({
   const [iters, setIters] = useState(storedRun.iters || 50);
   const [out, setOut] = useState(storedRun.out || "runs/explorer_run");
   const [job, setJob] = useState<JobStatus | null>(storedRun.job || null);
-  const [monitorStatus, setMonitorStatus] = useState(storedRun.job ? "Restored saved run monitor." : "");
+  const [monitorStatus, setMonitorStatus] = useState(storedRun.job ? "Restored saved exploration run." : "");
   const [busy, setBusy] = useState(false);
   const [suggestingOut, setSuggestingOut] = useState(false);
   const lastSnapshotRef = useRef<string>("");
@@ -404,9 +404,9 @@ export function RunMonitor({
     <Drawer
       defaultOpen={defaultOpen}
       description="Launch a new ideation run, stop it, and monitor progress from the run logs. The monitor persists so navigation within the app will not lose the run."
-      icon={<Play size={14} />}
+      icon={<Rocket size={14} />}
       note={job?.status || "idle"}
-      title="Run Monitor"
+      title="New Exploration Run"
     >
       <textarea onChange={(event) => setTopic(event.target.value)} placeholder="topic or benchmark task" rows={3} value={topic} />
       <div className="control-grid">
@@ -481,8 +481,16 @@ export function RunMonitor({
           tone="danger"
         />
       </div>
-      {monitorStatus ? <div className="status-box">{monitorStatus}</div> : null}
-      {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
+      {(monitorStatus || job?.log_tail) ? (
+        <details className="run-status-log">
+          <summary>
+            <span>Run status & log</span>
+            <em>{job?.status || "idle"}</em>
+          </summary>
+          {monitorStatus ? <div className="status-box">{monitorStatus}</div> : null}
+          {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
+        </details>
+      ) : null}
     </Drawer>
   );
 }
