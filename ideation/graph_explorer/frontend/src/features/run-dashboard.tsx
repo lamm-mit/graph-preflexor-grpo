@@ -339,15 +339,17 @@ function PlotSection({
   icon,
   children,
   open = false,
+  wide = false,
 }: {
   title: string;
   note: string;
   icon: React.ReactNode;
   children: React.ReactNode;
   open?: boolean;
+  wide?: boolean;
 }) {
   return (
-    <details className="run-plot" open={open}>
+    <details className={`run-plot${wide ? " wide" : ""}`} open={open}>
       <summary>
         <span>
           {icon}
@@ -594,10 +596,10 @@ export function RunDashboardPanel({ run }: { run: string }) {
         <PlotSection icon={<Route size={13} />} note="route miner" open title="Long-range paths">
           <LongRangePathPanel artifacts={jsonArtifacts} />
         </PlotSection>
-        <PlotSection icon={<ImageIcon size={13} />} note="figures" open={Boolean(visibleFigureCount)} title="Generated figures">
+        <PlotSection icon={<ImageIcon size={13} />} note="figures" open={Boolean(visibleFigureCount)} title="Generated figures" wide>
           <FigureGallery figures={figureArtifacts} run={data.path} />
         </PlotSection>
-        <PlotSection icon={<Braces size={13} />} note="expandable JSON" title="Structured analysis data">
+        <PlotSection icon={<Braces size={13} />} note="expandable JSON" title="Structured analysis data" wide>
           <JsonArtifactViewer artifacts={jsonArtifacts} />
         </PlotSection>
       </div>

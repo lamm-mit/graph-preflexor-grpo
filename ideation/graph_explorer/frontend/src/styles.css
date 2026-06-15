@@ -1113,6 +1113,10 @@ label {
     overflow: hidden;
   }
 
+  .run-plot.wide {
+    grid-column: 1 / -1;
+  }
+
   .run-plot summary {
     display: flex;
     align-items: center;
