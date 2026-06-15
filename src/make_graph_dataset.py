@@ -36,7 +36,7 @@ import random
 from typing import Any, Dict, List, Optional, Tuple
 
 from datasets import Dataset, concatenate_datasets, load_dataset
-from huggingface_hub import HfFolder
+from huggingface_hub import login
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from tqdm import tqdm
@@ -555,7 +555,7 @@ def main():
     args = parser.parse_args()
 
     if args.hf_token:
-        HfFolder.save_token(args.hf_token)
+        login(token=args.hf_token, add_to_git_credential=False)
 
     # Parse datasets string
     dataset_specs = parse_datasets_string(args.datasets)

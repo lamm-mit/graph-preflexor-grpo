@@ -55,7 +55,7 @@ _sentence_transformer = None
 reward_logger = logging.getLogger('rewards')
 reward_logger.setLevel(logging.WARNING)  # Default: off (only warnings)
 from datasets import load_dataset
-from huggingface_hub import HfFolder
+from huggingface_hub import login
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from peft import LoraConfig, get_peft_model, PeftModel
@@ -861,7 +861,7 @@ def main():
         print("Reward debugging enabled → grpo_rewards.log")
 
     if args.hf_token:
-        HfFolder.save_token(args.hf_token)
+        login(token=args.hf_token, add_to_git_credential=False)
 
     chat_template_enable_thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 

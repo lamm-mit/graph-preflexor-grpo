@@ -46,7 +46,7 @@ from typing import Any, Dict
 
 import torch
 from datasets import load_dataset
-from huggingface_hub import HfFolder
+from huggingface_hub import login
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -98,7 +98,7 @@ def main():
     args = parser.parse_args()
 
     if args.hf_token:
-        HfFolder.save_token(args.hf_token)
+        login(token=args.hf_token, add_to_git_credential=False)
 
     # Load dataset
     ds_full = load_dataset(args.dataset, split="train")
