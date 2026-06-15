@@ -515,7 +515,7 @@ python src/run_grpo_graph.py \
 | `--base_model` | HuggingFace model ID |
 | `--mode` | Training mode: `sft` or `orpo` (default: orpo) |
 | `--no_lora` | Train full model instead of LoRA |
-| `--lora_target_modules` | `default` for q/k/v/o/gate/up/down, `all-linear` for Gemma-style broad targeting, or a comma-separated module list |
+| `--lora_target_modules` | `default` for suffix-based q/k/v/o/gate/up/down, `language-default` for Gemma 4 text-only attention/MLP projections, `language-all-linear` for Gemma 4 text-only linear modules, `all-linear` for broad PEFT targeting, or a comma-separated module list |
 | `--lora_modules_to_save` | `auto` saves `lm_head,embed_tokens` only when adding special tokens; use `none` or a comma-separated list to override |
 | `--max_length` | Max sequence length (default: 6144) |
 | `--save_steps` | Save checkpoint every N steps |
@@ -537,7 +537,7 @@ python src/run_grpo_graph.py \
 | `--weight_graph_utility` | Reward weight for graph utility (default: 0.3) |
 | `--num_generations` | Completions per prompt for Graph-GRPO (default: 4) |
 | `--no_lora` | Train full model instead of LoRA |
-| `--lora_target_modules` | `default` for q/k/v/o/gate/up/down, `all-linear` for Gemma-style broad targeting, or a comma-separated module list |
+| `--lora_target_modules` | `default` for suffix-based q/k/v/o/gate/up/down, `language-default` for Gemma 4 text-only attention/MLP projections, `language-all-linear` for Gemma 4 text-only linear modules, `all-linear` for broad PEFT targeting, or a comma-separated module list |
 | `--lora_modules_to_save` | `auto` saves `lm_head,embed_tokens` only when adding special tokens; use `none` or a comma-separated list to override |
 | `--chat_template_enable_thinking` | `auto`, `true`, or `false`; pass `false` for Gemma 4 baseline runs that use the Graph-PRefLexOR template |
 | `--debug_rewards` | Enable verbose reward/judge logging to `grpo_rewards.log` |
@@ -918,11 +918,11 @@ final answer
 Use these Gemma-specific flags for the baseline:
 
 ```bash
---lora_target_modules all-linear \
+--lora_target_modules language-default \
 --chat_template_enable_thinking false
 ```
 
-`--lora_target_modules all-linear` follows the current Gemma QLoRA guidance. `--chat_template_enable_thinking false` should be used in GRPO and `src/test_model.py` runs so native Gemma thought-channel markup does not compete with the graph tags. ORPO keeps the existing `prompt/chosen/rejected` data format; do not pass `--add_new_special_tokens` unless you intentionally want to resize embeddings and save `lm_head,embed_tokens` with the adapter.
+`--lora_target_modules language-default` avoids Gemma 4 vision/audio towers while targeting text attention/MLP projections. Raw PEFT `all-linear` is too broad for the full Gemma 4 conditional-generation wrapper. `--chat_template_enable_thinking false` should be used in GRPO and `src/test_model.py` runs so native Gemma thought-channel markup does not compete with the graph tags. ORPO keeps the existing `prompt/chosen/rejected` data format; do not pass `--add_new_special_tokens` unless you intentionally want to resize embeddings and save `lm_head,embed_tokens` with the adapter.
 
 Accept the Gemma model license on Hugging Face before running these commands. The baseline dataset below follows the Qwen 8B recipe and uses `lamm-mit/graph_reasoning_1K`.
 
@@ -1032,7 +1032,7 @@ python src/run_orpo_graph.py \
   --dataset "$DATASET" \
   --output_dir "$ORPO_OUT" \
   --mode orpo \
-  --lora_target_modules all-linear \
+  --lora_target_modules language-default \
   --lora_r 16 \
   --lora_alpha 32 \
   --lora_dropout 0.05 \
@@ -1129,7 +1129,7 @@ python src/run_grpo_graph.py \
   --temperature 1.0 \
   --scale_rewards batch \
   --loss_type dapo \
-  --lora_target_modules all-linear \
+  --lora_target_modules language-default \
   --lora_r 16 \
   --lora_alpha 32 \
   --lora_dropout 0.05 \
@@ -1218,7 +1218,7 @@ python src/run_orpo_graph.py \
   --dataset "$DATASET" \
   --output_dir "$ORPO_OUT" \
   --mode orpo \
-  --lora_target_modules all-linear \
+  --lora_target_modules language-default \
   --lora_r 16 \
   --lora_alpha 32 \
   --lora_dropout 0.05 \
@@ -1315,7 +1315,7 @@ python src/run_grpo_graph.py \
   --temperature 1.0 \
   --scale_rewards batch \
   --loss_type dapo \
-  --lora_target_modules all-linear \
+  --lora_target_modules language-default \
   --lora_r 16 \
   --lora_alpha 32 \
   --lora_dropout 0.05 \

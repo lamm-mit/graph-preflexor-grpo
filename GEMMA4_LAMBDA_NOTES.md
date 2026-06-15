@@ -170,7 +170,7 @@ python src/run_orpo_graph.py \
   --dataset "$DATASET_SFT" \
   --output_dir "$SFT_OUT" \
   --mode sft \
-  --lora_target_modules all-linear \
+  --lora_target_modules language-default \
   --lora_r 32 \
   --lora_alpha 64 \
   --lora_dropout 0.05 \
@@ -315,7 +315,7 @@ python src/run_grpo_graph.py \
   --temperature 1.0 \
   --scale_rewards batch \
   --loss_type dapo \
-  --lora_target_modules all-linear \
+  --lora_target_modules language-default \
   --lora_r 32 \
   --lora_alpha 64 \
   --lora_dropout 0.05 \
@@ -353,7 +353,7 @@ python src/test_model.py \
 ## Notes From Unsloth Gemma 4 Guide
 
 - For text-only Gemma 4 tuning, train language layers, attention modules, and MLP modules; leave vision off.
-- HF/PEFT equivalent is broad linear targeting such as `all-linear`.
+- For this full Gemma 4 conditional-generation wrapper, raw PEFT `all-linear` also sees vision/audio towers. Use this repo's `language-default` target for text-only SFT/GRPO.
 - For RL/GRPO, start around `5e-6`.
 - Do not mix native Gemma thought channels with custom visible `<think>` XML-style blocks in the same baseline.
 - We keep native Gemma thinking disabled for this Graph-PRefLexOR baseline.
