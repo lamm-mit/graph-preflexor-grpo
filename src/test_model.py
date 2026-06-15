@@ -27,6 +27,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 
+from chat_template_utils import add_chat_template_args, apply_chat_template, parse_chat_template_enable_thinking
+
 # Built-in test prompts for graph reasoning
 TEST_PROMPTS = [
     "What are the key mechanical properties of spider silk and how do they arise from its molecular structure?",
@@ -161,6 +163,7 @@ def generate_response(
     temperature: float = 0.6,
     top_p: float = 0.9,
     do_sample: bool = True,
+    chat_template_enable_thinking=None,
 ):
     """Generate a response using chat template."""
 
@@ -169,10 +172,12 @@ def generate_response(
 
     # Apply chat template
     if hasattr(tokenizer, "apply_chat_template"):
-        input_text = tokenizer.apply_chat_template(
+        input_text = apply_chat_template(
+            tokenizer,
             messages,
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=chat_template_enable_thinking,
         )
     else:
         # Fallback for tokenizers without chat template
@@ -204,7 +209,7 @@ def print_separator():
     print("\n" + "=" * 80 + "\n")
 
 
-def run_test_prompts(model, tokenizer, max_new_tokens: int, temperature: float):
+def run_test_prompts(model, tokenizer, max_new_tokens: int, temperature: float, chat_template_enable_thinking=None):
     """Run built-in test prompts."""
     for i, prompt in enumerate(TEST_PROMPTS, 1):
         print(f"[Test {i}/{len(TEST_PROMPTS)}]")
@@ -215,6 +220,7 @@ def run_test_prompts(model, tokenizer, max_new_tokens: int, temperature: float):
             model, tokenizer, prompt,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
+            chat_template_enable_thinking=chat_template_enable_thinking,
         )
 
         print("RESPONSE:")
@@ -225,7 +231,7 @@ def run_test_prompts(model, tokenizer, max_new_tokens: int, temperature: float):
             input("Press Enter for next test...")
 
 
-def run_interactive(model, tokenizer, max_new_tokens: int, temperature: float):
+def run_interactive(model, tokenizer, max_new_tokens: int, temperature: float, chat_template_enable_thinking=None):
     """Interactive mode - user types prompts."""
     print("\nInteractive mode. Type your prompt and press Enter.")
     print("Type 'quit' or 'exit' to stop.\n")
@@ -249,6 +255,7 @@ def run_interactive(model, tokenizer, max_new_tokens: int, temperature: float):
             model, tokenizer, prompt,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
+            chat_template_enable_thinking=chat_template_enable_thinking,
         )
 
         print("MODEL:")
@@ -264,8 +271,10 @@ def main():
     parser.add_argument("--max_tokens", type=int, default=4096, help="Max new tokens (default: 4096)")
     parser.add_argument("--temperature", type=float, default=0.3, help="Temperature (default: 0.3)")
     parser.add_argument("--device", type=str, default="auto", help="Device: auto, cuda, mps, cpu (default: auto)")
+    add_chat_template_args(parser)
 
     args = parser.parse_args()
+    chat_template_enable_thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 
     model, tokenizer = load_model_and_tokenizer(args.model, args.device)
     print_separator()
@@ -278,17 +287,18 @@ def main():
             model, tokenizer, args.prompt,
             max_new_tokens=args.max_tokens,
             temperature=args.temperature,
+            chat_template_enable_thinking=chat_template_enable_thinking,
         )
         print("RESPONSE:")
         print(response)
 
     elif args.test:
         # Built-in test prompts
-        run_test_prompts(model, tokenizer, args.max_tokens, args.temperature)
+        run_test_prompts(model, tokenizer, args.max_tokens, args.temperature, chat_template_enable_thinking)
 
     else:
         # Interactive mode
-        run_interactive(model, tokenizer, args.max_tokens, args.temperature)
+        run_interactive(model, tokenizer, args.max_tokens, args.temperature, chat_template_enable_thinking)
 
 
 if __name__ == "__main__":

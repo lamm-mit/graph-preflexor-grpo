@@ -515,6 +515,8 @@ python src/run_grpo_graph.py \
 | `--base_model` | HuggingFace model ID |
 | `--mode` | Training mode: `sft` or `orpo` (default: orpo) |
 | `--no_lora` | Train full model instead of LoRA |
+| `--lora_target_modules` | `default` for q/k/v/o/gate/up/down, `all-linear` for Gemma-style broad targeting, or a comma-separated module list |
+| `--lora_modules_to_save` | `auto` saves `lm_head,embed_tokens` only when adding special tokens; use `none` or a comma-separated list to override |
 | `--max_length` | Max sequence length (default: 6144) |
 | `--save_steps` | Save checkpoint every N steps |
 | `--eval_steps` | Evaluate every N steps |
@@ -535,6 +537,9 @@ python src/run_grpo_graph.py \
 | `--weight_graph_utility` | Reward weight for graph utility (default: 0.3) |
 | `--num_generations` | Completions per prompt for Graph-GRPO (default: 4) |
 | `--no_lora` | Train full model instead of LoRA |
+| `--lora_target_modules` | `default` for q/k/v/o/gate/up/down, `all-linear` for Gemma-style broad targeting, or a comma-separated module list |
+| `--lora_modules_to_save` | `auto` saves `lm_head,embed_tokens` only when adding special tokens; use `none` or a comma-separated list to override |
+| `--chat_template_enable_thinking` | `auto`, `true`, or `false`; pass `false` for Gemma 4 baseline runs that use the Graph-PRefLexOR template |
 | `--debug_rewards` | Enable verbose reward/judge logging to `grpo_rewards.log` |
 | `--hub_public` | Make Hub repo public (default: private) |
 
@@ -889,6 +894,456 @@ Good reasoning graphs have multiple internal nodes, not just premises → conclu
 
 ---
 
+## Gemma 4 Baseline Runbook
+
+This section records the current Gemma 4 decision and gives the end-to-end Lambda commands for an ORPO then Graph-GRPO run.
+
+### Template Decision
+
+Gemma 4 has a native thinking mode controlled by the official chat template. When enabled, the template inserts `<|think|>` and the model writes reasoning in a native thought channel such as `<|channel>thought ... <channel|>`. Graph-PRefLexOR currently trains and rewards a different visible structure:
+
+```text
+<think>
+  <brainstorm>...</brainstorm>
+  <graph>...</graph>
+  <graph_json>...</graph_json>
+  <patterns>...</patterns>
+  <synthesis>...</synthesis>
+</think>
+final answer
+```
+
+**Discussion note:** for the first Gemma 4 baseline, preserve the existing Graph-PRefLexOR template and do not enable Gemma's native thought channel. A native Gemma thought-channel run is a separate ablation because it requires converting the ORPO data and updating GRPO reward parsing to read `<|channel>thought ... <channel|>` while keeping the graph sentinels inside that thought block.
+
+Use these Gemma-specific flags for the baseline:
+
+```bash
+--lora_target_modules all-linear \
+--chat_template_enable_thinking false
+```
+
+`--lora_target_modules all-linear` follows the current Gemma QLoRA guidance. `--chat_template_enable_thinking false` should be used in GRPO and `src/test_model.py` runs so native Gemma thought-channel markup does not compete with the graph tags. ORPO keeps the existing `prompt/chosen/rejected` data format; do not pass `--add_new_special_tokens` unless you intentionally want to resize embeddings and save `lm_head,embed_tokens` with the adapter.
+
+Accept the Gemma model license on Hugging Face before running these commands. The baseline dataset below follows the Qwen 8B recipe and uses `lamm-mit/graph_reasoning_1K`.
+
+References:
+
+- Gemma 4 thinking guide: https://ai.google.dev/gemma/docs/capabilities/thinking
+- Gemma QLoRA guide: https://ai.google.dev/gemma/docs/core/huggingface_text_finetune_qlora
+
+### Lambda Setup
+
+Start from a fresh Lambda GPU instance. For `google/gemma-4-E4B-it`, prefer an H100 80GB for GRPO with colocated vLLM. For `google/gemma-4-12B-it`, prefer a larger GPU such as B200 180GB; H100 80GB may require the conservative GRPO settings shown below.
+
+```bash
+tmux new -s gemma4-grpo
+
+nvidia-smi
+python3 --version
+
+git clone https://github.com/lamm-mit/graph-preflexor-grpo.git
+cd graph-preflexor-grpo
+
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip setuptools wheel
+
+python -m pip install -U \
+  torch torchvision torchaudio \
+  --extra-index-url https://download.pytorch.org/whl/cu129
+
+python -m pip install -U \
+  "transformers>=5.10.1" \
+  accelerate datasets peft trl \
+  openai pydantic tqdm huggingface_hub wandb \
+  safetensors sentencepiece protobuf
+
+python -m pip install -U \
+  vllm \
+  --extra-index-url https://download.pytorch.org/whl/cu129
+
+python -m pip install -U networkx sentence-transformers numpy
+```
+
+Authenticate and set common environment variables:
+
+```bash
+export HF_TOKEN="hf_..."
+export WANDB_API_KEY="..."
+export OPENAI_API_KEY="sk-proj-..."
+export HF_NAMESPACE="your-hf-user-or-org"
+
+export DATASET="lamm-mit/graph_reasoning_1K"
+export WANDB_PROJECT="graph-preflexor"
+export TOKENIZERS_PARALLELISM=false
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+wandb login "$WANDB_API_KEY"
+```
+
+### Gemma 4 E4B: ORPO then Graph-GRPO
+
+Set the E4B model/output names:
+
+```bash
+export MODEL_ID="google/gemma-4-E4B-it"
+
+export ORPO_OUT="./gemma4-e4b-orpo-graph-1k"
+export ORPO_HUB="$HF_NAMESPACE/gemma4-e4b-orpo-graph-1k"
+
+export ORPO_MERGED_OUT="./gemma4-e4b-orpo-graph-1k-merged"
+export ORPO_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-orpo-graph-1k-merged"
+
+export GRPO_OUT="./gemma4-e4b-grpo-graph-1k"
+export GRPO_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-graph-1k"
+
+export WANDB_RUN_GROUP="gemma4-e4b-graph-1k"
+```
+
+Preflight the tokenizer/config:
+
+```bash
+python - <<'PY'
+import torch, transformers
+from transformers import AutoConfig, AutoTokenizer
+
+model_id = "google/gemma-4-E4B-it"
+cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+
+print("torch:", torch.__version__)
+print("cuda:", torch.cuda.is_available())
+print("transformers:", transformers.__version__)
+print("config:", type(cfg))
+print("architectures:", getattr(cfg, "architectures", None))
+print("tokenizer size:", len(tok))
+PY
+```
+
+Run ORPO:
+
+```bash
+export WANDB_NAME="gemma4-e4b-orpo-graph_reasoning_1K"
+export WANDB_TAGS="orpo,gemma4-e4b,graph_reasoning_1K"
+
+python src/run_orpo_graph.py \
+  --base_model "$MODEL_ID" \
+  --dataset "$DATASET" \
+  --output_dir "$ORPO_OUT" \
+  --mode orpo \
+  --lora_target_modules all-linear \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --lr 5e-5 \
+  --epochs 1 \
+  --batch_size 2 \
+  --grad_accum 4 \
+  --max_length 2048 \
+  --save_steps 100 \
+  --eval_steps 100 \
+  --logging_steps 10 \
+  --push_to_hub \
+  --hub_model_id "$ORPO_HUB" \
+  --hf_token "$HF_TOKEN"
+```
+
+Smoke-test the ORPO adapter:
+
+```bash
+python src/test_model.py \
+  --model "$ORPO_OUT" \
+  --test \
+  --max_tokens 1024 \
+  --temperature 0.7 \
+  --chat_template_enable_thinking false
+```
+
+Merge the ORPO LoRA adapter into a full model for vLLM-backed GRPO:
+
+```bash
+python - <<'PY'
+import os
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+base = os.environ["MODEL_ID"]
+adapter = os.environ["ORPO_OUT"]
+out = os.environ["ORPO_MERGED_OUT"]
+hub = os.environ["ORPO_MERGED_HUB"]
+token = os.environ["HF_TOKEN"]
+
+dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+print("Loading base:", base)
+model = AutoModelForCausalLM.from_pretrained(
+    base,
+    dtype=dtype,
+    device_map="auto",
+    trust_remote_code=True,
+)
+
+print("Loading ORPO adapter:", adapter)
+model = PeftModel.from_pretrained(model, adapter)
+model = model.merge_and_unload()
+
+tok = AutoTokenizer.from_pretrained(adapter, trust_remote_code=True)
+
+print("Saving merged ORPO:", out)
+model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+tok.save_pretrained(out)
+
+print("Pushing merged ORPO:", hub)
+model.push_to_hub(hub, private=True, token=token)
+tok.push_to_hub(hub, private=True, token=token)
+PY
+```
+
+Run Graph-GRPO:
+
+```bash
+export WANDB_NAME="gemma4-e4b-grpo-graph_reasoning_1K"
+export WANDB_TAGS="grpo,gemma4-e4b,graph_reasoning_1K,vllm"
+
+python src/run_grpo_graph.py \
+  --base_model_dir "$ORPO_MERGED_HUB" \
+  --dataset "$DATASET" \
+  --output_dir "$GRPO_OUT" \
+  --judge_model gpt-5-mini \
+  --judge_api_key "$OPENAI_API_KEY" \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 1 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 8 \
+  --learning_rate 5e-6 \
+  --epochs 3 \
+  --max_prompt_length 1536 \
+  --max_completion_length 3500 \
+  --temperature 1.0 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules all-linear \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --save_steps 100 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --use_vllm \
+  --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.4 \
+  --push_to_hub \
+  --hub_model_id "$GRPO_HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards
+```
+
+Final test:
+
+```bash
+python src/test_model.py \
+  --model "$GRPO_OUT" \
+  --test \
+  --max_tokens 3072 \
+  --temperature 1.0 \
+  --chat_template_enable_thinking false
+```
+
+If colocated vLLM runs out of memory on E4B, reduce generation pressure:
+
+```bash
+--num_generations 4 \
+--max_completion_length 3072 \
+--vllm_gpu_memory_utilization 0.35
+```
+
+### Gemma 4 12B Notes and Commands
+
+Use the 12B model as a separate run. The same Graph-PRefLexOR template decision applies. One important caveat: the 12B model card documents the multimodal loader path (`AutoProcessor` plus `AutoModelForMultimodalLM`). The current training scripts use `AutoTokenizer` and `AutoModelForCausalLM`, so run the preflight first. If 12B fails to load in the current scripts, patch the loader before starting a paid training job.
+
+Set the 12B names:
+
+```bash
+export MODEL_ID="google/gemma-4-12B-it"
+
+export ORPO_OUT="./gemma4-12b-orpo-graph-1k"
+export ORPO_HUB="$HF_NAMESPACE/gemma4-12b-orpo-graph-1k"
+
+export ORPO_MERGED_OUT="./gemma4-12b-orpo-graph-1k-merged"
+export ORPO_MERGED_HUB="$HF_NAMESPACE/gemma4-12b-orpo-graph-1k-merged"
+
+export GRPO_OUT="./gemma4-12b-grpo-graph-1k"
+export GRPO_HUB="$HF_NAMESPACE/gemma4-12b-grpo-graph-1k"
+
+export WANDB_RUN_GROUP="gemma4-12b-graph-1k"
+```
+
+Preflight the 12B loader and tokenizer/processor:
+
+```bash
+python - <<'PY'
+from transformers import AutoConfig, AutoTokenizer, AutoProcessor
+import transformers
+
+model_id = "google/gemma-4-12B-it"
+
+cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+print("transformers:", transformers.__version__)
+print("config:", type(cfg))
+print("architectures:", getattr(cfg, "architectures", None))
+
+tok = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+print("tokenizer ok:", len(tok))
+
+proc = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+print("processor ok:", type(proc))
+PY
+```
+
+Run 12B ORPO with conservative batch settings:
+
+```bash
+export WANDB_NAME="gemma4-12b-orpo-graph_reasoning_1K"
+export WANDB_TAGS="orpo,gemma4-12b,graph_reasoning_1K"
+
+python src/run_orpo_graph.py \
+  --base_model "$MODEL_ID" \
+  --dataset "$DATASET" \
+  --output_dir "$ORPO_OUT" \
+  --mode orpo \
+  --lora_target_modules all-linear \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --lr 5e-5 \
+  --epochs 1 \
+  --batch_size 1 \
+  --grad_accum 8 \
+  --max_length 2048 \
+  --save_steps 100 \
+  --eval_steps 100 \
+  --logging_steps 10 \
+  --push_to_hub \
+  --hub_model_id "$ORPO_HUB" \
+  --hf_token "$HF_TOKEN"
+```
+
+Smoke-test the 12B ORPO adapter:
+
+```bash
+python src/test_model.py \
+  --model "$ORPO_OUT" \
+  --test \
+  --max_tokens 1024 \
+  --temperature 0.7 \
+  --chat_template_enable_thinking false
+```
+
+Merge the 12B ORPO adapter. If this fails because `AutoModelForCausalLM` is unsupported for the 12B checkpoint in your installed Transformers version, stop and patch the loader before continuing.
+
+```bash
+python - <<'PY'
+import os
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+base = os.environ["MODEL_ID"]
+adapter = os.environ["ORPO_OUT"]
+out = os.environ["ORPO_MERGED_OUT"]
+hub = os.environ["ORPO_MERGED_HUB"]
+token = os.environ["HF_TOKEN"]
+
+dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+print("Loading base:", base)
+model = AutoModelForCausalLM.from_pretrained(
+    base,
+    dtype=dtype,
+    device_map="auto",
+    trust_remote_code=True,
+)
+
+print("Loading ORPO adapter:", adapter)
+model = PeftModel.from_pretrained(model, adapter)
+model = model.merge_and_unload()
+
+tok = AutoTokenizer.from_pretrained(adapter, trust_remote_code=True)
+
+print("Saving merged ORPO:", out)
+model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+tok.save_pretrained(out)
+
+print("Pushing merged ORPO:", hub)
+model.push_to_hub(hub, private=True, token=token)
+tok.push_to_hub(hub, private=True, token=token)
+PY
+```
+
+Run conservative 12B Graph-GRPO:
+
+```bash
+export WANDB_NAME="gemma4-12b-grpo-graph_reasoning_1K"
+export WANDB_TAGS="grpo,gemma4-12b,graph_reasoning_1K,vllm"
+
+python src/run_grpo_graph.py \
+  --base_model_dir "$ORPO_MERGED_HUB" \
+  --dataset "$DATASET" \
+  --output_dir "$GRPO_OUT" \
+  --judge_model gpt-5-mini \
+  --judge_api_key "$OPENAI_API_KEY" \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 1 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 4 \
+  --learning_rate 5e-6 \
+  --epochs 1 \
+  --max_prompt_length 1536 \
+  --max_completion_length 3072 \
+  --temperature 1.0 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules all-linear \
+  --lora_r 16 \
+  --lora_alpha 32 \
+  --lora_dropout 0.05 \
+  --save_steps 100 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --use_vllm \
+  --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.3 \
+  --push_to_hub \
+  --hub_model_id "$GRPO_HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards
+```
+
+Test the final 12B checkpoint:
+
+```bash
+python src/test_model.py \
+  --model "$GRPO_OUT" \
+  --test \
+  --max_tokens 3072 \
+  --temperature 1.0 \
+  --chat_template_enable_thinking false
+```
+
+---
+
 # Full example `lamm-mit/Graph-Preflexor-8b_12292025`
 
 ## Training 
@@ -1118,6 +1573,9 @@ python src/test_model.py --model ./checkpoint --prompt "How does spider silk ach
 
 # Adjust generation params
 python src/test_model.py --model ./checkpoint --test --max_tokens 2048 --temperature 0.7
+
+# Gemma 4 baseline: keep Graph-PRefLexOR tags, disable native thought channel
+python src/test_model.py --model ./gemma4-e4b-grpo-graph-1k --test --chat_template_enable_thinking false
 ```
 
 | Argument | Description |
@@ -1127,6 +1585,7 @@ python src/test_model.py --model ./checkpoint --test --max_tokens 2048 --tempera
 | `--test` | Run built-in test prompts |
 | `--max_tokens` | Max new tokens (default: 4096) |
 | `--temperature` | Sampling temperature (default: 0.6) |
+| `--chat_template_enable_thinking` | `auto`, `true`, or `false`; pass `false` for Gemma 4 baseline testing |
 
 ---
 

@@ -73,6 +73,8 @@ from peft import LoraConfig, get_peft_model, PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from trl import GRPOConfig, GRPOTrainer
+from chat_template_utils import add_chat_template_args, apply_chat_template, parse_chat_template_enable_thinking
+from lora_utils import add_lora_config_args, parse_lora_modules_to_save, parse_lora_target_modules
 
 # Sentinels
 THINK_START = "<think>"
@@ -1091,6 +1093,7 @@ def main():
     parser.add_argument("--max_prompt_length", type=int, default=1024)
     parser.add_argument("--max_completion_length", type=int, default=4096, help="Max completion length (reasoning + answer)")
     parser.add_argument("--temperature", type=float, default=0.4)
+    add_chat_template_args(parser)
 
     # GRPO algorithm settings
     parser.add_argument("--scale_rewards", type=str, default="batch",
@@ -1103,6 +1106,7 @@ def main():
     parser.add_argument("--lora_r", type=int, default=16)
     parser.add_argument("--lora_alpha", type=int, default=32)
     parser.add_argument("--lora_dropout", type=float, default=0.05)
+    add_lora_config_args(parser)
     parser.add_argument("--no_lora", action="store_true", help="Train full model instead of LoRA")
     parser.add_argument("--add_new_special_tokens", action="store_true",
                         help="Add custom special tokens and resize embeddings (default: False, uses existing tokenizer)")
@@ -1156,6 +1160,8 @@ def main():
     if args.hf_token:
         HfFolder.save_token(args.hf_token)
 
+    chat_template_enable_thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
+
     # Load dataset
     ds = load_dataset(args.dataset, split="train")
     required_cols = {"prompt", "answer"}
@@ -1182,10 +1188,12 @@ def main():
 
         # Apply chat template with generation prompt
         try:
-            prompt = tokenizer.apply_chat_template(
+            prompt = apply_chat_template(
+                tokenizer,
                 [{"role": "user", "content": q}],
                 tokenize=False,
                 add_generation_prompt=True,
+                enable_thinking=chat_template_enable_thinking,
             )
         except Exception:
             # Fallback if chat template fails
@@ -1343,9 +1351,11 @@ def main():
             print("=" * 60)
         else:
             # ===== NEW: Create fresh LoRA adapter =====
-            #target_modules = [ "q_proj", "k_proj", "v_proj", "o_proj",   "gate_proj", "up_proj", "down_proj", ]
-            #target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"]
-            target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+            target_modules = parse_lora_target_modules(args.lora_target_modules)
+            modules_to_save = parse_lora_modules_to_save(args.lora_modules_to_save, args.add_new_special_tokens)
+            print(f"  Target modules: {target_modules}")
+            if modules_to_save:
+                print(f"  Modules to save: {modules_to_save}")
 
             peft_cfg = LoraConfig(
                 r=args.lora_r,
@@ -1353,6 +1363,7 @@ def main():
                 lora_dropout=args.lora_dropout,
                 bias="none",
                 target_modules=target_modules,
+                modules_to_save=modules_to_save,
                 task_type="CAUSAL_LM",
             )
             model = get_peft_model(model, peft_cfg)

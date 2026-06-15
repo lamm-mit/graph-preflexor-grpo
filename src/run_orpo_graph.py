@@ -51,6 +51,7 @@ from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from trl import ORPOConfig, ORPOTrainer, SFTConfig, SFTTrainer
+from lora_utils import add_lora_config_args, parse_lora_modules_to_save, parse_lora_target_modules
 
 # Sentinels (actual tags used in dataset)
 SPECIAL_TOKENS = [
@@ -74,6 +75,7 @@ def main():
     parser.add_argument("--lora_r", type=int, default=16)
     parser.add_argument("--lora_alpha", type=int, default=32)
     parser.add_argument("--lora_dropout", type=float, default=0.05)
+    add_lora_config_args(parser)
 
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--epochs", type=int, default=1)
@@ -170,15 +172,18 @@ def main():
 
     # LoRA config (optional)
     if not args.no_lora:
-        #target_modules = [  "q_proj", "k_proj", "v_proj", "o_proj",  "gate_proj", "up_proj", "down_proj", ]
-        #target_modules=["embed_tokens", "q_proj", "v_proj", "o_proj", "k_proj", "up_proj", "down_proj", "gate_proj"]
-        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        target_modules = parse_lora_target_modules(args.lora_target_modules)
+        modules_to_save = parse_lora_modules_to_save(args.lora_modules_to_save, args.add_new_special_tokens)
+        print(f"LoRA target modules: {target_modules}")
+        if modules_to_save:
+            print(f"LoRA modules to save: {modules_to_save}")
     
         peft_config = LoraConfig(
             r=args.lora_r,
             lora_alpha=args.lora_alpha,
             lora_dropout=args.lora_dropout,
             target_modules=target_modules,
+            modules_to_save=modules_to_save,
             bias="none",
             task_type="CAUSAL_LM",
         )
