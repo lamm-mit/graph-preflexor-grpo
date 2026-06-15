@@ -8,6 +8,7 @@ server:
 
 generator:                                # Graph-PRefLexOR
   model: "lamm-mit/Graph-Preflexor-3b_08012026"
+  base_url: "http://localhost:1234/v1"
   backend: "responses"
   temperature: 0.1
   max_tokens: 8000
@@ -18,6 +19,7 @@ questioner:
   backend: "responses"
   api_key: "x"
   temperature: 0.9
+  max_tokens: 20000
 
 graph_qa:                                  # Explorer main chat / Ask Agent
   model: "google/gemma-4-E4B-it"
@@ -25,7 +27,7 @@ graph_qa:                                  # Explorer main chat / Ask Agent
   backend: "responses"
   api_key: "x"
   temperature: 0.3
-  max_tokens: 1800
+  max_tokens: 20000
 
 # Optional head-to-head baseline (a frontier API or another local model on its own endpoint).
 # baseline:
@@ -33,7 +35,7 @@ graph_qa:                                  # Explorer main chat / Ask Agent
 #   api_key:  "${OPENAI_API_KEY}"
 #   backend:  "responses"
 #   model:    "gpt-4o"
-#   max_tokens: 6000
+#   max_tokens: 20000
 
 # Node-embedding model (dedup + semantic diversity). Default = EmbeddingGemma (newer/stronger;
 # gated HF model: `huggingface-cli login` + accept license, needs sentence-transformers>=5).

@@ -159,6 +159,11 @@ Browser-local persistence is used for selected UI state:
 - Left/right panel widths.
 - Optional tools in the left rail.
 
+Default Graph Assistant output budget is `20000` requested tokens. This is a
+request cap, not a hard guarantee: providers and local servers still enforce
+their own model/context limits, and the backend retries with lower caps if a
+selected server rejects the requested value.
+
 ## Software Design Flowcharts
 
 These diagrams describe the current implementation paths. If code changes alter
@@ -559,7 +564,7 @@ base_url: http://localhost:1234/v1
 backend: responses
 api_key_env: OPENAI_API_KEY
 temperature: 0.3
-max_tokens: 1800
+max_tokens: 20000
 reasoning_effort: medium
 ```
 
@@ -569,6 +574,10 @@ Provider notes:
 - Empty `base_url` means the OpenAI hosted API.
 - Local servers usually use `http://localhost:1234/v1` or
   `http://localhost:8000/v1`.
+- `max_tokens` is the requested assistant answer budget. Use Model Settings to
+  raise or lower it per role. The backend maps it to `max_output_tokens` for
+  Responses, `max_completion_tokens` for chat completions, and `max_new_tokens`
+  for local Hugging Face generation.
 - Gemma chat presets must use the instruct/chat model id:
   `google/gemma-4-E4B-it`, not the base `google/gemma-4-E4B`.
 
@@ -659,6 +668,8 @@ generator:
   backend: responses
   model: lamm-mit/Graph-Preflexor-3b_08012026
   base_url: http://localhost:1234/v1
+  temperature: 0.1
+  max_tokens: 8000
 baseline:
   provider: openai
   backend: responses

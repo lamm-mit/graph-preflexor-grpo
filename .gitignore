@@ -8,9 +8,11 @@
 .DS_Store
 __pycache__/
 ./runs/*
+./hf_runs/*
 ./ideation/runs/*
 ./ideation/figures/*
 ./ideation/.cache*
+./ideation/.cache/*
 ./ideation/.cache/*
 ./ideation/.*
 *.cache

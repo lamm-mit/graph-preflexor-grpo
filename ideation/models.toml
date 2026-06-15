@@ -12,7 +12,15 @@ port = 1234
 kind = "text"
 model_id = "lamm-mit/Graph-Preflexor-3b_08012026"
 [models.quantization]
-in_situ_quant = "8"
+in_situ_quant = "Q8_0" #"HQQ8"
+
+
+# Generator — Graph-PRefLexOR (1.7B)
+[[models]]
+kind = "text"
+model_id = "lamm-mit/Graph-Preflexor-1.7b_08012026"
+[models.quantization]
+in_situ_quant = "Q8_0" #"HQQ8"
 
 # Questioner + graph explorer chat — Gemma on the same mistral.rs endpoint.
 #[[models]]

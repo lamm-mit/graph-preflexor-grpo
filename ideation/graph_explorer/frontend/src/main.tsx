@@ -67,7 +67,7 @@ import type {
 } from "./types";
 import "./styles.css";
 
-const logoUrl = new URL("../../logo.gif", import.meta.url).href;
+const logoUrl = "/api/logo";
 
 type CoreWorkspaceMode = "chat" | "graph" | "search" | "runs" | "reports" | "models";
 type OptionalToolMode = "graphrag";
@@ -79,6 +79,9 @@ const TOOL_RAIL_STORAGE_KEY = "graph-preflexor-explorer.tool-rail.v1";
 const SESSION_REPORTS_STORAGE_KEY = "graph-preflexor-explorer.session-reports.v1";
 const PANEL_WIDTH_STORAGE_KEY = "graph-preflexor-explorer.panel-widths.v1";
 const OPTIONAL_TOOL_IDS = ["graphrag"] as const;
+const DEFAULT_CHAT_MAX_OUTPUT_TOKENS = 20000;
+const HIGH_CHAT_MAX_OUTPUT_TOKENS = 20000;
+const GENERATOR_MAX_OUTPUT_TOKENS = 8000;
 
 type SessionReport = {
   out: string;
@@ -452,7 +455,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
@@ -465,7 +468,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
@@ -478,7 +481,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
@@ -491,7 +494,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
@@ -504,7 +507,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.3,
-      max_tokens: 4000,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "medium",
     },
   },
@@ -517,7 +520,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.3,
-      max_tokens: 3000,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "medium",
     },
   },
@@ -530,7 +533,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "low",
     },
   },
@@ -543,7 +546,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0.2,
-      max_tokens: 6000,
+      max_tokens: HIGH_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "high",
     },
   },
@@ -556,7 +559,7 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
@@ -569,20 +572,46 @@ const MODEL_PRESETS: Array<{ label: string; values: Partial<ModelRole> }> = [
       backend: "responses",
       api_key_env: "",
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: DEFAULT_CHAT_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
   {
-    label: "Graph-PRefLexOR generator",
+    label: "Graph-PRefLexOR Generator 1.7b",
+    values: {
+      provider: "openai",
+      model: "lamm-mit/Graph-Preflexor-1.7b_08012026",
+      base_url: "http://localhost:1234/v1",
+      backend: "responses",
+      api_key_env: "",
+      temperature: 0.1,
+      max_tokens: GENERATOR_MAX_OUTPUT_TOKENS,
+      reasoning_effort: "",
+    },
+  },
+  {
+    label: "Graph-PRefLexOR Generator 3b",
     values: {
       provider: "openai",
       model: "lamm-mit/Graph-Preflexor-3b_08012026",
       base_url: "http://localhost:1234/v1",
       backend: "responses",
       api_key_env: "",
-      temperature: 0.7,
-      max_tokens: 1800,
+      temperature: 0.1,
+      max_tokens: GENERATOR_MAX_OUTPUT_TOKENS,
+      reasoning_effort: "",
+    },
+  },
+  {
+    label: "Graph-PRefLexOR Generator 8b",
+    values: {
+      provider: "openai",
+      model: "lamm-mit/Graph-Preflexor-8b_12292025",
+      base_url: "http://localhost:1234/v1",
+      backend: "responses",
+      api_key_env: "",
+      temperature: 0.1,
+      max_tokens: GENERATOR_MAX_OUTPUT_TOKENS,
       reasoning_effort: "",
     },
   },
@@ -799,12 +828,16 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
 function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const results = useExplorerStore((state) => state.searchResults);
   const setSearchResults = useExplorerStore((state) => state.setSearchResults);
+  const setGraph = useExplorerStore((state) => state.setGraph);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
+  const setSelectedNodes = useExplorerStore((state) => state.setSelectedNodes);
+  const clearSelection = useExplorerStore((state) => state.clearSelection);
   const setHighlightedPaths = useExplorerStore((state) => state.setHighlightedPaths);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const graph = useExplorerStore((state) => state.graph);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectionBusy, setSelectionBusy] = useState(false);
   const [status, setStatus] = useState("Click a result to select it in the viewer. Shift-click graph nodes to build a multi-node selection.");
 
   async function runSearch() {
@@ -834,6 +867,46 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
       }));
     setSearchResults(hubs);
     setStatus("Showing highest-degree hubs. Click a hub to select it in the viewer.");
+  }
+
+  function selectVisibleNodes() {
+    if (!graph) return;
+    const ids = graph.nodes.map((node) => node.id);
+    setSelectedNodes(ids);
+    setHighlightedPaths([]);
+    setStatus(`Selected ${formatNumber(ids.length)} visible nodes.`);
+  }
+
+  async function selectLoadedGraph() {
+    if (!graph) return;
+    setSelectionBusy(true);
+    try {
+      const fullGraph = await api.graph();
+      const ids = fullGraph.nodes.map((node) => node.id);
+      setGraph(fullGraph);
+      setSelectedNodes(ids);
+      setHighlightedPaths([]);
+      setStatus(`Selected the full loaded graph: ${formatNumber(ids.length)} nodes.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSelectionBusy(false);
+    }
+  }
+
+  function invertVisibleSelection() {
+    if (!graph) return;
+    const selected = new Set(selectedNodes);
+    const ids = graph.nodes.map((node) => node.id).filter((id) => !selected.has(id));
+    setSelectedNodes(ids);
+    setHighlightedPaths([]);
+    setStatus(`Inverted visible selection: ${formatNumber(ids.length)} nodes selected.`);
+  }
+
+  function clearNodeSelection() {
+    clearSelection();
+    setHighlightedPaths([]);
+    setStatus("Selection cleared.");
   }
 
   return (
@@ -874,6 +947,24 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
           }}
         />
       </div>
+      <div className="mini-action-row" aria-label="Selection actions">
+        <button disabled={!graph} onClick={selectVisibleNodes} title="Select every node currently visible in the viewer." type="button">
+          <CircleCheck size={12} />
+          Visible
+        </button>
+        <button disabled={!graph || selectionBusy} onClick={selectLoadedGraph} title="Restore the full loaded graph and select every node." type="button">
+          {selectionBusy ? <Loader2 className="spin" size={12} /> : <Network size={12} />}
+          All
+        </button>
+        <button disabled={!graph} onClick={invertVisibleSelection} title="Invert the selection across the currently visible nodes." type="button">
+          <RotateCcw size={12} />
+          Invert
+        </button>
+        <button disabled={!selectedNodes.length} onClick={clearNodeSelection} title="Clear the selected node set." type="button">
+          <X size={12} />
+          Clear
+        </button>
+      </div>
       {status ? <div className="micro-help">{status}</div> : null}
       <div className="result-list">
         {results.map((result) => (
@@ -903,14 +994,20 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
 function SigmaGraphCanvas() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Sigma | null>(null);
+  const sigmaGraphRef = useRef<Graph | null>(null);
   const appendSelectionRef = useRef(false);
   const draggedNodeRef = useRef<string | null>(null);
+  const selectedNodesRef = useRef<string[]>([]);
   const graph = useExplorerStore((state) => state.graph);
   const visual = useExplorerStore((state) => state.visual);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
   const [hoverNode, setHoverNode] = useState<GraphNode | null>(null);
+
+  useEffect(() => {
+    selectedNodesRef.current = selectedNodes;
+  }, [selectedNodes]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -924,8 +1021,9 @@ function SigmaGraphCanvas() {
     container.addEventListener("pointerdown", updateAppendSelection, true);
 
     const sigmaGraph = new Graph();
+    sigmaGraphRef.current = sigmaGraph;
     const colorRange = metricRange(graph.nodes, visual.colorBy);
-    const selected = new Set(selectedNodes);
+    const selected = new Set(selectedNodesRef.current);
     const highlightedNodes = pathNodeSet(highlightedPaths);
     const highlightedEdges = pathEdgeSet(highlightedPaths);
     const darkCanvas = visual.canvasTheme === "dark";
@@ -1024,9 +1122,39 @@ function SigmaGraphCanvas() {
       mouseCaptor.off("mouseup", stopDragging);
       mouseCaptor.off("mouseleave", stopDragging);
       draggedNodeRef.current = null;
+      sigmaGraphRef.current = null;
       renderer.kill();
     };
-  }, [graph, highlightedPaths, selectedNodes, setSelectedNode, visual]);
+  }, [graph, highlightedPaths, setSelectedNode, visual]);
+
+  useEffect(() => {
+    const sigmaGraph = sigmaGraphRef.current;
+    const renderer = rendererRef.current;
+    if (!sigmaGraph || !renderer || !graph) return;
+    const selected = new Set(selectedNodes);
+    const highlightedNodes = pathNodeSet(highlightedPaths);
+    const colorRange = metricRange(graph.nodes, visual.colorBy);
+    const darkCanvas = visual.canvasTheme === "dark";
+    const selectedColor = darkCanvas ? "#ffffff" : "#133d35";
+    const selectedBorder = darkCanvas ? "#4df0ab" : "#2f8d68";
+    const highlightedColor = darkCanvas ? "#ffd166" : "#b56b16";
+    const changedNodes: string[] = [];
+    for (const node of graph.nodes) {
+      if (!sigmaGraph.hasNode(node.id)) continue;
+      const isHighlighted = highlightedNodes.has(node.id);
+      const nodeColor =
+        visual.colorBy === "component" || visual.colorBy === "community"
+          ? paletteCategoryColor(nodeMetric(node, visual.colorBy), visual)
+          : colorScale(nodeMetric(node, visual.colorBy), colorRange, visual.colorPalette);
+      sigmaGraph.mergeNodeAttributes(node.id, {
+        size: selected.has(node.id) || isHighlighted ? nodeSize(node, graph, visual) * 1.9 : nodeSize(node, graph, visual),
+        color: selected.has(node.id) ? selectedColor : isHighlighted ? highlightedColor : nodeColor,
+        borderColor: selected.has(node.id) ? selectedBorder : isHighlighted ? "#ffef9f" : nodeColor,
+      });
+      changedNodes.push(node.id);
+    }
+    if (changedNodes.length) renderer.refresh({ partialGraph: { nodes: changedNodes }, skipIndexation: true });
+  }, [graph, highlightedPaths, selectedNodes, visual]);
 
   const selectedLabel = useMemo(() => {
     if (!graph || !selectedNodes.length) return "No selection";
@@ -1038,7 +1166,7 @@ function SigmaGraphCanvas() {
     <section className={cx("graph-shell", visual.canvasTheme === "dark" ? "graph-shell-dark" : "graph-shell-light")}>
       <div className="graph-top-dock">
         <div className="graph-overlay">{contextSummary(graph, selectedNodes)}</div>
-        <div className="graph-overlay">{selectedLabel} | drag nodes to reposition</div>
+        <div className="graph-overlay">{selectedLabel}</div>
       </div>
       <div className="graph-canvas" ref={containerRef} />
       <div className="graph-bottom-dock">
@@ -2543,7 +2671,7 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const roles = useExplorerStore((state) => state.roles);
   const updateRole = useExplorerStore((state) => state.updateRole);
   const setRoles = useExplorerStore((state) => state.setRoles);
-  const [active, setActive] = useState("chat");
+  const [active, setActive] = useState("generator");
   const [status, setStatus] = useState("No server checked.");
   const [preview, setPreview] = useState("");
   const [probeBusy, setProbeBusy] = useState(false);
@@ -2659,6 +2787,20 @@ function ModelSettings({ defaultOpen = false }: { defaultOpen?: boolean }) {
           Temp
           <input value={role.temperature ?? ""} onChange={(event) => patchRole({ temperature: event.target.value })} />
         </label>
+        <label>
+          Max output
+          <input
+            max={131072}
+            min={256}
+            step={512}
+            type="number"
+            value={role.max_tokens ?? ""}
+            onChange={(event) => patchRole({ max_tokens: event.target.value ? Number(event.target.value) : "" })}
+          />
+        </label>
+      </div>
+      <div className="micro-help">
+        Max output is the requested assistant answer budget. The backend requests a high limit by default and retries with lower limits if the selected provider rejects the cap.
       </div>
       <div className="button-row">
         <IconButton

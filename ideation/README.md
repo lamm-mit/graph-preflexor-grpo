@@ -1366,8 +1366,8 @@ Llama-3.2-3B is gated (`huggingface-cli login` once); or drop the `--backend`/`-
 
 ## Novelty quantification (`novelty.py`)
 
-Answers the reviewer's question — *how novel are these concepts and insights?* — with
-**publication-grade figures** where every panel is a citeable method, plus a
+Answers the question — *how novel are these concepts and insights?* — with
+**figures** where every panel is a citeable method, plus a
 **`<out>_novelty.json`** of the numbers so they can be quoted in the text. Two images are written
 so each stands alone: **`<out>_novelty_map.*`** (the wide concept-space map, panel A) and
 **`<out>_novelty_stats.*`** (panels B/C/D stacked, full-width). Needs embeddings.
@@ -1394,7 +1394,7 @@ python novelty.py --runs runs/exp runs/exp_novelty runs/exp_leap \
 python novelty.py --run runs/exp --n-null 500
 ```
 
-For the **test-time-compute axis** of the same story (how surprising-insight yield grows *with
+For the **test-time-compute axis** (how surprising-insight yield grows *with
 compute*), use the companion **`scaling.py`** (next section) on the same runs:
 `python scaling.py --run runs/exp --out runs/exp/figures/scaling`.
 

@@ -115,6 +115,7 @@ export const api = {
     budget_calls: number;
     max_iters: number;
     out: string;
+    clear_output?: boolean;
   }) => request<JobStatus>("/api/ideate", body),
   job: (id: string) => request<JobStatus>(`/api/job?id=${encodeURIComponent(id)}`),
   stopJob: (id: string) => request<JobStatus>("/api/stop_job", { id }),

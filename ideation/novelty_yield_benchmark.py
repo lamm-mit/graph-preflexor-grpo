@@ -350,10 +350,11 @@ def _render(args, topic, scores, out_dir, leads):
         "baseline": _arm_stats(scores, "baseline", args.novelty_threshold, args.coherence_gate),
         "graph": _arm_stats(scores, "graph", args.novelty_threshold, args.coherence_gate),
     }
-    labels = ["Llama baseline", "Graph-PRefLexOR"]
-    vals = [100 * stats["baseline"]["yield"], 100 * stats["graph"]["yield"]]
-    errs = [100 * stats["baseline"]["se"], 100 * stats["graph"]["se"]]
-    colors = ["#1f77b4", "#d62728"]
+    plot_arms = ["graph", "baseline"]
+    labels = ["Graph-PRefLexOR", "Llama baseline"]
+    vals = [100 * stats[arm]["yield"] for arm in plot_arms]
+    errs = [100 * stats[arm]["se"] for arm in plot_arms]
+    colors = ["#d62728", "#1f77b4"]
 
     plt.rcParams.update({
         "font.size": 11,
@@ -368,7 +369,7 @@ def _render(args, topic, scores, out_dir, leads):
     ax.set_ylim(0, 100)
     ax.set_ylabel(f"% ideas with novelty >= {args.novelty_threshold}")
     ax.set_title("Novelty yield: graph-derived leads vs direct Llama")
-    for bar, arm in zip(bars, ["baseline", "graph"]):
+    for bar, arm in zip(bars, plot_arms):
         s = stats[arm]
         ax.text(
             bar.get_x() + bar.get_width() / 2,

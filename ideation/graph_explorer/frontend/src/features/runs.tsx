@@ -306,17 +306,24 @@ export function RunMonitor({
         const next = await api.job(job.id);
         setJob(next);
         setMonitorStatus("");
-        const snapshot = next.snapshot_id || (next.graph_ready ? `${next.graph_path || next.out}:ready` : "");
-        if (next.graph_ready && next.out && snapshot && snapshot !== lastSnapshotRef.current) {
-          lastSnapshotRef.current = snapshot;
-          void onRunGraphReady(next.out);
-        }
+        void syncRunGraph(next);
       } catch (error) {
         setMonitorStatus(error instanceof Error ? error.message : String(error));
       }
     }, 2200);
     return () => window.clearInterval(timer);
-  }, [job, onRunGraphReady]);
+  }, [job]);
+
+  async function syncRunGraph(next: JobStatus) {
+    const snapshot = next.snapshot_id || (next.graph_ready ? `${next.graph_path || next.out}:ready` : "");
+    if (!next.graph_ready || !next.out || !snapshot || snapshot === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = snapshot;
+    try {
+      await onRunGraphReady(next.out);
+    } catch (error) {
+      setMonitorStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   async function start() {
     if (!topic.trim()) return;
@@ -330,9 +337,11 @@ export function RunMonitor({
       } catch (error) {
         setMonitorStatus(error instanceof Error ? error.message : String(error));
       }
-      const next = await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out });
+      const next = await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out, clear_output: true });
       setJob(next);
-      setMonitorStatus(`Started run ${next.id}.`);
+      if (next.out) setOut(next.out);
+      setMonitorStatus(`Started run ${next.id}. Active graph will follow ${next.out} as snapshots appear.`);
+      void syncRunGraph(next);
     } finally {
       setBusy(false);
     }
@@ -343,6 +352,7 @@ export function RunMonitor({
     const next = await api.stopJob(job.id);
     setJob(next);
     setMonitorStatus(`Stop requested for run ${next.id}.`);
+    void syncRunGraph(next);
   }
 
   const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);

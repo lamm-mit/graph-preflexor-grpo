@@ -10,7 +10,7 @@ const defaultRole: ModelRole = {
   backend: "responses",
   api_key_env: "",
   temperature: 0.3,
-  max_tokens: 1800,
+  max_tokens: 20000,
   reasoning_effort: "",
 };
 
@@ -28,6 +28,7 @@ export type ExplorerState = {
   chatMessages: ChatMessage[];
   setGraph: (graph: GraphPayload | null) => void;
   setSelectedNode: (id: string | null, append?: boolean) => void;
+  setSelectedNodes: (ids: string[]) => void;
   clearSelection: () => void;
   setSearchResults: (results: SearchResult[]) => void;
   setHighlightedPaths: (paths: string[][]) => void;
@@ -65,6 +66,8 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
       ...defaultRole,
       model: "lamm-mit/Graph-Preflexor-3b_08012026",
       base_url: "http://localhost:1234/v1",
+      temperature: 0.1,
+      max_tokens: 8000,
     },
     questioner: questionerRole,
     judge: {
@@ -73,7 +76,7 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
       base_url: "https://api.openai.com/v1",
       api_key_env: "OPENAI_API_KEY",
       temperature: 0,
-      max_tokens: 4000,
+      max_tokens: 20000,
     },
     baseline: defaultRole,
   },
@@ -95,6 +98,10 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
         : [id];
       return { selectedNode: id, selectedNodes };
     }),
+  setSelectedNodes: (ids) => {
+    const selectedNodes = Array.from(new Set(ids.filter(Boolean)));
+    set({ selectedNode: selectedNodes[0] || null, selectedNodes });
+  },
   clearSelection: () => set({ selectedNode: null, selectedNodes: [] }),
   setSearchResults: (searchResults) => set({ searchResults }),
   setHighlightedPaths: (highlightedPaths) => set({ highlightedPaths }),

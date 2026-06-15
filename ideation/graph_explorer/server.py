@@ -36,10 +36,14 @@ import networkx as nx
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
 REACT_DIST_DIR = ROOT / "frontend" / "dist"
+LOGO_PATH = ROOT / "logo.gif"
 IDEATION_DIR = ROOT.parent
 PROJECT_DIR = IDEATION_DIR.parent
 EMBEDDING_CACHE_VERSION = "graph-explorer-embeddings-v1"
 EMBEDDING_CACHE_DIR = IDEATION_DIR / ".cache" / "graph_explorer" / "embeddings"
+DEFAULT_CHAT_MAX_OUTPUT_TOKENS = 20000
+TOKEN_LIMIT_BACKOFF = (20000, 16384, 8192, 4096, 2048)
+LLM_HTTP_TIMEOUT_SECONDS = 600
 GRAPH_PREFLEXOR_ASSISTANT_PROMPT = (
     "You are Graph-PRefLexOR Assistant, a graph-aware research copilot for "
     "scientific ideation. Help the user inspect generated concept graphs, reason "
@@ -151,6 +155,45 @@ def _safe_int(value, default=0):
         return int(float(value))
     except Exception:
         return default
+
+
+def _chat_max_tokens(cfg, default=DEFAULT_CHAT_MAX_OUTPUT_TOKENS):
+    return max(256, _safe_int((cfg or {}).get("max_tokens"), default))
+
+
+def _is_token_limit_error(message):
+    msg = str(message or "").lower()
+    return any(
+        token in msg
+        for token in (
+            "max_output_tokens",
+            "max_completion_tokens",
+            "max_tokens",
+            "maximum",
+            "less than or equal",
+            "greater than",
+            "too high",
+            "context length",
+            "context window",
+        )
+    )
+
+
+def _is_unsupported_param_error(message):
+    msg = str(message or "").lower()
+    return any(token in msg for token in ("unsupported", "unexpected", "not supported", "unknown", "unrecognized"))
+
+
+def _lower_token_limit(kwargs, key):
+    current = _safe_int(kwargs.get(key), DEFAULT_CHAT_MAX_OUTPUT_TOKENS)
+    for limit in TOKEN_LIMIT_BACKOFF:
+        if current > limit:
+            kwargs[key] = limit
+            return True
+    if key in kwargs:
+        kwargs.pop(key, None)
+        return True
+    return False
 
 
 def _component_map(G):
@@ -488,6 +531,29 @@ def _safe_workspace_path(raw, *, default_base=IDEATION_DIR, require_safe_root=Tr
 
 def _resolve_profile_out(out_value):
     return _safe_workspace_path(out_value, default_base=IDEATION_DIR, require_safe_root=True)
+
+
+def _clear_ideate_artifacts(out_value):
+    """Remove stale graph outputs for a new Explorer-launched run.
+
+    This is intentionally narrow: only generated ideate.py artifacts under
+    ideation/runs are removed. Profile/report subdirectories are preserved.
+    """
+    run_dir = _safe_workspace_path(out_value, default_base=IDEATION_DIR, require_safe_root=True)
+    runs_root = (IDEATION_DIR / "runs").resolve()
+    if not (run_dir == runs_root or runs_root in run_dir.parents):
+        return []
+    removed = []
+    for name in ("graph.graphml", "transcript.jsonl", "growth.csv", "summary.json"):
+        path = run_dir / name
+        if path.exists() and path.is_file():
+            path.unlink()
+            removed.append(_relative_to_ideation(path))
+    snapshot_dir = run_dir / "graphml"
+    if snapshot_dir.exists() and snapshot_dir.is_dir():
+        shutil.rmtree(snapshot_dir)
+        removed.append(_relative_to_ideation(snapshot_dir))
+    return removed
 
 
 def _graphml_candidates(run_dir):
@@ -2143,7 +2209,7 @@ def _prompt_completion_payload(cfg, messages):
         "model": cfg["model"],
         "prompt": _messages_to_prompt(messages),
         "temperature": _safe_float(cfg.get("temperature"), 0.3),
-        "max_tokens": _safe_int(cfg.get("max_tokens"), 1600),
+        "max_tokens": _chat_max_tokens(cfg),
     }
     return {k: v for k, v in payload.items() if v not in (None, "")}
 
@@ -2155,7 +2221,7 @@ def _responses_payload(cfg, messages, previous_response_id=None):
         "input": input_items or _messages_to_prompt(messages),
         "store": True,
         "temperature": _safe_float(cfg.get("temperature"), 0.3),
-        "max_output_tokens": _safe_int(cfg.get("max_tokens"), 1600),
+        "max_output_tokens": _chat_max_tokens(cfg),
     }
     if previous_response_id:
         payload["previous_response_id"] = previous_response_id
@@ -2181,7 +2247,7 @@ def _call_responses_http(cfg, messages, previous_response_id=None, previous_erro
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=LLM_HTTP_TIMEOUT_SECONDS) as resp:
                 data = json.loads(resp.read().decode("utf-8") or "{}")
             result = _response_result_from_payload(data)
             return result if return_metadata else result["text"]
@@ -2200,9 +2266,16 @@ def _call_responses_http(cfg, messages, previous_response_id=None, previous_erro
                 payload["input"] = _messages_to_prompt(fallback_messages or messages)
             elif "reasoning" in payload and "reasoning" in msg:
                 payload.pop("reasoning", None)
-            elif "max_output_tokens" in payload and any(s in msg for s in ("unsupported", "unexpected", "not supported", "max_output_tokens")):
-                payload.pop("max_output_tokens", None)
-                payload["max_tokens"] = _safe_int(cfg.get("max_tokens"), 1600)
+            elif "max_output_tokens" in payload and _is_unsupported_param_error(msg):
+                payload["max_tokens"] = payload.pop("max_output_tokens")
+            elif "max_output_tokens" in payload and _is_token_limit_error(msg):
+                if not _lower_token_limit(payload, "max_output_tokens"):
+                    break
+            elif "max_tokens" in payload and _is_unsupported_param_error(msg):
+                payload.pop("max_tokens", None)
+            elif "max_tokens" in payload and _is_token_limit_error(msg):
+                if not _lower_token_limit(payload, "max_tokens"):
+                    break
             elif "temperature" in payload and any(s in msg for s in ("temperature", "not support")):
                 payload.pop("temperature", None)
             else:
@@ -2231,9 +2304,16 @@ def _call_responses(client, cfg, messages, previous_response_id=None, return_met
                 kwargs["input"] = _messages_to_prompt(fallback_messages or messages)
             elif "reasoning" in kwargs and "reasoning" in msg:
                 kwargs.pop("reasoning", None)
-            elif "max_output_tokens" in kwargs and any(s in msg for s in ("unsupported", "unexpected", "not supported")):
-                kwargs.pop("max_output_tokens", None)
-                kwargs["max_tokens"] = _safe_int(cfg.get("max_tokens"), 1600)
+            elif "max_output_tokens" in kwargs and _is_unsupported_param_error(msg):
+                kwargs["max_tokens"] = kwargs.pop("max_output_tokens")
+            elif "max_output_tokens" in kwargs and _is_token_limit_error(msg):
+                if not _lower_token_limit(kwargs, "max_output_tokens"):
+                    break
+            elif "max_tokens" in kwargs and _is_unsupported_param_error(msg):
+                kwargs.pop("max_tokens", None)
+            elif "max_tokens" in kwargs and _is_token_limit_error(msg):
+                if not _lower_token_limit(kwargs, "max_tokens"):
+                    break
             elif "temperature" in kwargs and any(s in msg for s in ("temperature", "not support")):
                 kwargs.pop("temperature", None)
             else:
@@ -2257,11 +2337,11 @@ def _call_responses(client, cfg, messages, previous_response_id=None, return_met
     )
 
 
-def _call_prompt_completion_http(cfg, messages, previous_error=None):
+def _call_prompt_completion_http(cfg, messages, previous_error=None, payload_override=None):
     base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
     api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
     api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
-    payload = _prompt_completion_payload(cfg, messages)
+    payload = dict(payload_override or _prompt_completion_payload(cfg, messages))
     last = previous_error
     for suffix in ("/completions", "/chat/completions"):
         req = urllib.request.Request(
@@ -2274,7 +2354,7 @@ def _call_prompt_completion_http(cfg, messages, previous_error=None):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=LLM_HTTP_TIMEOUT_SECONDS) as resp:
                 data = json.loads(resp.read().decode("utf-8") or "{}")
             return _completion_text_from_payload(data)
         except urllib.error.HTTPError as exc:
@@ -2299,11 +2379,14 @@ def _call_prompt_completion(client, cfg, messages):
             msg = str(e).lower()
             if "temperature" in kwargs and any(s in msg for s in ("temperature", "not support")):
                 kwargs.pop("temperature", None)
-            elif "max_tokens" in kwargs and any(s in msg for s in ("max_tokens", "not support", "unsupported", "unexpected")):
+            elif "max_tokens" in kwargs and _is_unsupported_param_error(msg):
                 kwargs.pop("max_tokens", None)
+            elif "max_tokens" in kwargs and _is_token_limit_error(msg):
+                if not _lower_token_limit(kwargs, "max_tokens"):
+                    break
             else:
-                return _call_prompt_completion_http(cfg, messages, previous_error=e)
-    return _call_prompt_completion_http(cfg, messages, previous_error=last)
+                return _call_prompt_completion_http(cfg, messages, previous_error=e, payload_override=kwargs)
+    return _call_prompt_completion_http(cfg, messages, previous_error=last, payload_override=kwargs)
 
 
 def _call_openai_compatible(cfg, messages, previous_response_id=None, return_metadata=False, fallback_messages=None):
@@ -2312,7 +2395,7 @@ def _call_openai_compatible(cfg, messages, previous_response_id=None, return_met
     api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
     api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
     base_url = cfg.get("base_url") or None
-    client = OpenAI(base_url=base_url, api_key=api_key)
+    client = OpenAI(base_url=base_url, api_key=api_key, timeout=LLM_HTTP_TIMEOUT_SECONDS)
     backend = _normalize_generation_backend(cfg.get("backend"), cfg.get("provider") or "openai")
     if backend == "prompt":
         return _call_prompt_completion(client, cfg, messages)
@@ -2338,7 +2421,7 @@ def _call_openai_compatible(cfg, messages, previous_response_id=None, return_met
         "model": cfg["model"],
         "messages": messages,
         "temperature": _safe_float(cfg.get("temperature"), 0.3),
-        "max_completion_tokens": _safe_int(cfg.get("max_tokens"), 1600),
+        "max_completion_tokens": _chat_max_tokens(cfg),
     }
     if cfg.get("reasoning_effort"):
         kwargs["reasoning_effort"] = cfg["reasoning_effort"]
@@ -2366,8 +2449,16 @@ def _call_openai_compatible(cfg, messages, previous_response_id=None, return_met
                     return {"text": text, "response_id": ""} if return_metadata else text
             if "reasoning_effort" in kwargs and "reasoning_effort" in msg:
                 kwargs.pop("reasoning_effort")
-            elif "max_completion_tokens" in kwargs and any(s in msg for s in ("unsupported", "unexpected", "not supported")):
+            elif "max_completion_tokens" in kwargs and _is_unsupported_param_error(msg):
                 kwargs["max_tokens"] = kwargs.pop("max_completion_tokens")
+            elif "max_completion_tokens" in kwargs and _is_token_limit_error(msg):
+                if not _lower_token_limit(kwargs, "max_completion_tokens"):
+                    raise
+            elif "max_tokens" in kwargs and _is_unsupported_param_error(msg):
+                kwargs.pop("max_tokens", None)
+            elif "max_tokens" in kwargs and _is_token_limit_error(msg):
+                if not _lower_token_limit(kwargs, "max_tokens"):
+                    raise
             elif "temperature" in kwargs and any(s in msg for s in ("temperature", "not support")):
                 kwargs.pop("temperature", None)
             else:
@@ -2414,7 +2505,7 @@ def _call_hf(cfg, messages):
     temp = _safe_float(cfg.get("temperature"), 0.3)
     gen = lm.generate(
         **enc,
-        max_new_tokens=_safe_int(cfg.get("max_tokens"), 1200),
+        max_new_tokens=_chat_max_tokens(cfg, 8192),
         do_sample=temp > 0,
         temperature=max(temp, 1e-5),
         pad_token_id=tok.pad_token_id or tok.eos_token_id,
@@ -2713,6 +2804,7 @@ def _start_ideate_job(body):
     if body.get("config"):
         cmd.extend(["--config", str(body["config"])])
 
+    cleared_artifacts = _clear_ideate_artifacts(out) if body.get("clear_output", True) else []
     job_id = uuid.uuid4().hex[:10]
     log_path = ROOT / f"job_{job_id}.log"
     log = open(log_path, "w")
@@ -2729,6 +2821,7 @@ def _start_ideate_job(body):
         "cmd": cmd,
         "cwd": str(IDEATION_DIR),
         "out": out,
+        "cleared_artifacts": cleared_artifacts,
         "log_path": str(log_path),
         "status": "running",
         "returncode": None,
@@ -3145,7 +3238,9 @@ class Handler(SimpleHTTPRequestHandler):
             return super().do_GET()
         try:
             qs = parse_qs(parsed.query)
-            if parsed.path == "/api/graph":
+            if parsed.path == "/api/logo":
+                self._file(LOGO_PATH)
+            elif parsed.path == "/api/graph":
                 G = _require_graph()
                 with LOCK:
                     self._json(graph_payload(
