@@ -50,7 +50,11 @@ from huggingface_hub import login
 from peft import LoraConfig, get_peft_model
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from trl import ORPOConfig, ORPOTrainer, SFTConfig, SFTTrainer
+try:
+    from trl.experimental.orpo import ORPOConfig, ORPOTrainer
+except ImportError:
+    from trl import ORPOConfig, ORPOTrainer
+from trl import SFTConfig, SFTTrainer
 from lora_utils import add_lora_config_args, parse_lora_modules_to_save, parse_lora_target_modules
 
 # Sentinels (actual tags used in dataset)
