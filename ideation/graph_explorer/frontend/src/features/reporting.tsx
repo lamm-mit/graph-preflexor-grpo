@@ -8,11 +8,24 @@ import type { GraphPayload, ProfileArtifacts, ProfileJobStatus, ProfileOptions, 
 import { cx, Drawer, formatRunTime, HelpTip } from "../components/common";
 
 const REPORT_STUDIO_STORAGE_KEY = "graph-preflexor-explorer.report-studio.v1";
+const ANALYSIS_SETTINGS_STORAGE_KEY = "graph-preflexor-explorer.analysis-settings.v1";
+const ANALYSIS_MINERS = ["plot", "insights", "novelty", "scaling", "dynamics"] as const;
+type ProfilePresetKind = "research" | "light" | "local" | "fast";
+type AnalysisPresetKind = "insights" | "dashboard" | "discovery" | "full";
 
 type StoredReportStudio = ProfileOptions & {
   job?: ProfileJobStatus | null;
   jobId?: string;
   activeReportOut?: string;
+  ui_preset?: ProfilePresetKind;
+  savedAt?: number;
+};
+
+export type StoredAnalysisSettings = {
+  preset: AnalysisPresetKind;
+  analyses: string[];
+  embed_model: string;
+  savedAt?: number;
 };
 
 const defaultProfileOptions: ProfileOptions = {
@@ -43,6 +56,12 @@ const defaultProfileOptions: ProfileOptions = {
   pdf: true,
 };
 
+const defaultAnalysisSettings: StoredAnalysisSettings = {
+  preset: "full",
+  analyses: ["plot", "insights", "novelty", "scaling", "dynamics"],
+  embed_model: "auto",
+};
+
 export function readReportStudioStorage(): StoredReportStudio {
   if (typeof window === "undefined") return { ...defaultProfileOptions };
   try {
@@ -59,6 +78,38 @@ export function readReportStudioStorage(): StoredReportStudio {
 function writeReportStudioStorage(value: StoredReportStudio) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(REPORT_STUDIO_STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() }));
+}
+
+export function readAnalysisSettingsStorage(): StoredAnalysisSettings {
+  if (typeof window === "undefined") return { ...defaultAnalysisSettings };
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(ANALYSIS_SETTINGS_STORAGE_KEY) || "{}") as Partial<StoredAnalysisSettings>;
+    const preset = isAnalysisPresetKind(stored.preset) ? stored.preset : defaultAnalysisSettings.preset;
+    const storedAnalyses = Array.isArray(stored.analyses) ? stored.analyses : [];
+    const analyses = storedAnalyses.filter((name) => ANALYSIS_MINERS.includes(name as (typeof ANALYSIS_MINERS)[number]));
+    return {
+      ...defaultAnalysisSettings,
+      ...stored,
+      preset,
+      analyses: analyses.length ? analyses : analysisPresetMiners[preset],
+      embed_model: String(stored.embed_model || defaultAnalysisSettings.embed_model),
+    };
+  } catch {
+    return { ...defaultAnalysisSettings };
+  }
+}
+
+function writeAnalysisSettingsStorage(value: StoredAnalysisSettings) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ANALYSIS_SETTINGS_STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() }));
+}
+
+export function analysisRequestOptions() {
+  const settings = readAnalysisSettingsStorage();
+  return {
+    analyses: settings.analyses,
+    embed_model: settings.embed_model,
+  };
 }
 
 function inferRunFromGraph(graph: GraphPayload | null) {
@@ -83,19 +134,116 @@ function defaultProfileOut(run: string, model: string, suffix = "") {
 
 const profilePresetHelp = {
   research:
-    "Highest-quality report generation. Uses the Responses backend with gpt-5.5, high reasoning, more module summaries, four deep passes, LLM report review, and PDF output.",
+    "Highest-quality graph profile. Uses the Responses backend with gpt-5.5, high reasoning, more module summaries, four deep passes, report review, and PDF output.",
   light:
-    "Fast LLM report preset. Uses --profile-preset light, six modules, one deep pass, medium reasoning, smaller token budgets, no LLM report review, and PDF output.",
+    "Fast graph profile. Uses --profile-preset light, six modules, one deep pass, medium reasoning, smaller token budgets, no report review, and PDF output.",
   local:
-    "Local draft path for privacy/cost-sensitive iteration. Uses the Responses backend on localhost:8000 and skips PDF by default.",
+    "Local draft profile for privacy/cost-sensitive iteration. Uses google/gemma-4-E4B-it through the Responses backend on localhost:1234 and skips PDF by default.",
   fast:
-    "Metrics-only audit. Disables LLM reporting and PDF generation; useful to inspect graph statistics quickly before spending model calls.",
-} as const;
+    "Metrics-only graph audit. Disables narrative profile generation and PDF output; useful to inspect graph statistics quickly before spending model calls.",
+} satisfies Record<ProfilePresetKind, string>;
+
+const analysisPresetLabels = {
+  insights: "Mined insights only",
+  dashboard: "Insights + dashboard figures",
+  discovery: "Insights + novelty/scaling",
+  full: "Full run analysis",
+} satisfies Record<AnalysisPresetKind, string>;
+
+const analysisPresetHelp = {
+  insights: "Runs only the mined-insights pass. Best when you want insights.md, insights.json, bridge routes, and the insight map quickly.",
+  dashboard: "Runs mined insights plus the dashboard figure generation used by the Session Overview visual panels.",
+  discovery: "Runs mined insights, novelty, and scaling analyses for richer discovery artifacts without the full dynamics pass.",
+  full: "Runs all current analysis passes: dashboard figures, mined insights, novelty, scaling, and dynamics.",
+} satisfies Record<AnalysisPresetKind, string>;
+
+const analysisPresetMiners = {
+  insights: ["insights"],
+  dashboard: ["plot", "insights"],
+  discovery: ["insights", "novelty", "scaling"],
+  full: ["plot", "insights", "novelty", "scaling", "dynamics"],
+} satisfies Record<AnalysisPresetKind, string[]>;
+
+const profilePresetLabels = {
+  research: "GPT-5.5 Deep",
+  light: "GPT-5.5 Light",
+  local: "Local Draft",
+  fast: "Fast Audit",
+} satisfies Record<ProfilePresetKind, string>;
+
+function isProfilePresetKind(value: unknown): value is ProfilePresetKind {
+  return typeof value === "string" && value in profilePresetHelp;
+}
+
+function isAnalysisPresetKind(value: unknown): value is AnalysisPresetKind {
+  return typeof value === "string" && value in analysisPresetHelp;
+}
+
+function inferProfilePresetKind(options: Partial<StoredReportStudio>): ProfilePresetKind {
+  if (isProfilePresetKind(options.ui_preset)) return options.ui_preset;
+  if (options.llm === false) return "fast";
+  if (options.profile_preset === "light") return "light";
+  if (String(options.base_url || "").includes("localhost")) return "local";
+  return "research";
+}
+
+function MinedInsightsSettings() {
+  const storedRef = useRef<StoredAnalysisSettings | null>(null);
+  if (!storedRef.current) storedRef.current = readAnalysisSettingsStorage();
+  const [settings, setSettings] = useState<StoredAnalysisSettings>(storedRef.current);
+
+  useEffect(() => {
+    writeAnalysisSettingsStorage(settings);
+  }, [settings]);
+
+  function setPreset(kind: AnalysisPresetKind) {
+    setSettings((state) => ({ ...state, preset: kind, analyses: analysisPresetMiners[kind] }));
+  }
+
+  return (
+    <>
+      <div className="source-help">
+        <strong>Mined insights settings</strong>
+        <span>
+          These settings are used by Session Overview when you generate Mined insights and by Run analysis when it recomputes analysis artifacts.
+        </span>
+      </div>
+      <div className="profile-preset-select">
+        <label>
+          Mined insights preset
+          <select value={settings.preset} onChange={(event) => setPreset(event.target.value as AnalysisPresetKind)}>
+            {(Object.keys(analysisPresetLabels) as AnalysisPresetKind[]).map((kind) => (
+              <option key={kind} value={kind}>
+                {analysisPresetLabels[kind]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span>
+          {analysisPresetHelp[settings.preset]} <HelpTip text="This preset is saved immediately and used the next time you generate mined insights or recompute run analysis." />
+        </span>
+      </div>
+      <details className="settings-block">
+        <summary>Mined Insights Miner Defaults</summary>
+        <div className="control-grid">
+          <label>
+            Embed model
+            <input value={settings.embed_model} onChange={(event) => setSettings((state) => ({ ...state, embed_model: event.target.value }))} />
+          </label>
+          <label>
+            Included miners
+            <input readOnly value={settings.analyses.join(", ")} />
+          </label>
+        </div>
+      </details>
+    </>
+  );
+}
 
 export function ReportStudio({
   onReportReady,
   defaultOpen = false,
-  title = "Insights Mining Settings",
+  title = "Analysis Settings",
 }: {
   onReportReady: (out: string) => void;
   defaultOpen?: boolean;
@@ -106,6 +254,7 @@ export function ReportStudio({
   if (!storedRef.current) storedRef.current = readReportStudioStorage();
   const stored = storedRef.current;
   const [options, setOptions] = useState<ProfileOptions>({ ...defaultProfileOptions, ...stored });
+  const [selectedPreset, setSelectedPreset] = useState<ProfilePresetKind>(inferProfilePresetKind(stored));
   const [job, setJob] = useState<ProfileJobStatus | null>(stored.job || null);
   const [status, setStatus] = useState(stored.job ? "Restored saved profile job." : "");
 
@@ -117,8 +266,8 @@ export function ReportStudio({
   });
 
   useEffect(() => {
-    writeReportStudioStorage({ ...options, job, jobId: job?.id, activeReportOut: job?.artifacts?.out || options.out });
-  }, [job, options]);
+    writeReportStudioStorage({ ...options, ui_preset: selectedPreset, job, jobId: job?.id, activeReportOut: job?.artifacts?.out || options.out });
+  }, [job, options, selectedPreset]);
 
   useEffect(() => {
     const inferred = inferRunFromGraph(graph);
@@ -167,7 +316,8 @@ export function ReportStudio({
     setOptions((state) => ({ ...state, ...patch }));
   }
 
-  function setPreset(kind: "research" | "light" | "local" | "fast") {
+  function setPreset(kind: ProfilePresetKind) {
+    setSelectedPreset(kind);
     const run = options.run || inferRunFromGraph(graph) || defaultProfileOptions.run || "runs/exp_leap";
     if (kind === "research") {
       patchOptions({
@@ -211,15 +361,15 @@ export function ReportStudio({
         profile_preset: "full",
         llm: true,
         backend: "responses",
-        model: "meta-llama/Llama-3.2-3B-Instruct",
-        base_url: "http://localhost:8000/v1",
+        model: "google/gemma-4-E4B-it",
+        base_url: "http://localhost:1234/v1",
         reasoning_effort: "medium",
         max_summary_tokens: 1200,
         deep_pass_tokens: 3500,
         deep_dive_tokens: 7000,
         report_review_tokens: 7000,
         pdf: false,
-        out: defaultProfileOut(run, "llama"),
+        out: defaultProfileOut(run, "google/gemma-4-E4B-it"),
       });
     } else {
       patchOptions({
@@ -240,35 +390,34 @@ export function ReportStudio({
   return (
     <Drawer
       defaultOpen={defaultOpen}
-      description="Configure defaults for mined insights and graph profile generation. Load runs, choose sources, and start jobs from Session Overview or Runs."
+      description="Configure Mined insights and Graph profile defaults. Run folders and GraphML sources are still selected from Runs or Session Overview."
       icon={<FileText size={14} />}
       note={job?.status || "settings"}
       title={title}
     >
+      <MinedInsightsSettings />
+
       <div className="source-help">
-        <strong>Insights mining settings</strong>
+        <strong>Graph profile settings</strong>
         <span>
-          These are defaults only. The active run or GraphML source is selected in the Session Overview/Runs workflow, where generation is started and rendered.
+          These settings are used when you open Session Overview &gt; Run reports &gt; Graph profile and click Generate. The preset below populates the model and advanced fields.
         </span>
       </div>
 
-      <div className="preset-grid">
-        <button onClick={() => setPreset("research")} title={profilePresetHelp.research} type="button">
-          <strong>GPT-5.5 Deep <HelpTip text={profilePresetHelp.research} /></strong>
-          <span>responses | high effort</span>
-        </button>
-        <button onClick={() => setPreset("light")} title={profilePresetHelp.light} type="button">
-          <strong>GPT-5.5 Light <HelpTip text={profilePresetHelp.light} /></strong>
-          <span>profile-preset light</span>
-        </button>
-        <button onClick={() => setPreset("local")} title={profilePresetHelp.local} type="button">
-          <strong>Local Draft <HelpTip text={profilePresetHelp.local} /></strong>
-          <span>chat | localhost:8000</span>
-        </button>
-        <button onClick={() => setPreset("fast")} title={profilePresetHelp.fast} type="button">
-          <strong>Fast Audit <HelpTip text={profilePresetHelp.fast} /></strong>
-          <span>metrics only</span>
-        </button>
+      <div className="profile-preset-select">
+        <label>
+          Graph profile preset
+          <select value={selectedPreset} onChange={(event) => setPreset(event.target.value as ProfilePresetKind)}>
+            {(Object.keys(profilePresetLabels) as ProfilePresetKind[]).map((kind) => (
+              <option key={kind} value={kind}>
+                {profilePresetLabels[kind]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span>
+          {profilePresetHelp[selectedPreset]} <HelpTip text="Changing this preset immediately populates the Graph Profile Model Defaults and Advanced Graph Profile Defaults below." />
+        </span>
       </div>
 
       {job?.status === "running" ? (
@@ -333,24 +482,19 @@ export function ReportStudio({
       </details>
 
       <details className="settings-block">
-        <summary>Analysis Defaults</summary>
+        <summary>Advanced Graph Profile Defaults</summary>
         <div className="control-grid">
-          <label>
-            Profile preset
-            <select
-              value={options.profile_preset || "full"}
-              onChange={(event) => {
-                if (event.target.value === "light") setPreset("light");
-                else patchOptions({ profile_preset: "full" });
-              }}
-            >
-              <option value="full">Full</option>
-              <option value="light">Light</option>
-            </select>
-          </label>
           <label>
             Embed model
             <input value={options.embed_model || ""} onChange={(event) => patchOptions({ embed_model: event.target.value })} />
+          </label>
+          <label>
+            Top nodes
+            <input min={1} onChange={(event) => patchOptions({ top_nodes: Number(event.target.value) })} type="number" value={options.top_nodes ?? 25} />
+          </label>
+          <label>
+            Max modules
+            <input min={1} onChange={(event) => patchOptions({ max_modules: Number(event.target.value) })} type="number" value={options.max_modules ?? 30} />
           </label>
           <label>
             Modules

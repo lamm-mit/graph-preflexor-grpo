@@ -3729,13 +3729,45 @@ label {
     justify-self: start;
   }
 
-  .preset-grid {
+  .profile-preset-select {
     display: grid;
-    grid-template-columns: 1fr;
     gap: 6px;
+    border: 1px solid #ded8ca;
+    border-radius: 9px;
+    background: #fffefa;
+    padding: 8px;
   }
 
-  .preset-grid button,
+  .profile-preset-select label {
+    display: grid;
+    gap: 4px;
+    color: var(--quiet);
+    font-size: 10.5px;
+    font-weight: 820;
+    text-transform: uppercase;
+  }
+
+  .profile-preset-select select {
+    width: 100%;
+    min-height: 31px;
+    border: 1px solid #d8d2c6;
+    border-radius: 7px;
+    background: #fbfaf4;
+    color: #302d27;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 760;
+    text-transform: none;
+  }
+
+  .profile-preset-select span {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 5px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
   .report-list button {
     display: grid;
     gap: 3px;
@@ -3748,21 +3780,13 @@ label {
     cursor: pointer;
   }
 
-  .preset-grid button:hover,
   .report-list button:hover {
     border-color: #c6beae;
     background: #f4f1ea;
   }
 
-  .preset-grid span,
   .report-list span {
     color: var(--muted);
-  }
-
-  .preset-grid strong {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
   }
 
   .settings-block {

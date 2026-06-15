@@ -33,7 +33,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
-import { MarkdownReport, ReportStudio, readReportStudioStorage } from "./features/reporting";
+import { analysisRequestOptions, MarkdownReport, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunDashboardPanel } from "./features/run-dashboard";
 import { RunExplorer, RunMonitor } from "./features/runs";
 import {
@@ -2419,7 +2419,7 @@ function ChatPanel({
     try {
       let dashboard = await api.runDashboard(activeRun);
       if (options.refresh || !hasMinedInsights(dashboard)) {
-        const started = await api.runAnalysis({ run: activeRun, analyses: ["insights"] });
+        const started = await api.runAnalysis({ run: activeRun, ...analysisRequestOptions() });
         const finished = await pollInsightsJob(started.id, pending);
         if (finished.status !== "done") {
           updateChatMessage(pending, {
@@ -3785,8 +3785,8 @@ function SideRail({
       ) : null}
       {activeMode === "reports" ? (
         <>
-          <SidebarHeader title="Settings" subtitle="analysis and profile defaults" />
-          <ReportStudio defaultOpen onReportReady={onReportReady} title="Insights Mining Settings" />
+          <SidebarHeader title="Settings" subtitle="mined insights and graph profile" />
+          <ReportStudio onReportReady={onReportReady} title="Analysis Settings" />
         </>
       ) : null}
       {activeMode === "graphrag" ? (
@@ -3798,8 +3798,8 @@ function SideRail({
       {activeMode === "models" ? (
         <>
           <SidebarHeader title="Settings" subtitle="models, endpoints, and analysis defaults" />
-          <ModelSettings defaultOpen />
-          <ReportStudio onReportReady={onReportReady} title="Insights Mining Settings" />
+          <ModelSettings />
+          <ReportStudio onReportReady={onReportReady} title="Analysis Settings" />
         </>
       ) : null}
     </aside>
@@ -3997,7 +3997,7 @@ function SessionReportPanel({
 
   async function refreshInsights() {
     if (!run || analysisJob?.status === "running") return;
-    const next = await api.runAnalysis({ run, analyses: ["insights"] });
+    const next = await api.runAnalysis({ run, ...analysisRequestOptions() });
     setAnalysisJob(next);
   }
 
@@ -4096,7 +4096,7 @@ function SessionReportPanel({
 
   async function generateProfile() {
     if (!run || profileRunning) return;
-    const { job: _job, jobId: _jobId, activeReportOut: _activeReportOut, ...storedOptions } = readReportStudioStorage();
+    const { job: _job, jobId: _jobId, activeReportOut: _activeReportOut, ui_preset: _uiPreset, savedAt: _savedAt, ...storedOptions } = readReportStudioStorage();
     const model = storedOptions.model || "gpt-5.5";
     const suffix = storedOptions.profile_preset === "light" ? "_light" : "";
     const out =

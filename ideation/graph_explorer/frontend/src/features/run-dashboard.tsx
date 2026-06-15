@@ -3,7 +3,7 @@ import { BarChart3, Braces, FileText, GitBranch, Image as ImageIcon, Loader2, Ne
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { formatRunTime } from "../components/common";
-import { MarkdownReport } from "./reporting";
+import { analysisRequestOptions, MarkdownReport } from "./reporting";
 import { formatNumber } from "../graph-utils";
 import type { RunAnalysisFigure, RunAnalysisJson, RunAnalysisJobStatus, RunDashboard, RunDashboardInsight } from "../types";
 
@@ -464,7 +464,7 @@ export function RunDashboardPanel({ run }: { run: string }) {
 
   async function recompute() {
     if (!run || analysisRunning) return;
-    const next = await api.runAnalysis({ run });
+    const next = await api.runAnalysis({ run, ...analysisRequestOptions() });
     setJob(next);
   }
 
