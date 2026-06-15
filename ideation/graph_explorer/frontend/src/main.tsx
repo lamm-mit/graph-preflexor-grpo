@@ -34,9 +34,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
+import { ChatRunWizard, type RunWizardState } from "./features/chat-run-wizard";
 import { analysisRequestOptions, MarkdownReport, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunDashboardPanel } from "./features/run-dashboard";
-import { RunExplorer, RunMonitor } from "./features/runs";
+import { rememberExplorationRun, RunExplorer, RunMonitor, type IdeationStrategy } from "./features/runs";
 import {
   colorScale,
   colorPalettes,
@@ -2225,10 +2226,12 @@ function ChatPanel({
   sessionReports,
   onOpenRuns,
   onOpenReports,
+  onRunStart,
 }: {
   sessionReports: SessionReport[];
   onOpenRuns: () => void;
   onOpenReports: () => void;
+  onRunStart?: () => Promise<void> | void;
 }) {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
@@ -2260,6 +2263,7 @@ function ChatPanel({
   ]);
   const [busy, setBusy] = useState(false);
   const [ideaBusy, setIdeaBusy] = useState(false);
+  const [runWizard, setRunWizard] = useState<RunWizardState | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatHydratedRef = useRef(false);
   const contextLabel = contextSummary(graph, selectedNodes);
@@ -2284,6 +2288,7 @@ function ChatPanel({
     { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
     { command: "/followups", label: "Generate follow-ups", detail: "Ask the active graph model for next query ideas.", action: () => void suggestFollowups() },
     { command: "/insights", label: "Summarize insights", detail: "Mine or summarize the active run's structural insights.", action: () => setQuestion("/insights ") },
+    { command: "/run <topic>", label: "New exploration run", detail: "Start a guided exploration run from chat.", action: () => setQuestion("/run ") },
     { command: "/synthesize <task>", label: "Run synthesis", detail: "Generate a synthesis answer from the active run and post it here.", action: () => setQuestion("/synthesize ") },
     { command: "/none", label: "No retrieval", detail: "Use only selected nodes; with no selection this is regular chat.", action: () => setAgentMode("none") },
     { command: "/rag", label: "Graph-RAG retrieval", detail: "Retrieve broader semantic neighborhoods and path connectors.", action: () => setAgentMode("graph_rag") },
@@ -2356,8 +2361,217 @@ function ChatPanel({
       role: "system",
       meta: "commands",
       content:
-        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\n/insights summarizes mined insights for the active run; add --refresh to recompute first.\n/synthesize <task> generates a synthesis answer from the active run and posts it here.\n/synthesize --style hypotheses --mine \"Rank three falsifiable hypotheses\" changes style and refreshes mined insights if needed.\n/synthesize --hf meta-llama/Llama-3.2-3B-Instruct \"...\" uses the Hugging Face backend.\nUse Settings to change the default chat/synthesis model role.",
+        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\n/run starts a guided exploration-run setup; use /run <topic> to prefill the topic.\n/insights summarizes mined insights for the active run; add --refresh to recompute first.\n/synthesize <task> generates a synthesis answer from the active run and posts it here.\n/synthesize --style hypotheses --mine \"Rank three falsifiable hypotheses\" changes style and refreshes mined insights if needed.\n/synthesize --hf meta-llama/Llama-3.2-3B-Instruct \"...\" uses the Hugging Face backend.\nUse Settings to change the default chat/synthesis model role.",
     });
+  }
+
+  function latestUserText() {
+    return (
+      [...messages]
+        .reverse()
+        .find((message) => message.role === "user" && !message.content.trim().startsWith("/"))?.content.trim() ||
+      (graph?.topic ? String(graph.topic) : "") ||
+      contextQuery.trim()
+    );
+  }
+
+  function fallbackRunTopics(seed = "") {
+    const base = seed.trim() || graph?.topic || "a high-risk, high-reward material discovery problem";
+    return [
+      base.length > 90 ? base.slice(0, 90).replace(/\s+\S*$/, "") : base,
+      `unexpected bridges around ${selectedLabels.slice(0, 3).join(", ") || base}`,
+      `new design principles for ${base}`,
+    ]
+      .map((item) => String(item).trim())
+      .filter((item, index, items) => item.length > 8 && items.indexOf(item) === index)
+      .slice(0, 3);
+  }
+
+  function fallbackRunOut(topicText: string) {
+    const slug =
+      topicText
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 44) || "exploration_run";
+    return `runs/${slug}`;
+  }
+
+  async function suggestRunOutForTopic(topicText: string, nextStrategy: IdeationStrategy) {
+    try {
+      const suggestion = await api.suggestRunOut({ topic: topicText, strategy: nextStrategy, model_config: activeChatRole });
+      return suggestion.out;
+    } catch {
+      return fallbackRunOut(topicText);
+    }
+  }
+
+  async function prepareRunWizardTopic(topicText: string, suggestions: string[] = []) {
+    const cleanTopic = topicText.trim();
+    if (!cleanTopic) return;
+    setRunWizard({
+      step: "configure",
+      topic: cleanTopic,
+      suggestions,
+      strategy: "frontier",
+      calls: 50,
+      iters: 50,
+      out: fallbackRunOut(cleanTopic),
+      status: "Preparing output folder suggestion...",
+      busy: false,
+      suggesting: true,
+    });
+    const suggestedOut = await suggestRunOutForTopic(cleanTopic, "frontier");
+    setRunWizard((current) =>
+      current?.topic === cleanTopic
+        ? {
+            ...current,
+            out: suggestedOut,
+            status: "Review the settings, then launch the exploration run.",
+            suggesting: false,
+          }
+        : current,
+    );
+  }
+
+  async function startRunWizard(rawArgs: string) {
+    const directTopic = rawArgs.trim();
+    addChatMessage({ role: "user", content: `/run ${directTopic}`.trim(), meta: "run wizard" });
+    setQuestion("");
+    if (directTopic) {
+      addChatMessage({
+        role: "assistant",
+        content: "I set up a run draft from your topic. Review the settings below before launch.",
+        meta: "run wizard",
+      });
+      await prepareRunWizardTopic(directTopic, [directTopic]);
+      return;
+    }
+
+    const seed = latestUserText();
+    const initialSuggestions = fallbackRunTopics(seed);
+    setRunWizard({
+      step: "topic",
+      topic: initialSuggestions[0] || "",
+      suggestions: initialSuggestions,
+      strategy: "frontier",
+      calls: 50,
+      iters: 50,
+      out: initialSuggestions[0] ? fallbackRunOut(initialSuggestions[0]) : "runs/explorer_run",
+      status: "Choose or edit a topic, then continue to run settings.",
+      busy: false,
+      suggesting: Boolean(activeChatRole?.model),
+    });
+    addChatMessage({
+      role: "assistant",
+      content: "I drafted candidate exploration topics from the latest chat context. Pick one or edit the topic before continuing.",
+      meta: "run wizard",
+    });
+
+    if (!activeChatRole?.model) return;
+    try {
+      const res = await api.ask({
+        question: [
+          "Suggest exactly three concise exploration-run topics based on the latest chat.",
+          "Each topic should be specific, useful for graph ideation, and valid as a standalone run topic.",
+          "Return one topic per line, with no numbering and no explanation.",
+          "",
+          `Latest chat context: ${seed || "No prior chat content."}`,
+          graph ? `Active graph context: ${contextSummary(graph, selectedNodes)}` : "No graph is loaded.",
+        ].join("\n"),
+        selected_nodes: graph ? selectedNodes : [],
+        query: "",
+        depth: 1,
+        max_nodes: 40,
+        max_edges: 60,
+        context_mode: "none",
+        report_context: null,
+        model_config: activeChatRole,
+        history: recentHistory(),
+      });
+      const prompts = parseGeneratedPrompts(res.answer).slice(0, 3);
+      if (prompts.length) {
+        setRunWizard((current) =>
+          current?.step === "topic"
+            ? {
+                ...current,
+                topic: prompts[0],
+                suggestions: prompts,
+                out: fallbackRunOut(prompts[0]),
+                suggesting: false,
+              }
+            : current,
+        );
+      } else {
+        setRunWizard((current) => (current ? { ...current, suggesting: false } : current));
+      }
+    } catch (error) {
+      setRunWizard((current) =>
+        current
+          ? {
+              ...current,
+              status: `Using local topic suggestions because the model suggestion failed: ${error instanceof Error ? error.message : String(error)}`,
+              suggesting: false,
+            }
+          : current,
+      );
+    }
+  }
+
+  async function continueRunWizard() {
+    const current = runWizard;
+    if (!current?.topic.trim()) return;
+    await prepareRunWizardTopic(current.topic, current.suggestions);
+  }
+
+  async function resuggestRunOut() {
+    const current = runWizard;
+    if (!current?.topic.trim()) return;
+    setRunWizard({ ...current, suggesting: true, status: "Suggesting output folder..." });
+    const suggestedOut = await suggestRunOutForTopic(current.topic, current.strategy);
+    setRunWizard((next) => (next ? { ...next, out: suggestedOut, suggesting: false, status: "Output folder updated." } : next));
+  }
+
+  async function launchRunWizard() {
+    const current = runWizard;
+    if (!current?.topic.trim() || !current.out.trim()) return;
+    setRunWizard({ ...current, busy: true, status: "Starting exploration run..." });
+    try {
+      await onRunStart?.();
+      const started = await api.ideate({
+        topic: current.topic.trim(),
+        strategy: current.strategy,
+        budget_calls: current.calls,
+        max_iters: current.iters,
+        out: current.out.trim(),
+        clear_output: true,
+      });
+      rememberExplorationRun({
+        job: started,
+        topic: current.topic.trim(),
+        strategy: current.strategy,
+        calls: current.calls,
+        iters: current.iters,
+        out: current.out.trim(),
+      });
+      addChatMessage({
+        role: "assistant",
+        content: `Started exploration run \`${started.id}\` for **${current.topic.trim()}**. It is now tracked under **New Exploration Run**, where active runs can be monitored or stopped.`,
+        meta: started.out || current.out.trim(),
+      });
+      setRunWizard(null);
+      onOpenRuns();
+    } catch (error) {
+      setRunWizard((next) =>
+        next
+          ? {
+              ...next,
+              busy: false,
+              status: error instanceof Error ? error.message : String(error),
+            }
+          : next,
+      );
+    }
   }
 
   async function pollInsightsJob(jobId: string, pendingId: string) {
@@ -2551,6 +2765,11 @@ function ChatPanel({
       void startInsights(restText);
       return true;
     }
+    if (command === "run") {
+      setQuestion("");
+      void startRunWizard(restText);
+      return true;
+    }
     if (command === "rag") {
       setAgentMode("graph_rag");
       addChatMessage({ role: "system", content: "Switched to Graph-RAG agent mode.", meta: "command" });
@@ -2728,6 +2947,42 @@ function ChatPanel({
             )}
           </div>
         )}
+        {runWizard ? (
+          <ChatRunWizard
+            wizard={runWizard}
+            onBack={() => setRunWizard({ ...runWizard, step: "topic" })}
+            onCallsChange={(value) => setRunWizard((current) => (current ? { ...current, calls: value } : current))}
+            onClose={() => setRunWizard(null)}
+            onContinue={() => void continueRunWizard()}
+            onItersChange={(value) => setRunWizard((current) => (current ? { ...current, iters: value } : current))}
+            onLaunch={() => void launchRunWizard()}
+            onOutChange={(value) => setRunWizard((current) => (current ? { ...current, out: value } : current))}
+            onPickTopic={(value) =>
+              setRunWizard((current) =>
+                current
+                  ? {
+                      ...current,
+                      topic: value,
+                      out: fallbackRunOut(value),
+                    }
+                  : current,
+              )
+            }
+            onResuggestOut={() => void resuggestRunOut()}
+            onStrategyChange={(value) => setRunWizard((current) => (current ? { ...current, strategy: value } : current))}
+            onTopicChange={(value) =>
+              setRunWizard((current) =>
+                current
+                  ? {
+                      ...current,
+                      topic: value,
+                      out: current.step === "topic" ? fallbackRunOut(value) : current.out,
+                    }
+                  : current,
+              )
+            }
+          />
+        ) : null}
         <div ref={chatEndRef} />
       </div>
       <div className="chat-composer">
@@ -2873,7 +3128,7 @@ function ChatPanel({
                 key={item.command}
                 onClick={() => {
                   item.action();
-                  if (!item.command.startsWith("/synthesize") && !item.command.startsWith("/insights")) setQuestion("");
+                  if (!item.command.startsWith("/synthesize") && !item.command.startsWith("/insights") && !item.command.startsWith("/run")) setQuestion("");
                 }}
                 type="button"
               >
@@ -4619,6 +4874,7 @@ function App() {
               setActiveMode("reports");
             }}
             onOpenRuns={() => setActiveMode("runs")}
+            onRunStart={clearGraphForRun}
             sessionReports={sessionReports}
           />
         </aside>

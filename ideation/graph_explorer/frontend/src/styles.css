@@ -3265,6 +3265,112 @@ label {
     color: var(--muted);
   }
 
+  .run-wizard-card {
+    display: grid;
+    gap: 8px;
+    border: 1px solid #d8d1c2;
+    border-radius: 11px;
+    background: linear-gradient(180deg, #fffefa 0%, #f8f5ed 100%);
+    padding: 9px;
+    box-shadow: 0 16px 34px rgb(40 36 30 / 0.09);
+  }
+
+  .run-wizard-head,
+  .run-wizard-actions,
+  .tracked-runs-head,
+  .tracked-run-progress {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .run-wizard-head > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .run-wizard-head strong {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #292721;
+    font-size: 12px;
+  }
+
+  .run-wizard-head span,
+  .run-wizard-suggestions span {
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 720;
+  }
+
+  .run-wizard-head > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid #ddd7cc;
+    border-radius: 7px;
+    background: #fffefa;
+    color: #514c44;
+    cursor: pointer;
+  }
+
+  .run-wizard-suggestions {
+    display: grid;
+    gap: 5px;
+  }
+
+  .run-wizard-suggestions button {
+    border: 1px solid #dfd8cb;
+    border-radius: 8px;
+    background: #fffefa;
+    color: #38342e;
+    padding: 7px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .run-wizard-suggestions button:hover,
+  .run-wizard-suggestions button.active {
+    border-color: #bdb4a2;
+    background: #f2eee5;
+  }
+
+  .run-wizard-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .run-wizard-grid label:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .run-wizard-actions {
+    justify-content: flex-end;
+  }
+
+  .run-wizard-actions button {
+    min-height: 28px;
+    border: 1px solid #d9d2c6;
+    border-radius: 8px;
+    background: #fffefa;
+    color: #37332d;
+    padding: 0 10px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .run-wizard-actions button:last-child {
+    border-color: #9fbaa5;
+    background: #e7f2e8;
+    color: #225b35;
+  }
+
   .chat-composer textarea {
     min-height: 74px;
     border: 0;
@@ -3908,6 +4014,111 @@ label {
     justify-content: space-between;
     gap: 10px;
     color: var(--muted);
+  }
+
+  .tracked-runs {
+    display: grid;
+    gap: 7px;
+  }
+
+  .tracked-runs-head {
+    color: #37332d;
+    font-size: 11px;
+    font-weight: 820;
+  }
+
+  .tracked-runs-head span {
+    color: var(--muted);
+  }
+
+  .tracked-run-card {
+    display: grid;
+    gap: 6px;
+    border: 1px solid #ddd7cc;
+    border-radius: 9px;
+    background: #fffefa;
+    padding: 8px;
+  }
+
+  .tracked-run-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .tracked-run-top > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .tracked-run-top strong,
+  .tracked-run-top span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tracked-run-top strong {
+    color: #34312c;
+    font-size: 11.5px;
+  }
+
+  .tracked-run-top span,
+  .tracked-run-metrics span,
+  .tracked-run-progress span {
+    color: var(--muted);
+    font-size: 10.5px;
+  }
+
+  .run-status-pill {
+    flex: 0 0 auto;
+    border: 1px solid #d9d2c6;
+    border-radius: 999px;
+    background: #f5f1e8;
+    color: #5c564c;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .run-status-pill.running {
+    border-color: #94b89d;
+    background: #e6f3e8;
+    color: #23633a;
+  }
+
+  .run-status-pill.done {
+    border-color: #b7d0bc;
+    background: #eff7ef;
+    color: #2e6b40;
+  }
+
+  .run-status-pill.error,
+  .run-status-pill.failed {
+    border-color: #e0b3a9;
+    background: #fff0ec;
+    color: #8b3024;
+  }
+
+  .tracked-run-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .tracked-run-metrics span {
+    border: 1px solid #e3ddd1;
+    border-radius: 999px;
+    background: #f9f6ef;
+    padding: 2px 6px;
+    font-weight: 760;
+  }
+
+  .tracked-run-progress progress {
+    flex: 1;
   }
 
   progress {

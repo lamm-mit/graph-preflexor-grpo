@@ -8,8 +8,10 @@ import { useExplorerStore } from "../store";
 import type { GraphFileSummary, GraphPayload, JobStatus, RunSummary } from "../types";
 
 const RUN_MONITOR_STORAGE_KEY = "graph-preflexor-explorer.run-monitor.v1";
-const IDEATION_STRATEGIES = ["frontier", "node", "answer", "edge", "novelty", "leap", "converse", "mixed"] as const;
-type IdeationStrategy = (typeof IDEATION_STRATEGIES)[number];
+const RUN_JOBS_STORAGE_KEY = "graph-preflexor-explorer.run-jobs.v1";
+export const EXPLORATION_RUNS_CHANGED_EVENT = "graph-preflexor-explorer.runs.changed";
+export const IDEATION_STRATEGIES = ["frontier", "node", "answer", "edge", "novelty", "leap", "converse", "mixed"] as const;
+export type IdeationStrategy = (typeof IDEATION_STRATEGIES)[number];
 
 function normalizeStrategy(value: string | undefined): IdeationStrategy {
   return IDEATION_STRATEGIES.includes(value as IdeationStrategy) ? (value as IdeationStrategy) : "frontier";
@@ -25,6 +27,17 @@ type StoredRunMonitor = {
   jobId?: string;
 };
 
+export type TrackedExplorationRun = {
+  id: string;
+  topic: string;
+  strategy: IdeationStrategy;
+  calls: number;
+  iters: number;
+  out: string;
+  job: JobStatus;
+  updated_at: number;
+};
+
 function readRunMonitorStorage(): StoredRunMonitor {
   if (typeof window === "undefined") return {};
   try {
@@ -37,6 +50,45 @@ function readRunMonitorStorage(): StoredRunMonitor {
 function writeRunMonitorStorage(value: StoredRunMonitor) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(RUN_MONITOR_STORAGE_KEY, JSON.stringify({ ...value, savedAt: Date.now() }));
+}
+
+export function readTrackedExplorationRuns(): TrackedExplorationRun[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const items = JSON.parse(window.localStorage.getItem(RUN_JOBS_STORAGE_KEY) || "[]") as TrackedExplorationRun[];
+    return Array.isArray(items) ? items.filter((item) => item?.id && item?.job).slice(0, 12) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTrackedExplorationRuns(items: TrackedExplorationRun[], notify = true) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(RUN_JOBS_STORAGE_KEY, JSON.stringify(items.slice(0, 12)));
+  if (notify) window.dispatchEvent(new CustomEvent(EXPLORATION_RUNS_CHANGED_EVENT));
+}
+
+export function rememberExplorationRun(input: {
+  job: JobStatus;
+  topic: string;
+  strategy: IdeationStrategy;
+  calls: number;
+  iters: number;
+  out: string;
+}) {
+  const next: TrackedExplorationRun = {
+    id: input.job.id,
+    topic: input.topic,
+    strategy: input.strategy,
+    calls: input.calls,
+    iters: input.iters,
+    out: input.job.out || input.out,
+    job: input.job,
+    updated_at: Date.now(),
+  };
+  const existing = readTrackedExplorationRuns().filter((item) => item.id !== next.id);
+  writeTrackedExplorationRuns([next, ...existing]);
+  return next;
 }
 
 export function RunExplorer({
@@ -271,18 +323,48 @@ export function RunMonitor({
   const [iters, setIters] = useState(storedRun.iters || 50);
   const [out, setOut] = useState(storedRun.out || "runs/explorer_run");
   const [job, setJob] = useState<JobStatus | null>(storedRun.job || null);
+  const [trackedRuns, setTrackedRuns] = useState<TrackedExplorationRun[]>(() => {
+    const items = readTrackedExplorationRuns();
+    if (storedRun.job && !items.some((item) => item.id === storedRun.job?.id)) {
+      return [
+        {
+          id: storedRun.job.id,
+          topic: storedRun.topic || "",
+          strategy: normalizeStrategy(storedRun.strategy),
+          calls: storedRun.calls || 50,
+          iters: storedRun.iters || 50,
+          out: storedRun.job.out || storedRun.out || "runs/explorer_run",
+          job: storedRun.job,
+          updated_at: Date.now(),
+        },
+        ...items,
+      ];
+    }
+    return items;
+  });
   const [monitorStatus, setMonitorStatus] = useState(storedRun.job ? "Restored saved exploration run." : "");
   const [busy, setBusy] = useState(false);
   const [suggestingOut, setSuggestingOut] = useState(false);
-  const lastSnapshotRef = useRef<string>("");
+  const lastSnapshotByJobRef = useRef<Record<string, string>>({});
   const outTouchedRef = useRef(false);
   const autoOutRef = useRef(out);
   const suggestSeqRef = useRef(0);
   const namingRole = roles[chatRole] || roles.chat || roles.questioner || roles.graph_qa;
+  const primaryJob = trackedRuns.find((item) => ["running", "stopping"].includes(item.job.status))?.job || trackedRuns[0]?.job || job;
 
   useEffect(() => {
-    writeRunMonitorStorage({ topic, strategy, calls, iters, out, job, jobId: job?.id });
-  }, [calls, iters, job, out, strategy, topic]);
+    writeRunMonitorStorage({ topic, strategy, calls, iters, out, job: primaryJob || job, jobId: primaryJob?.id || job?.id });
+  }, [calls, iters, job, out, primaryJob, strategy, topic]);
+
+  useEffect(() => {
+    const refreshTrackedRuns = () => setTrackedRuns(readTrackedExplorationRuns());
+    window.addEventListener(EXPLORATION_RUNS_CHANGED_EVENT, refreshTrackedRuns);
+    window.addEventListener("storage", refreshTrackedRuns);
+    return () => {
+      window.removeEventListener(EXPLORATION_RUNS_CHANGED_EVENT, refreshTrackedRuns);
+      window.removeEventListener("storage", refreshTrackedRuns);
+    };
+  }, []);
 
   async function suggestOutName(force = false) {
     const task = topic.trim();
@@ -343,24 +425,63 @@ export function RunMonitor({
   }, []);
 
   useEffect(() => {
-    if (!job || !["running", "stopping"].includes(job.status)) return undefined;
+    if (!trackedRuns.some((item) => ["running", "stopping"].includes(item.job.status))) return undefined;
     const timer = window.setInterval(async () => {
-      try {
-        const next = await api.job(job.id);
-        setJob(next);
-        setMonitorStatus("");
-        void syncRunGraph(next);
-      } catch (error) {
-        setMonitorStatus(error instanceof Error ? error.message : String(error));
-      }
+      await refreshRunningJobs();
     }, 2200);
     return () => window.clearInterval(timer);
-  }, [job]);
+  }, [trackedRuns]);
+
+  function updateTrackedRun(next: JobStatus) {
+    setTrackedRuns((items) => {
+      const exists = items.some((item) => item.id === next.id);
+      const updated = exists
+        ? items.map((item) => (item.id === next.id ? { ...item, job: next, out: next.out || item.out, updated_at: Date.now() } : item))
+        : [
+            {
+              id: next.id,
+              topic: topic.trim() || "Exploration run",
+              strategy,
+              calls,
+              iters,
+              out: next.out || out,
+              job: next,
+              updated_at: Date.now(),
+            },
+            ...items,
+          ];
+      writeTrackedExplorationRuns(updated, false);
+      return updated;
+    });
+    setJob(next);
+  }
+
+  async function refreshRunningJobs() {
+    const active = trackedRuns.filter((item) => ["running", "stopping"].includes(item.job.status));
+    if (!active.length) return;
+    try {
+      const statuses = await Promise.all(active.map((item) => api.job(item.id)));
+      setTrackedRuns((items) => {
+        const byId = new Map(statuses.map((item) => [item.id, item]));
+        const updated = items.map((item) => {
+          const next = byId.get(item.id);
+          return next ? { ...item, job: next, out: next.out || item.out, updated_at: Date.now() } : item;
+        });
+        writeTrackedExplorationRuns(updated, false);
+        return updated;
+      });
+      const followId = active[0]?.id;
+      statuses.filter((next) => next.id === followId).forEach((next) => void syncRunGraph(next));
+      setMonitorStatus("");
+    } catch (error) {
+      setMonitorStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   async function syncRunGraph(next: JobStatus) {
     const snapshot = next.snapshot_id || (next.graph_ready ? `${next.graph_path || next.out}:ready` : "");
-    if (!next.graph_ready || !next.out || !snapshot || snapshot === lastSnapshotRef.current) return;
-    lastSnapshotRef.current = snapshot;
+    if (!next.graph_ready || !next.out || !snapshot || snapshot === lastSnapshotByJobRef.current[next.id]) return;
+    lastSnapshotByJobRef.current[next.id] = snapshot;
     try {
       await onRunGraphReady(next.out);
     } catch (error) {
@@ -374,13 +495,15 @@ export function RunMonitor({
     try {
       setJob(null);
       setMonitorStatus("Clearing current graph and starting run...");
-      lastSnapshotRef.current = "";
+      lastSnapshotByJobRef.current = {};
       try {
         await onRunStart?.();
       } catch (error) {
         setMonitorStatus(error instanceof Error ? error.message : String(error));
       }
       const next = await api.ideate({ topic, strategy, budget_calls: calls, max_iters: iters, out, clear_output: true });
+      rememberExplorationRun({ job: next, topic, strategy, calls, iters, out });
+      setTrackedRuns(readTrackedExplorationRuns());
       setJob(next);
       if (next.out) setOut(next.out);
       setMonitorStatus(`Started run ${next.id}. Active graph will follow ${next.out} as snapshots appear.`);
@@ -390,22 +513,21 @@ export function RunMonitor({
     }
   }
 
-  async function stop() {
-    if (!job) return;
-    const next = await api.stopJob(job.id);
-    setJob(next);
+  async function stop(jobId: string) {
+    const next = await api.stopJob(jobId);
+    updateTrackedRun(next);
     setMonitorStatus(`Stop requested for run ${next.id}.`);
     void syncRunGraph(next);
   }
 
-  const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);
+  const progress = primaryJob?.status === "done" ? 100 : Math.round((primaryJob?.progress?.percent || 0) * 100);
 
   return (
     <Drawer
       defaultOpen={defaultOpen}
       description="Launch a new ideation run, stop it, and monitor progress from the run logs. The monitor persists so navigation within the app will not lose the run."
       icon={<Rocket size={14} />}
-      note={job?.status || "idle"}
+      note={primaryJob?.status || "idle"}
       title="New Exploration Run"
     >
       <textarea onChange={(event) => setTopic(event.target.value)} placeholder="topic or benchmark task" rows={3} value={topic} />
@@ -458,7 +580,7 @@ export function RunMonitor({
         <div>
           <b>{progress}%</b>
           <span>
-            {formatNumber(job?.progress?.nodes || 0)} nodes | {formatNumber(job?.progress?.edges || 0)} edges
+            {formatNumber(primaryJob?.progress?.nodes || 0)} nodes | {formatNumber(primaryJob?.progress?.edges || 0)} edges
           </span>
         </div>
         <progress max={100} value={progress} />
@@ -473,22 +595,75 @@ export function RunMonitor({
           tone="primary"
         />
         <IconButton
-          disabled={!job || job.status !== "running"}
-          description="Ask the running process to stop and keep the partial output folder."
+          disabled={!primaryJob || primaryJob.status !== "running"}
+          description="Ask the most recent running process to stop and keep the partial output folder."
           icon={<CircleStop size={14} />}
           label="Stop"
-          onClick={stop}
+          onClick={() => primaryJob && void stop(primaryJob.id)}
           tone="danger"
         />
       </div>
-      {(monitorStatus || job?.log_tail) ? (
+      {trackedRuns.length ? (
+        <div className="tracked-runs">
+          <div className="tracked-runs-head">
+            <strong>Tracked runs</strong>
+            <span>{trackedRuns.length} recent</span>
+          </div>
+          {trackedRuns.map((item) => {
+            const itemProgress = item.job.status === "done" ? 100 : Math.round((item.job.progress?.percent || 0) * 100);
+            const canStop = item.job.status === "running";
+            return (
+              <article className="tracked-run-card" key={item.id}>
+                <div className="tracked-run-top">
+                  <div>
+                    <strong>{item.topic || "Exploration run"}</strong>
+                    <span>{item.out}</span>
+                  </div>
+                  <span className={cx("run-status-pill", item.job.status)}>{item.job.status}</span>
+                </div>
+                <div className="tracked-run-metrics">
+                  <span>{item.strategy}</span>
+                  <span>{formatNumber(item.calls)} calls</span>
+                  <span>{formatNumber(item.iters)} iters</span>
+                  <span>{formatNumber(item.job.progress?.nodes || 0)} nodes</span>
+                  <span>{formatNumber(item.job.progress?.edges || 0)} edges</span>
+                </div>
+                <div className="tracked-run-progress">
+                  <progress max={100} value={itemProgress} />
+                  <span>{itemProgress}%</span>
+                </div>
+                <div className="mini-action-row">
+                  <button disabled={busy} onClick={() => void syncRunGraph(item.job)} title="Load the newest graph snapshot for this run when available." type="button">
+                    <FolderOpen size={12} />
+                    Open graph
+                  </button>
+                  <button disabled={!canStop} onClick={() => void stop(item.id)} title="Stop this active exploration run." type="button">
+                    <CircleStop size={12} />
+                    Stop
+                  </button>
+                </div>
+                {item.job.log_tail ? (
+                  <details className="run-status-log">
+                    <summary>
+                      <span>Run status & log</span>
+                      <em>{item.job.status}</em>
+                    </summary>
+                    <pre className="run-log">{item.job.log_tail}</pre>
+                  </details>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+      {(monitorStatus || primaryJob?.log_tail) ? (
         <details className="run-status-log">
           <summary>
             <span>Run status & log</span>
-            <em>{job?.status || "idle"}</em>
+            <em>{primaryJob?.status || "idle"}</em>
           </summary>
           {monitorStatus ? <div className="status-box">{monitorStatus}</div> : null}
-          {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
+          {primaryJob?.log_tail ? <pre className="run-log">{primaryJob.log_tail}</pre> : null}
         </details>
       ) : null}
     </Drawer>
