@@ -16,3 +16,4 @@ __pycache__/
 ./ideation/.cache/*
 ./ideation/.*
 *.cache
+./ideation/graph_explorer/job_*

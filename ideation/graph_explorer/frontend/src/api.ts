@@ -13,8 +13,11 @@ import type {
   ProfileOptions,
   ProfileReportPayload,
   ProfileArtifacts,
+  RunAnalysisJobStatus,
+  RunDashboard,
   RunSummary,
   SearchResult,
+  SynthesisJobStatus,
 } from "./types";
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
@@ -39,8 +42,11 @@ export const api = {
   runs: () => request<{ root: string; runs: RunSummary[] }>("/api/runs"),
   config: () => request<ConfigPayload>("/api/config"),
   loadRun: (run: string) => request<GraphPayload>("/api/load_run", { run }),
+  runDashboard: (run: string) => request<RunDashboard>("/api/run_dashboard", { run }),
   runGraphs: (run: string) => request<{ run: string; graphs: GraphFileSummary[] }>("/api/run_graphs", { run }),
   graphmlFiles: () => request<{ graphs: GraphFileSummary[] }>("/api/graphml_files", {}),
+  suggestRunOut: (body: { topic: string; strategy?: string; model_config?: ModelRole }) =>
+    request<{ out: string; slug: string; source: "model" | "fallback"; reason?: string; model_text?: string }>("/api/suggest_run_out", body),
   clearGraph: () => request<{ ok: boolean }>("/api/clear_graph", {}),
   uploadGraphml: (name: string, graphml: string) =>
     request<GraphPayload>("/api/load_graphml", { name, graphml }),
@@ -122,6 +128,28 @@ export const api = {
   profileGraph: (body: ProfileOptions) => request<ProfileJobStatus>("/api/profile_graph", body),
   profileJob: (id: string) => request<ProfileJobStatus>(`/api/profile_job?id=${encodeURIComponent(id)}`),
   stopProfileJob: (id: string) => request<ProfileJobStatus>("/api/stop_profile_job", { id }),
+  runAnalysis: (body: { run: string; analyses?: string[]; embed_model?: string }) =>
+    request<RunAnalysisJobStatus>("/api/run_analysis", body),
+  runAnalysisJob: (id: string) => request<RunAnalysisJobStatus>(`/api/run_analysis_job?id=${encodeURIComponent(id)}`),
+  stopRunAnalysis: (id: string) => request<RunAnalysisJobStatus>("/api/stop_run_analysis", { id }),
+  synthesize: (body: {
+    run: string;
+    task?: string;
+    style?: string;
+    backend?: string;
+    model?: string;
+    base_url?: string;
+    api_key_env?: string;
+    model_config?: ModelRole;
+    temperature?: number | string;
+    max_tokens?: number | string;
+    max_leads?: number | string;
+    mine?: boolean;
+    no_insights?: boolean;
+    out?: string;
+  }) => request<SynthesisJobStatus>("/api/synthesize", body),
+  synthesisJob: (id: string) => request<SynthesisJobStatus>(`/api/synthesis_job?id=${encodeURIComponent(id)}`),
+  stopSynthesis: (id: string) => request<SynthesisJobStatus>("/api/stop_synthesis", { id }),
   profileReports: (run: string) => request<{ run: string; reports: ProfileArtifacts[] }>("/api/profile_reports", { run }),
   profileReport: (out: string) => request<ProfileReportPayload>("/api/profile_report", { out }),
   reportAssetUrl: (out: string, file: string) =>

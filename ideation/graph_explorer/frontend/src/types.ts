@@ -176,6 +176,102 @@ export type JobStatus = {
   progress?: JobProgress;
 };
 
+export type RunAnalysisArtifact = {
+  path: string;
+  name: string;
+  updated_at: number;
+  size: number;
+};
+
+export type RunDashboardGrowthPoint = {
+  iter: number;
+  depth?: number;
+  nodes: number;
+  edges: number;
+  new_nodes: number;
+  tokens: number;
+  cum_tokens: number;
+  diversity: number;
+};
+
+export type RunDashboardGraphPoint = {
+  iter: number;
+  nodes: number;
+  edges: number;
+  new_nodes: number;
+  new_edges: number;
+  avg_degree: number;
+};
+
+export type RunDashboardDepthPoint = {
+  depth: number;
+  nodes: number;
+  edges: number;
+  cumulative_nodes: number;
+  cumulative_edges: number;
+};
+
+export type RunDashboardInsight = {
+  kind: string;
+  title: string;
+  score: number;
+  detail: string;
+};
+
+export type RunDashboard = RunSummary & {
+  summary: Record<string, unknown>;
+  growth: RunDashboardGrowthPoint[];
+  graph_series: RunDashboardGraphPoint[];
+  depth_series: RunDashboardDepthPoint[];
+  relations: Array<{ relation: string; count: number }>;
+  transcript: { turns: number; last_question: string; last_iter: number | null };
+  snapshots: GraphFileSummary[];
+  analysis_artifacts: RunAnalysisArtifact[];
+  insights: RunDashboardInsight[];
+  graph_error?: string;
+};
+
+export type RunAnalysisProgress = {
+  percent: number;
+  current: number;
+  total: number;
+  message: string;
+  detail: string;
+};
+
+export type RunAnalysisJobStatus = {
+  id: string;
+  cmd: string[][];
+  run: string;
+  status: "running" | "stopping" | "stopped" | "done" | "failed";
+  returncode: number | null;
+  started_at: number;
+  ended_at: number | null;
+  log_tail?: string;
+  progress?: RunAnalysisProgress;
+  analysis_artifacts?: RunAnalysisArtifact[];
+};
+
+export type SynthesisJobStatus = {
+  id: string;
+  cmd: string[];
+  run: string;
+  out: string;
+  absolute_out?: string;
+  task?: string;
+  style?: string;
+  backend?: string;
+  model?: string;
+  status: "running" | "stopping" | "stopped" | "done" | "failed";
+  returncode: number | null;
+  started_at: number;
+  ended_at: number | null;
+  log_tail?: string;
+  progress?: RunAnalysisProgress;
+  answer_markdown?: string;
+  answer_error?: string;
+};
+
 export type ProfileSummary = {
   topic?: string;
   generated_at?: string;

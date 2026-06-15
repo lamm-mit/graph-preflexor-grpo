@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { CircleStop, FolderOpen, Loader2, Play, RotateCcw, Upload } from "lucide-react";
+import { CircleStop, FolderOpen, Loader2, Play, RotateCcw, Sparkles, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { cx, Drawer, formatRunTime, IconButton } from "../components/common";
@@ -263,6 +263,8 @@ export function RunMonitor({
   const storedRunRef = useRef<StoredRunMonitor | null>(null);
   if (!storedRunRef.current) storedRunRef.current = readRunMonitorStorage();
   const storedRun = storedRunRef.current;
+  const roles = useExplorerStore((state) => state.roles);
+  const chatRole = useExplorerStore((state) => state.chatRole);
   const [topic, setTopic] = useState(storedRun.topic || "");
   const [strategy, setStrategy] = useState<IdeationStrategy>(normalizeStrategy(storedRun.strategy));
   const [calls, setCalls] = useState(storedRun.calls || 50);
@@ -271,11 +273,52 @@ export function RunMonitor({
   const [job, setJob] = useState<JobStatus | null>(storedRun.job || null);
   const [monitorStatus, setMonitorStatus] = useState(storedRun.job ? "Restored saved run monitor." : "");
   const [busy, setBusy] = useState(false);
+  const [suggestingOut, setSuggestingOut] = useState(false);
   const lastSnapshotRef = useRef<string>("");
+  const outTouchedRef = useRef(false);
+  const autoOutRef = useRef(out);
+  const suggestSeqRef = useRef(0);
+  const namingRole = roles[chatRole] || roles.chat || roles.questioner || roles.graph_qa;
 
   useEffect(() => {
     writeRunMonitorStorage({ topic, strategy, calls, iters, out, job, jobId: job?.id });
   }, [calls, iters, job, out, strategy, topic]);
+
+  async function suggestOutName(force = false) {
+    const task = topic.trim();
+    if (!task || task.length < 8) return;
+    if (!force && outTouchedRef.current && out !== autoOutRef.current) return;
+    const seq = suggestSeqRef.current + 1;
+    suggestSeqRef.current = seq;
+    setSuggestingOut(true);
+    try {
+      const suggestion = await api.suggestRunOut({ topic: task, strategy, model_config: namingRole });
+      if (seq !== suggestSeqRef.current) return;
+      autoOutRef.current = suggestion.out;
+      setOut(suggestion.out);
+      if (force) {
+        setMonitorStatus(
+          suggestion.source === "model"
+            ? `Suggested output folder: ${suggestion.out}`
+            : `Suggested output folder from fallback slug: ${suggestion.out}`,
+        );
+      }
+    } catch (error) {
+      if (force) setMonitorStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (seq === suggestSeqRef.current) setSuggestingOut(false);
+    }
+  }
+
+  useEffect(() => {
+    const task = topic.trim();
+    if (!task || task.length < 8) return undefined;
+    if (outTouchedRef.current && out !== autoOutRef.current) return undefined;
+    const timer = window.setTimeout(() => {
+      void suggestOutName(false);
+    }, 1100);
+    return () => window.clearTimeout(timer);
+  }, [topic, strategy]);
 
   useEffect(() => {
     const restoredJobId = storedRun.jobId || storedRun.job?.id;
@@ -386,8 +429,29 @@ export function RunMonitor({
           <input min={1} onChange={(event) => setIters(Number(event.target.value))} type="number" value={iters} />
         </label>
         <label>
-          Out
-          <input onChange={(event) => setOut(event.target.value)} value={out} />
+          Output folder
+          <div className="run-path-row">
+            <input
+              onChange={(event) => {
+                outTouchedRef.current = true;
+                setOut(event.target.value);
+              }}
+              value={out}
+            />
+            <button
+              aria-label="Suggest output folder"
+              className="icon-field-button"
+              disabled={!topic.trim() || suggestingOut}
+              onClick={() => {
+                outTouchedRef.current = false;
+                void suggestOutName(true);
+              }}
+              title="Suggest a short valid run folder from the topic using the configured model, with a deterministic fallback."
+              type="button"
+            >
+              {suggestingOut ? <Loader2 className="spin" size={14} /> : <Sparkles size={14} />}
+            </button>
+          </div>
         </label>
       </div>
       <div className="progress-card">

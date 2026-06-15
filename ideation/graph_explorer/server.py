@@ -62,6 +62,8 @@ STATE = {
     "topic": "",
     "jobs": {},
     "profile_jobs": {},
+    "analysis_jobs": {},
+    "synthesis_jobs": {},
     "embedding_job": None,
     "embedding_index": None,
     "embedding_models": {},
@@ -701,6 +703,292 @@ def _read_growth(run_dir, limit=80):
             "diversity": _safe_float(row.get("diversity")),
         })
     return out
+
+
+def _read_growth_full(run_dir):
+    path = run_dir / "growth.csv"
+    if not path.exists() or path.stat().st_size <= 0:
+        return []
+    try:
+        with path.open(newline="", errors="replace") as f:
+            rows = list(csv.DictReader(f))
+    except Exception:
+        return []
+    out = []
+    for row in rows:
+        out.append({
+            "iter": _safe_int(row.get("iter")),
+            "depth": _safe_int(row.get("depth")),
+            "nodes": _safe_int(row.get("n_nodes")),
+            "edges": _safe_int(row.get("n_edges")),
+            "new_nodes": _safe_int(row.get("new_nodes")),
+            "tokens": _safe_int(row.get("tokens")),
+            "cum_tokens": _safe_int(row.get("cum_tokens")),
+            "diversity": _safe_float(row.get("diversity")),
+        })
+    return out
+
+
+def _read_transcript_meta(run_dir):
+    path = run_dir / "transcript.jsonl"
+    if not path.exists() or path.stat().st_size <= 0:
+        return {"turns": 0, "last_question": "", "last_iter": None}
+    turns = 0
+    last_question = ""
+    last_iter = None
+    try:
+        with path.open(errors="replace") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                turns += 1
+                try:
+                    item = json.loads(line)
+                except Exception:
+                    continue
+                last_question = str(item.get("question") or last_question)
+                if "iter" in item:
+                    last_iter = _safe_int(item.get("iter"))
+    except Exception:
+        pass
+    return {"turns": turns, "last_question": last_question, "last_iter": last_iter}
+
+
+def _attr_iter(attrs, key="iter"):
+    return _safe_int((attrs or {}).get(key), 0)
+
+
+def _graph_iter_series(G):
+    if G is None or G.number_of_nodes() == 0:
+        return []
+    node_iter = {n: _attr_iter(d, "iter") for n, d in G.nodes(data=True)}
+    edge_iter = [(u, v, _attr_iter(d, "iter")) for u, v, d in G.edges(data=True)]
+    max_iter = max([*node_iter.values(), *[it for _, _, it in edge_iter], 0])
+    series = []
+    for it in range(max_iter + 1):
+        nodes = {n for n, born in node_iter.items() if born <= it}
+        edges = [(u, v) for u, v, born in edge_iter if born <= it and u in nodes and v in nodes]
+        new_nodes = sum(1 for born in node_iter.values() if born == it)
+        new_edges = sum(1 for _, _, born in edge_iter if born == it)
+        series.append({
+            "iter": it,
+            "nodes": len(nodes),
+            "edges": len(edges),
+            "new_nodes": new_nodes,
+            "new_edges": new_edges,
+            "avg_degree": (2 * len(edges) / max(1, len(nodes))) if not G.is_directed() else (len(edges) / max(1, len(nodes))),
+        })
+    return series
+
+
+def _graph_depth_series(G):
+    if G is None or G.number_of_nodes() == 0:
+        return []
+    node_depth = {n: _attr_iter(d, "depth") for n, d in G.nodes(data=True)}
+    edge_depth = [_attr_iter(d, "depth") for _, _, d in G.edges(data=True)]
+    max_depth = max([*node_depth.values(), *edge_depth, 0])
+    series = []
+    for depth in range(max_depth + 1):
+        series.append({
+            "depth": depth,
+            "nodes": sum(1 for value in node_depth.values() if value == depth),
+            "edges": sum(1 for value in edge_depth if value == depth),
+            "cumulative_nodes": sum(1 for value in node_depth.values() if value <= depth),
+            "cumulative_edges": sum(1 for value in edge_depth if value <= depth),
+        })
+    return series
+
+
+def _relation_counts(G, limit=14):
+    counts = {}
+    if G is None:
+        return []
+    for _, _, d in G.edges(data=True):
+        rel = str(d.get("relation") or "related_to")
+        counts[rel] = counts.get(rel, 0) + 1
+    return [
+        {"relation": rel, "count": count}
+        for rel, count in sorted(counts.items(), key=lambda item: item[1], reverse=True)[:limit]
+    ]
+
+
+def _analysis_file_item(path):
+    path = Path(path)
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return {
+        "path": _relative_to_ideation(path),
+        "name": path.name,
+        "updated_at": stat.st_mtime,
+        "size": stat.st_size,
+    }
+
+
+def _run_analysis_artifacts(run_dir):
+    candidates = [
+        run_dir / "insights.json",
+        run_dir / "insights.md",
+        run_dir / "figures" / "ideation_curves_index.png",
+        run_dir / "figures" / (f"ideation_analysis_{run_dir.name}.json"),
+        run_dir / "figures" / "novelty_novelty.json",
+        run_dir / "figures" / "scaling_scaling.json",
+        run_dir / "figures" / "dynamics.png",
+    ]
+    out = []
+    for path in candidates:
+        item = _analysis_file_item(path)
+        if item:
+            out.append(item)
+    return out
+
+
+def _insights_preview(run_dir, limit=6):
+    path = run_dir / "insights.json"
+    if not path.exists():
+        return []
+    try:
+        data = json.load(open(path))
+    except Exception:
+        return []
+    items = data.get("top_overall") or []
+    out = []
+    for item in items[:limit]:
+        out.append({
+            "kind": str(item.get("kind") or ""),
+            "title": str(item.get("title") or ""),
+            "score": _safe_float(item.get("score")),
+            "detail": str(item.get("detail") or "")[:900],
+        })
+    return out
+
+
+def _run_dashboard_payload(run_value):
+    run_dir = _resolve_run_path(run_value)
+    if run_dir.is_file():
+        run_dir = run_dir.parent.parent if run_dir.parent.name == "graphml" else run_dir.parent
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise ValueError(f"run directory not found: {run_dir}")
+
+    summary = _read_summary(run_dir)
+    snapshot = _snapshot_meta(run_dir)
+    G = None
+    graph_errors = []
+    for path in _graphml_candidates(run_dir):
+        try:
+            G = _normalize_graph(nx.read_graphml(path))
+            break
+        except Exception as exc:
+            graph_errors.append(f"{path.name}: {exc}")
+    payload = _run_summary(run_dir)
+    payload.update({
+        "summary": summary,
+        "growth": _read_growth_full(run_dir),
+        "graph_series": _graph_iter_series(G),
+        "depth_series": _graph_depth_series(G),
+        "relations": _relation_counts(G),
+        "transcript": _read_transcript_meta(run_dir),
+        "snapshots": _run_graphs_payload(str(run_dir)).get("graphs", []),
+        "analysis_artifacts": _run_analysis_artifacts(run_dir),
+        "insights": _insights_preview(run_dir),
+        "graph_error": "; ".join(graph_errors[:3]) if graph_errors and G is None else "",
+        "graph_path": snapshot.get("graph_path") or payload.get("graph_path") or "",
+    })
+    return payload
+
+
+RUN_NAME_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "both", "by", "for", "from", "give", "in", "into",
+    "is", "it", "its", "new", "of", "on", "one", "or", "propose", "that", "the", "to", "with",
+    "fully", "task", "using", "based", "ground", "mechanism", "prediction", "falsifiable",
+}
+
+
+def _slug_words(text, limit=5):
+    words = re.findall(r"[a-zA-Z0-9]+", str(text or "").lower())
+    picked = []
+    for word in words:
+        if len(word) <= 2 or word in RUN_NAME_STOPWORDS:
+            continue
+        picked.append(word[:22])
+        if len(picked) >= limit:
+            break
+    return picked or ["explorer", "run"]
+
+
+def _sanitize_run_slug(raw, topic):
+    value = str(raw or "").strip().lower()
+    value = re.sub(r"^runs/", "", value)
+    value = re.sub(r"^ex[_-]?", "", value)
+    value = re.sub(r"[^a-z0-9]+", "_", value)
+    value = re.sub(r"_+", "_", value).strip("_")
+    if not value:
+        value = "_".join(_slug_words(topic, 4))
+    parts = [part for part in value.split("_") if part and part not in RUN_NAME_STOPWORDS]
+    value = "_".join(parts[:5]) or "_".join(_slug_words(topic, 4))
+    return value[:64].strip("_") or "explorer_run"
+
+
+def _available_run_path(slug):
+    base = f"runs/ex_{slug}"
+    path = IDEATION_DIR / base
+    if not path.exists():
+        return base
+    for index in range(2, 100):
+        candidate = f"{base}_{index}"
+        if not (IDEATION_DIR / candidate).exists():
+            return candidate
+    return f"{base}_{uuid.uuid4().hex[:4]}"
+
+
+def _suggest_run_out(body):
+    topic = str(body.get("topic") or "").strip()
+    strategy = str(body.get("strategy") or "").strip()
+    if not topic:
+        return {"out": "runs/ex_explorer_run", "slug": "explorer_run", "source": "fallback", "reason": "empty topic"}
+
+    fallback_slug = "_".join(_slug_words(topic, 4))
+    source = "fallback"
+    reason = ""
+    model_text = ""
+    cfg = dict(body.get("model_config") or {})
+    if cfg.get("model"):
+        prompt = (
+            "Create a short filesystem-safe experiment folder slug for this ideation task.\n"
+            "Rules: return ONLY 2 to 5 lowercase words joined by underscores. No quotes, no prefix, no punctuation.\n"
+            f"Strategy: {strategy or 'unspecified'}\n"
+            f"Task: {topic}\n"
+            "Slug:"
+        )
+        quick_cfg = {
+            **cfg,
+            "temperature": 0.1,
+            "max_tokens": 32,
+            "max_output_tokens": 32,
+            "reasoning_effort": "",
+            "timeout": 8,
+        }
+        try:
+            messages = [
+                {"role": "developer", "content": "You name run folders for scientific ideation experiments."},
+                {"role": "user", "content": prompt},
+            ]
+            model_text = str(_call_openai_compatible(quick_cfg, messages) or "")
+            if model_text.strip():
+                source = "model"
+        except Exception as exc:
+            reason = str(exc)
+
+    slug = _sanitize_run_slug(model_text if source == "model" else fallback_slug, topic)
+    out = _available_run_path(slug)
+    return {
+        "out": out,
+        "slug": slug,
+        "source": source,
+        "reason": reason,
+        "model_text": model_text[:200],
+    }
 
 
 def _progress_payload(run_dir, *, budget_calls=None, max_iters=None, max_tokens=None):
@@ -2234,6 +2522,7 @@ def _call_responses_http(cfg, messages, previous_response_id=None, previous_erro
     base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
     api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
     api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
+    timeout = _safe_float(cfg.get("timeout"), LLM_HTTP_TIMEOUT_SECONDS)
     payload = dict(payload_override or _responses_payload(cfg, messages, previous_response_id=previous_response_id))
     last = previous_error
     for _ in range(6):
@@ -2247,7 +2536,7 @@ def _call_responses_http(cfg, messages, previous_response_id=None, previous_erro
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=LLM_HTTP_TIMEOUT_SECONDS) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8") or "{}")
             result = _response_result_from_payload(data)
             return result if return_metadata else result["text"]
@@ -2395,7 +2684,7 @@ def _call_openai_compatible(cfg, messages, previous_response_id=None, return_met
     api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
     api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
     base_url = cfg.get("base_url") or None
-    client = OpenAI(base_url=base_url, api_key=api_key, timeout=LLM_HTTP_TIMEOUT_SECONDS)
+    client = OpenAI(base_url=base_url, api_key=api_key, timeout=_safe_float(cfg.get("timeout"), LLM_HTTP_TIMEOUT_SECONDS))
     backend = _normalize_generation_backend(cfg.get("backend"), cfg.get("provider") or "openai")
     if backend == "prompt":
         return _call_prompt_completion(client, cfg, messages)
@@ -3146,6 +3435,363 @@ def _stop_profile_job(body):
     return _profile_job_status(job_id)
 
 
+ANALYSIS_SPECS = {
+    "plot": "plot_ideation.py",
+    "insights": "insights.py",
+    "novelty": "novelty.py",
+    "scaling": "scaling.py",
+    "dynamics": "dynamics.py",
+}
+
+
+def _analysis_commands(run_value, analyses, embed_model=None):
+    run_dir = _resolve_run_path(run_value)
+    if run_dir.is_file():
+        run_dir = run_dir.parent.parent if run_dir.parent.name == "graphml" else run_dir.parent
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise ValueError(f"run directory not found: {run_dir}")
+    run = _relative_to_ideation(run_dir)
+    requested = [str(item) for item in (analyses or []) if str(item) in ANALYSIS_SPECS]
+    if not requested:
+        requested = ["plot", "insights", "novelty", "scaling", "dynamics"]
+
+    commands = []
+    for name in requested:
+        if name == "plot":
+            cmd = [
+                sys.executable,
+                "plot_ideation.py",
+                "--runs",
+                run,
+                "--labels",
+                run_dir.name,
+                "--out",
+                f"{run}/figures/ideation",
+            ]
+        elif name == "insights":
+            cmd = [sys.executable, "insights.py", "--run", run, "--top", "12"]
+        elif name == "novelty":
+            cmd = [sys.executable, "novelty.py", "--run", run, "--out", f"{run}/figures/novelty"]
+        elif name == "scaling":
+            cmd = [sys.executable, "scaling.py", "--run", run, "--out", f"{run}/figures/scaling"]
+        elif name == "dynamics":
+            cmd = [sys.executable, "dynamics.py", "--run", run, "--out", f"{run}/figures/dynamics"]
+        else:
+            continue
+        if embed_model and str(embed_model).strip() and str(embed_model).strip() != "auto" and name in {"plot", "insights", "novelty", "scaling", "dynamics"}:
+            cmd.extend(["--embed-model", str(embed_model).strip()])
+        commands.append({"name": name, "cmd": cmd})
+    return run_dir, commands
+
+
+def _analysis_job_public(job):
+    return {k: v for k, v in dict(job).items() if k not in {"proc"}}
+
+
+def _analysis_progress(log_text, job):
+    total = max(1, len(job.get("commands") or []))
+    current = _safe_int(job.get("current_index"), 0)
+    status = job.get("status")
+    if status == "done":
+        current = total
+    lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+    return {
+        "percent": max(0.0, min(1.0, current / total)),
+        "current": min(current, total),
+        "total": total,
+        "message": job.get("current_name") or "",
+        "detail": lines[-1] if lines else "",
+    }
+
+
+def _start_run_analysis_job(body):
+    run_value = str(body.get("run") or "").strip()
+    if not run_value:
+        raise ValueError("run path is required")
+    run_dir, commands = _analysis_commands(run_value, body.get("analyses") or [], body.get("embed_model"))
+    if not commands:
+        raise ValueError("no analyses selected")
+
+    job_id = uuid.uuid4().hex[:10]
+    log_path = ROOT / f"analysis_job_{job_id}.log"
+    job = {
+        "id": job_id,
+        "cmd": [item["cmd"] for item in commands],
+        "commands": commands,
+        "cwd": str(IDEATION_DIR),
+        "run": _relative_to_ideation(run_dir),
+        "log_path": str(log_path),
+        "status": "running",
+        "returncode": None,
+        "started_at": time.time(),
+        "ended_at": None,
+        "stop_requested": False,
+        "current_index": 0,
+        "current_name": commands[0]["name"],
+        "proc": None,
+    }
+    with LOCK:
+        STATE["analysis_jobs"][job_id] = job
+
+    def run_sequence():
+        rc = 0
+        with open(log_path, "w") as log:
+            for index, item in enumerate(commands, start=1):
+                with LOCK:
+                    if job.get("stop_requested"):
+                        rc = -15
+                        break
+                    job["current_index"] = index - 1
+                    job["current_name"] = item["name"]
+                log.write(f"[analysis] [{index}/{len(commands)}] {' '.join(item['cmd'])}\n")
+                log.flush()
+                proc = subprocess.Popen(
+                    item["cmd"],
+                    cwd=IDEATION_DIR,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    start_new_session=True,
+                )
+                with LOCK:
+                    job["proc"] = proc
+                rc = proc.wait()
+                with LOCK:
+                    job["proc"] = None
+                    job["current_index"] = index
+                if rc != 0:
+                    break
+        with LOCK:
+            if job.get("stop_requested"):
+                job["status"] = "stopped"
+            else:
+                job["status"] = "done" if rc == 0 else "failed"
+            job["returncode"] = rc
+            job["ended_at"] = time.time()
+
+    threading.Thread(target=run_sequence, daemon=True).start()
+    return _run_analysis_job_status(job_id)
+
+
+def _run_analysis_job_status(job_id):
+    with LOCK:
+        job = STATE["analysis_jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown analysis job id.")
+        out = _analysis_job_public(job)
+    try:
+        log_tail = Path(out["log_path"]).read_text(errors="replace")[-12000:]
+    except Exception:
+        log_tail = ""
+    out["log_tail"] = log_tail
+    out["progress"] = _analysis_progress(log_tail, out)
+    try:
+        run_dir = _resolve_run_path(out.get("run") or "")
+        out["analysis_artifacts"] = _run_analysis_artifacts(run_dir)
+    except Exception:
+        out["analysis_artifacts"] = []
+    return out
+
+
+def _stop_run_analysis_job(body):
+    job_id = str(body.get("id") or "").strip()
+    if not job_id:
+        raise ValueError("Analysis job id is required.")
+    with LOCK:
+        job = STATE["analysis_jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown analysis job id.")
+        proc = job.get("proc")
+        if job.get("status") not in ("running", "stopping"):
+            return _run_analysis_job_status(job_id)
+        job["stop_requested"] = True
+        job["status"] = "stopping"
+    if proc and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, 15)
+        except Exception:
+            proc.terminate()
+    return _run_analysis_job_status(job_id)
+
+
+def _synthesis_job_public(job):
+    return {k: v for k, v in dict(job).items() if k != "proc"}
+
+
+def _synthesis_progress(log_text, status):
+    lines = [line.strip() for line in log_text.splitlines() if line.strip()]
+    detail = lines[-1] if lines else ""
+    percent = 1.0 if status == "done" else (0.35 if status in {"running", "stopping"} else 0.0)
+    message = "complete" if status == "done" else "synthesizing answer"
+    if "wrote " in log_text:
+        percent = 1.0
+        message = "answer written"
+    return {
+        "percent": max(0.0, min(1.0, percent)),
+        "current": 1 if percent >= 1.0 else 0,
+        "total": 1,
+        "message": message,
+        "detail": detail,
+    }
+
+
+def _default_synthesis_out(run_dir, job_id):
+    return run_dir / "synthesis" / f"answer_{job_id}.md"
+
+
+def _start_synthesis_job(body):
+    run_value = str(body.get("run") or "").strip()
+    if not run_value:
+        raise ValueError("run path is required")
+    run_dir = _resolve_run_path(run_value)
+    if run_dir.is_file():
+        run_dir = run_dir.parent.parent if run_dir.parent.name == "graphml" else run_dir.parent
+    if not run_dir.exists() or not run_dir.is_dir():
+        raise ValueError(f"run directory not found: {run_dir}")
+    run = _relative_to_ideation(run_dir)
+
+    model_config = dict(body.get("model_config") or {})
+    role_backend = str(model_config.get("backend") or "").strip()
+    backend = str(body.get("backend") or "").strip() or (role_backend if role_backend in {"responses", "openai", "hf"} else "responses")
+    model = str(body.get("model") or model_config.get("model") or "").strip()
+    if backend not in {"responses", "openai", "hf"}:
+        backend = "responses"
+    if not model:
+        raise ValueError("model is required for synthesis")
+
+    job_id = uuid.uuid4().hex[:10]
+    out = str(body.get("out") or "").strip()
+    out_path = _safe_workspace_path(out, default_base=IDEATION_DIR, require_safe_root=True) if out else _default_synthesis_out(run_dir, job_id)
+    task = str(body.get("task") or "").strip()
+    style = str(body.get("style") or "report").strip() or "report"
+
+    cmd = [sys.executable, "synthesize.py", "--run", run, "--backend", backend, "--model", model, "--out", _relative_to_ideation(out_path)]
+    if task:
+        cmd.extend(["--task", task])
+    elif style:
+        cmd.extend(["--style", style])
+    if body.get("mine"):
+        cmd.append("--mine")
+    if body.get("no_insights"):
+        cmd.append("--no-insights")
+    if body.get("show_prompt"):
+        cmd.append("--show-prompt")
+    for key, flag in (
+        ("topic", "--topic"),
+        ("system", "--system"),
+        ("embed_model", "--embed-model"),
+        ("max_iter", "--max-iter"),
+        ("max_leads", "--max-leads"),
+        ("temperature", "--temperature"),
+        ("max_tokens", "--max-tokens"),
+        ("device", "--device"),
+        ("dtype", "--dtype"),
+    ):
+        value = body.get(key)
+        if value not in (None, ""):
+            cmd.extend([flag, str(value)])
+    if backend in {"responses", "openai"}:
+        base_url = str(body.get("base_url") or model_config.get("base_url") or "").strip()
+        if base_url:
+            cmd.extend(["--base-url", base_url])
+
+    env = os.environ.copy()
+    api_key_env = str(body.get("api_key_env") or model_config.get("api_key_env") or "").strip()
+    if api_key_env and os.environ.get(api_key_env):
+        env["OPENAI_API_KEY"] = os.environ[api_key_env]
+
+    log_path = ROOT / f"synthesis_job_{job_id}.log"
+    log = open(log_path, "w")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=IDEATION_DIR,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+        env=env,
+    )
+    job = {
+        "id": job_id,
+        "cmd": cmd,
+        "cwd": str(IDEATION_DIR),
+        "run": run,
+        "out": _relative_to_ideation(out_path),
+        "absolute_out": str(out_path),
+        "task": task,
+        "style": style,
+        "backend": backend,
+        "model": model,
+        "log_path": str(log_path),
+        "status": "running",
+        "returncode": None,
+        "started_at": time.time(),
+        "ended_at": None,
+        "stop_requested": False,
+        "proc": proc,
+    }
+    with LOCK:
+        STATE["synthesis_jobs"][job_id] = job
+
+    def wait():
+        rc = proc.wait()
+        log.close()
+        with LOCK:
+            if job.get("stop_requested"):
+                job["status"] = "stopped"
+            else:
+                job["status"] = "done" if rc == 0 else "failed"
+            job["returncode"] = rc
+            job["ended_at"] = time.time()
+
+    threading.Thread(target=wait, daemon=True).start()
+    return _synthesis_job_status(job_id)
+
+
+def _synthesis_job_status(job_id):
+    with LOCK:
+        job = STATE["synthesis_jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown synthesis job id.")
+        out = _synthesis_job_public(job)
+    try:
+        log_tail = Path(out["log_path"]).read_text(errors="replace")[-12000:]
+    except Exception:
+        log_tail = ""
+    out["log_tail"] = log_tail
+    out["progress"] = _synthesis_progress(log_tail, out.get("status"))
+    answer_path = Path(out.get("absolute_out") or "")
+    if answer_path.exists() and answer_path.is_file():
+        try:
+            out["answer_markdown"] = answer_path.read_text(errors="replace")
+        except Exception as exc:
+            out["answer_error"] = str(exc)
+    else:
+        out["answer_markdown"] = ""
+    return out
+
+
+def _stop_synthesis_job(body):
+    job_id = str(body.get("id") or "").strip()
+    if not job_id:
+        raise ValueError("Synthesis job id is required.")
+    with LOCK:
+        job = STATE["synthesis_jobs"].get(job_id)
+        if not job:
+            raise ValueError("Unknown synthesis job id.")
+        proc = job.get("proc")
+        if job.get("status") not in ("running", "stopping"):
+            return _synthesis_job_status(job_id)
+        job["stop_requested"] = True
+        job["status"] = "stopping"
+    if proc and proc.poll() is None:
+        try:
+            os.killpg(proc.pid, 15)
+        except Exception:
+            proc.terminate()
+    return _synthesis_job_status(job_id)
+
+
 def _profile_report_payload(body):
     artifacts = _profile_artifacts(body.get("out") or "")
     markdown = ""
@@ -3255,6 +3901,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_job_status((qs.get("id") or [""])[0]))
             elif parsed.path == "/api/profile_job":
                 self._json(_profile_job_status((qs.get("id") or [""])[0]))
+            elif parsed.path == "/api/run_analysis_job":
+                self._json(_run_analysis_job_status((qs.get("id") or [""])[0]))
+            elif parsed.path == "/api/synthesis_job":
+                self._json(_synthesis_job_status((qs.get("id") or [""])[0]))
             elif parsed.path == "/api/embedding_status":
                 self._json(_embedding_status())
             elif parsed.path == "/api/report_asset":
@@ -3283,6 +3933,10 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_set_graph(G, name=run.name, path=str(graph_path), topic=_load_topic(run, G)))
             elif parsed.path == "/api/run_graphs":
                 self._json(_run_graphs_payload(body.get("run") or ""))
+            elif parsed.path == "/api/run_dashboard":
+                self._json(_run_dashboard_payload(body.get("run") or ""))
+            elif parsed.path == "/api/suggest_run_out":
+                self._json(_suggest_run_out(body))
             elif parsed.path == "/api/graphml_files":
                 self._json(_graphml_files_payload())
             elif parsed.path == "/api/search":
@@ -3324,6 +3978,14 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_start_profile_job(body))
             elif parsed.path == "/api/stop_profile_job":
                 self._json(_stop_profile_job(body))
+            elif parsed.path == "/api/run_analysis":
+                self._json(_start_run_analysis_job(body))
+            elif parsed.path == "/api/stop_run_analysis":
+                self._json(_stop_run_analysis_job(body))
+            elif parsed.path == "/api/synthesize":
+                self._json(_start_synthesis_job(body))
+            elif parsed.path == "/api/stop_synthesis":
+                self._json(_stop_synthesis_job(body))
             elif parsed.path == "/api/profile_reports":
                 self._json(_profile_reports_payload(body.get("run") or ""))
             elif parsed.path == "/api/profile_report":

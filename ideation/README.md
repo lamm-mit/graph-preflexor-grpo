@@ -1128,7 +1128,8 @@ layer **on top of** `insights.py` (loads `insights.json`, or mines fresh with `-
 
 | `--backend` | Uses | Covers | Key flags |
 |---|---|---|---|
-| `openai` *(default)* | OpenAI Python SDK (chat-completions) | the **real OpenAI API** *and* **any OpenAI-compatible server** (vLLM, mistral.rs, llama.cpp, TGI, Together, Groq, …) | `--model`, `--base-url` (point at the server; omit for real OpenAI), `--api-key` (or `$OPENAI_API_KEY`) |
+| `responses` *(default)* | OpenAI Responses API | the **real OpenAI API** and compatible `/v1/responses` servers | `--model`, `--base-url` (point at the server; omit for real OpenAI), `--api-key` (or `$OPENAI_API_KEY`) |
+| `openai` | OpenAI Python SDK (chat-completions) | the **real OpenAI API** *and* **any OpenAI-compatible server** (vLLM, mistral.rs, llama.cpp, TGI, Together, Groq, …) | `--model`, `--base-url` (point at the server; omit for real OpenAI), `--api-key` (or `$OPENAI_API_KEY`) |
 | `hf` | local **Hugging Face** `transformers` | any causal-LM repo id, run on this machine (uses the tokenizer's chat template when present) | `--model` (repo id), `--device`, `--dtype` |
 
 **Prompting is deliberately flexible** — nothing is hard-coded to a domain:

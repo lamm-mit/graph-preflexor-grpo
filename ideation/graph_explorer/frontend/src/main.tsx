@@ -34,6 +34,7 @@ import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
 import { MarkdownReport, ReportStage, ReportStudio, readReportStudioStorage } from "./features/reporting";
+import { RunDashboardPanel } from "./features/run-dashboard";
 import { RunExplorer, RunMonitor } from "./features/runs";
 import {
   colorScale,
@@ -299,6 +300,70 @@ function parseGeneratedPrompts(answer: string) {
     .map((line) => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, "").trim())
     .filter((line) => line.length > 8)
     .slice(0, 4);
+}
+
+function splitCommandArgs(input: string) {
+  const out: string[] = [];
+  input.replace(/"([^"]*)"|'([^']*)'|(\S+)/g, (_, dq, sq, bare) => {
+    out.push(dq ?? sq ?? bare ?? "");
+    return "";
+  });
+  return out;
+}
+
+function parseSynthesizeCommand(input: string) {
+  const args = splitCommandArgs(input);
+  const task: string[] = [];
+  const opts: {
+    task: string;
+    style?: string;
+    backend?: string;
+    model?: string;
+    base_url?: string;
+    max_leads?: number;
+    max_tokens?: number;
+    temperature?: number;
+    mine?: boolean;
+    no_insights?: boolean;
+  } = { task: "" };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const next = args[i + 1];
+    if (arg === "--style" && next) {
+      opts.style = next;
+      i += 1;
+    } else if (arg === "--backend" && next) {
+      opts.backend = next;
+      i += 1;
+    } else if (arg === "--hf" && next) {
+      opts.backend = "hf";
+      opts.model = next;
+      i += 1;
+    } else if (arg === "--model" && next) {
+      opts.model = next;
+      i += 1;
+    } else if (arg === "--base-url" && next) {
+      opts.base_url = next;
+      i += 1;
+    } else if ((arg === "--leads" || arg === "--max-leads") && next) {
+      opts.max_leads = Number(next);
+      i += 1;
+    } else if ((arg === "--tokens" || arg === "--max-tokens") && next) {
+      opts.max_tokens = Number(next);
+      i += 1;
+    } else if (arg === "--temperature" && next) {
+      opts.temperature = Number(next);
+      i += 1;
+    } else if (arg === "--mine") {
+      opts.mine = true;
+    } else if (arg === "--baseline" || arg === "--no-insights") {
+      opts.no_insights = true;
+    } else {
+      task.push(arg);
+    }
+  }
+  opts.task = task.join(" ").trim();
+  return opts;
 }
 
 function isLocalModelProbeIssue(probe: ModelProbe) {
@@ -2023,6 +2088,7 @@ function ChatPanel({
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatHydratedRef = useRef(false);
   const contextLabel = contextSummary(graph, selectedNodes);
+  const activeRun = inferRunFromGraphPath(graph?.path || "");
   const activeChatRole = chatModelRole(roles);
   const chatRoleName = activeChatRole?.role || "chat";
   const selectedReport = sessionReports.find((report) => report.out === selectedReportOut);
@@ -2042,6 +2108,7 @@ function ChatPanel({
   const commandItems = [
     { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
     { command: "/followups", label: "Generate follow-ups", detail: "Ask the active graph model for next query ideas.", action: () => void suggestFollowups() },
+    { command: "/synthesize <task>", label: "Run synthesis", detail: "Run synthesize.py on the active run and post answer.md here.", action: () => setQuestion("/synthesize ") },
     { command: "/none", label: "No retrieval", detail: "Use only selected nodes; with no selection this is regular chat.", action: () => setAgentMode("none") },
     { command: "/rag", label: "Graph-RAG retrieval", detail: "Retrieve broader semantic neighborhoods and path connectors.", action: () => setAgentMode("graph_rag") },
     { command: "/focus", label: "Focused selection", detail: "Use selected nodes, an optional focus query, and compact neighborhoods.", action: () => setAgentMode("focused") },
@@ -2113,14 +2180,84 @@ function ChatPanel({
       role: "system",
       meta: "commands",
       content:
-        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\nUse Model Settings to change the chat model role.",
+        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\n/synthesize <task> runs synthesize.py on the active run and posts answer.md here.\n/synthesize --style hypotheses --mine \"Rank three falsifiable hypotheses\" changes style and mines insights if needed.\n/synthesize --hf meta-llama/Llama-3.2-3B-Instruct \"...\" uses the Hugging Face backend.\nUse Model Settings to change the default chat/synthesis model role.",
     });
+  }
+
+  async function pollSynthesis(jobId: string, pendingId: string) {
+    let last = await api.synthesisJob(jobId);
+    while (["running", "stopping"].includes(last.status)) {
+      const progress = last.progress;
+      updateChatMessage(pendingId, {
+        content: `Synthesizing answer...\n\n${progress?.detail || "Waiting for synthesize.py output."}`,
+        meta: `synthesize ${Math.round((progress?.percent || 0) * 100)}% | ${last.model || "model"}`,
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 1800));
+      last = await api.synthesisJob(jobId);
+    }
+    if (last.status === "done") {
+      updateChatMessage(pendingId, {
+        content: `${last.answer_markdown || "(synthesis completed but answer.md was empty)"}\n\n---\n\nSaved to \`${last.out}\`.`,
+        meta: `synthesize | ${last.model || "model"} | ${last.out}`,
+      });
+    } else {
+      updateChatMessage(pendingId, {
+        content: `${last.status}: synthesize.py did not complete.\n\n${last.log_tail || ""}`.trim(),
+        meta: "synthesize error",
+      });
+    }
+  }
+
+  async function startSynthesis(rawArgs: string) {
+    if (!activeRun) {
+      addChatMessage({ role: "assistant", content: "Load a run folder before using `/synthesize`; the tool needs a run with graph and insight artifacts.", meta: "synthesize" });
+      return;
+    }
+    const role = activeChatRole;
+    const options = parseSynthesizeCommand(rawArgs);
+    const backend = options.backend || role?.backend || "responses";
+    const model = options.model || role?.model || "";
+    if (!model) {
+      addChatMessage({ role: "assistant", content: "Configure a chat model under Model Settings, or pass `--model` / `--hf <repo>` to `/synthesize`.", meta: "synthesize" });
+      return;
+    }
+    const task = options.task;
+    const taskLabel = task || `(style preset: ${options.style || "report"})`;
+    addChatMessage({ role: "user", content: `/synthesize ${rawArgs}`.trim(), meta: activeRun });
+    const pending = addChatMessage({
+      role: "assistant",
+      content: `Starting synthesize.py for \`${activeRun}\`...\n\nTask: ${taskLabel}`,
+      meta: `synthesize | ${model}`,
+    });
+    try {
+      const started = await api.synthesize({
+        run: activeRun,
+        task: task || undefined,
+        style: options.style || "report",
+        backend,
+        model,
+        base_url: options.base_url || role?.base_url,
+        api_key_env: role?.api_key_env,
+        model_config: role,
+        temperature: options.temperature ?? role?.temperature ?? 0.7,
+        max_tokens: options.max_tokens ?? role?.max_tokens ?? 8000,
+        max_leads: options.max_leads ?? 8,
+        mine: options.mine,
+        no_insights: options.no_insights,
+      });
+      await pollSynthesis(started.id, pending);
+    } catch (error) {
+      updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "synthesize error" });
+    }
   }
 
   function executeCommand(raw: string) {
     const value = raw.trim();
     if (!value.startsWith("/")) return false;
-    const [command, ...rest] = value.slice(1).split(/\s+/);
+    const match = value.match(/^\/(\S+)\s*(.*)$/);
+    const command = match?.[1] || "";
+    const restText = match?.[2] || "";
+    const rest = restText.split(/\s+/).filter(Boolean);
     if (command === "clear") {
       resetChat();
       setQuestion("");
@@ -2129,6 +2266,11 @@ function ChatPanel({
     if (command === "followups") {
       setQuestion("");
       void suggestFollowups();
+      return true;
+    }
+    if (command === "synthesize") {
+      setQuestion("");
+      void startSynthesis(restText);
       return true;
     }
     if (command === "rag") {
@@ -2431,7 +2573,7 @@ function ChatPanel({
                 key={item.command}
                 onClick={() => {
                   item.action();
-                  setQuestion("");
+                  if (!item.command.startsWith("/synthesize")) setQuestion("");
                 }}
                 type="button"
               >
@@ -2444,7 +2586,10 @@ function ChatPanel({
         <textarea
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") void ask();
+            if (event.key !== "Enter") return;
+            if (event.shiftKey) return;
+            event.preventDefault();
+            void ask();
           }}
           placeholder={graph ? "Message the graph, or type / for commands..." : "Regular chat, or load a graph in Runs for graph context..."}
           rows={4}
@@ -3335,14 +3480,14 @@ function SideRail({
       {activeMode === "runs" ? (
         <>
           <SidebarHeader title="Runs" subtitle="load previous folders or launch new runs" />
-          <RunExplorer defaultOpen onGraphLoaded={(next) => useExplorerStore.getState().setGraph(next)} onLoadRun={onLoadRun} />
-          <RunMonitor defaultOpen onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
+          <RunExplorer onGraphLoaded={(next) => useExplorerStore.getState().setGraph(next)} onLoadRun={onLoadRun} />
+          <RunMonitor onRunGraphReady={onRunGraphReady} onRunStart={onRunStart} />
         </>
       ) : null}
       {activeMode === "reports" ? (
         <>
           <SidebarHeader title="Reports" subtitle="generate reports and open artifacts" />
-          <ReportStudio defaultOpen onReportReady={onReportReady} />
+          <ReportStudio onReportReady={onReportReady} />
         </>
       ) : null}
       {activeMode === "graphrag" ? (
@@ -3481,6 +3626,7 @@ function ThreadStage({
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const stats = graph?.stats;
+  const activeRun = inferRunFromGraphPath(graph?.path || "");
 
   return (
     <section className="thread-stage">
@@ -3488,14 +3634,18 @@ function ThreadStage({
         <div className="thread-titlebar">
           <div>
             <strong>Session overview</strong>
-            <span>{graph?.topic || "Load a run or GraphML file, inspect the graph, and keep the assistant fixed on the right."}</span>
+            <span>{graph?.topic || "Load a run folder to inspect growth, graph snapshots, and analysis outputs."}</span>
           </div>
-          <button type="button" onClick={onOpenRuns}>
-            Runs
-          </button>
-          <button type="button" onClick={onOpenReports}>
-            Reports
-          </button>
+          <div className="thread-title-actions">
+            <button type="button" onClick={onOpenRuns} title="Open run loader and launch controls">
+              <Play size={13} />
+              Runs
+            </button>
+            <button type="button" onClick={onOpenReports} title="Open report studio">
+              <FileText size={13} />
+              Reports
+            </button>
+          </div>
         </div>
 
         <div className="thread-artifact">
@@ -3510,18 +3660,21 @@ function ThreadStage({
             <span>{contextSummary(graph, selectedNodes)}</span>
           </div>
           <div className="artifact-metrics">
-            <span>{formatNumber(stats?.components || 0)} components</span>
-            <span>{formatNumber(stats?.communities || 0)} communities</span>
-            <span>{formatNumber(stats?.avg_degree || 0, 2)} avg degree</span>
+            <span title="Connected components">{formatNumber(stats?.components || 0)} comp</span>
+            <span title="Detected communities">{formatNumber(stats?.communities || 0)} comm</span>
+            <span title="Average degree">{formatNumber(stats?.avg_degree || 0, 2)} deg</span>
           </div>
           <div className="thread-actions">
-            <button type="button" onClick={onOpenGraph}>
-              Open graph
+            <button type="button" onClick={onOpenGraph} title="Open the graph viewer">
+              <Network size={13} />
+              Graph
             </button>
-            <button type="button" onClick={onOpenSearch}>
-              Search nodes
+            <button type="button" onClick={onOpenSearch} title="Search and select nodes">
+              <Search size={13} />
+              Search
             </button>
-            <button type="button" onClick={onOpenReports}>
+            <button type="button" onClick={onOpenReports} title="Generate or open graph reports">
+              <FileText size={13} />
               Profile
             </button>
           </div>
@@ -3541,6 +3694,8 @@ function ThreadStage({
             <strong>{graph?.path ? graph.path.split("/runs/").pop()?.split("/")[0] || graph.name : "No session"}</strong>
           </div>
         </div>
+
+        <RunDashboardPanel run={activeRun} />
       </div>
     </section>
   );

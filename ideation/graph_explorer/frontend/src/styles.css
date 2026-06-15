@@ -518,10 +518,10 @@ label {
 
   .thread-inner {
     display: grid;
-    gap: 14px;
-    width: min(880px, calc(100% - 56px));
+    gap: 10px;
+    width: min(1040px, calc(100% - 44px));
     margin: 0 auto;
-    padding: 24px 0 34px;
+    padding: 20px 0 30px;
   }
 
   .thread-titlebar {
@@ -533,11 +533,19 @@ label {
 
   .thread-titlebar div {
     display: grid;
-    gap: 4px;
+    gap: 3px;
+    min-width: 0;
   }
 
   .thread-titlebar strong {
-    font-size: 15px;
+    font-size: 14px;
+  }
+
+  .thread-title-actions {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
   }
 
   .thread-titlebar span,
@@ -548,6 +556,10 @@ label {
 
   .thread-titlebar button,
   .thread-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
     height: 28px;
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -565,14 +577,14 @@ label {
 
   .thread-artifact {
     display: grid;
-    grid-template-columns: 36px minmax(170px, 1fr) auto auto;
+    grid-template-columns: 34px minmax(170px, 1fr) auto auto;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     border: 1px solid #dedbd2;
-    border-radius: 14px;
+    border-radius: 12px;
     background: #fffefa;
-    padding: 12px;
-    box-shadow: 0 14px 32px rgb(40 36 30 / 0.06);
+    padding: 10px;
+    box-shadow: 0 10px 24px rgb(40 36 30 / 0.05);
   }
 
   .artifact-icon {
@@ -603,13 +615,320 @@ label {
     border: 1px solid #e2ded4;
     border-radius: 999px;
     background: #faf8f2;
-    padding: 3px 7px;
+    padding: 3px 6px;
     white-space: nowrap;
   }
 
   .thread-actions {
     display: flex;
+    gap: 6px;
+  }
+
+  .run-dashboard {
+    display: grid;
+    gap: 8px;
+    border: 1px solid #e2ded4;
+    border-radius: 12px;
+    background: #fffefa;
+    padding: 9px;
+  }
+
+  .run-dashboard.empty {
+    display: flex;
+    align-items: center;
     gap: 7px;
+    color: var(--muted);
+  }
+
+  .run-dashboard-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .run-dashboard-head > div:first-child {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .run-dashboard-head strong {
+    font-size: 12.5px;
+  }
+
+  .run-dashboard-head span {
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-dashboard-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .run-dashboard-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 25px;
+    border: 1px solid #d8d2c6;
+    border-radius: 7px;
+    background: #fffefa;
+    color: #3d3931;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 760;
+    cursor: pointer;
+  }
+
+  .run-dashboard-actions button:hover {
+    background: #f1eee6;
+  }
+
+  .run-dashboard-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .analysis-progress {
+    display: grid;
+    grid-template-columns: minmax(160px, auto) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #e4dfd5;
+    border-radius: 8px;
+    background: #fbfaf4;
+    padding: 6px 7px;
+  }
+
+  .analysis-progress span {
+    overflow: hidden;
+    color: var(--muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .analysis-progress progress {
+    width: 100%;
+    height: 7px;
+    accent-color: var(--green);
+  }
+
+  .run-dashboard-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .run-dashboard-metrics div {
+    display: grid;
+    gap: 2px;
+    border: 1px solid #e5e0d5;
+    border-radius: 8px;
+    background: #fbfaf4;
+    padding: 7px;
+  }
+
+  .run-dashboard-metrics span {
+    color: var(--quiet);
+    font-size: 10px;
+    font-weight: 820;
+    text-transform: uppercase;
+  }
+
+  .run-dashboard-metrics strong {
+    overflow: hidden;
+    font-size: 12.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-plot-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .run-plot {
+    min-width: 0;
+    border: 1px solid #e4dfd5;
+    border-radius: 10px;
+    background: #fbfaf4;
+    overflow: hidden;
+  }
+
+  .run-plot summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 31px;
+    padding: 0 8px;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .run-plot summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .run-plot summary span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .run-plot summary strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .run-plot summary em {
+    flex-shrink: 0;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-style: normal;
+    font-weight: 760;
+  }
+
+  .run-plot-body {
+    border-top: 1px solid #e6e0d6;
+    padding: 7px;
+  }
+
+  .native-chart {
+    display: grid;
+    gap: 5px;
+  }
+
+  .native-chart svg {
+    width: 100%;
+    height: auto;
+    border-radius: 7px;
+    background: #fffefa;
+  }
+
+  .native-chart text {
+    fill: #7d7569;
+    font-size: 10px;
+  }
+
+  .native-chart .axis {
+    stroke: #cfc8bb;
+    stroke-width: 1;
+  }
+
+  .native-chart .grid {
+    stroke: #e9e4da;
+    stroke-width: 1;
+  }
+
+  .native-chart .chart-hint {
+    text-anchor: end;
+  }
+
+  .chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 760;
+  }
+
+  .chart-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .chart-legend i {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+  }
+
+  .bar-chart {
+    display: grid;
+    gap: 5px;
+  }
+
+  .bar-row {
+    display: grid;
+    grid-template-columns: minmax(72px, 0.6fr) minmax(90px, 1fr) 42px;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .bar-row span {
+    overflow: hidden;
+    color: #4a443c;
+    font-weight: 720;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .bar-row div {
+    height: 8px;
+    border-radius: 999px;
+    background: #ece7dd;
+    overflow: hidden;
+  }
+
+  .bar-row i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+  }
+
+  .bar-row b {
+    color: var(--muted);
+    font-size: 10.5px;
+    text-align: right;
+  }
+
+  .plot-empty {
+    border: 1px dashed #d8d2c6;
+    border-radius: 8px;
+    color: var(--muted);
+    padding: 12px;
+    text-align: center;
+  }
+
+  .insight-preview-list {
+    display: grid;
+    gap: 6px;
+  }
+
+  .insight-preview-list div {
+    display: grid;
+    gap: 2px;
+    border: 1px solid #e4dfd5;
+    border-radius: 8px;
+    background: #fffefa;
+    padding: 7px;
+  }
+
+  .insight-preview-list strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .insight-preview-list span {
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 720;
   }
 
   .thread-session-grid {
@@ -2317,6 +2636,34 @@ label {
     gap: 6px;
   }
 
+  .icon-field-button {
+    display: inline-grid;
+    width: 31px;
+    height: 31px;
+    place-items: center;
+    align-self: end;
+    border: 1px solid #d8d2c6;
+    border-radius: 8px;
+    background: #fffefa;
+    color: #3b362f;
+    cursor: pointer;
+    transition:
+      background 0.14s ease,
+      border-color 0.14s ease,
+      color 0.14s ease;
+  }
+
+  .icon-field-button:hover:not(:disabled) {
+    border-color: #bdb5a6;
+    background: #f5f1e8;
+    color: #15130f;
+  }
+
+  .icon-field-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
   .run-upload-button {
     width: 100%;
   }
@@ -3071,9 +3418,24 @@ label {
   }
 
   .thread-session-grid,
+  .run-dashboard-metrics,
+  .run-plot-grid,
   .composer-tools,
   .report-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .run-dashboard-head,
+  .analysis-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .run-dashboard-head {
+    display: grid;
+  }
+
+  .run-dashboard-actions {
+    justify-content: flex-start;
   }
 
   .chat-panel {
@@ -3102,5 +3464,9 @@ label {
   .thread-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
+  }
+
+  .run-plot-grid {
+    grid-template-columns: 1fr;
   }
 }

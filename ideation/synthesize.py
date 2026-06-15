@@ -12,6 +12,8 @@ It is a thin layer ON TOP of insights.py: it will load a run's `insights.json` i
 present, or mine it on the fly (`--mine`).
 
 Backends (pick with --backend):
+  responses OpenAI Responses API. Covers the real OpenAI API and compatible servers
+           that expose /v1/responses.
   openai   OpenAI SDK chat-completions. Covers BOTH the real OpenAI API and ANY
            OpenAI-compatible server (vLLM, mistral.rs, llama.cpp, TGI, Together,
            Groq, ...) — just point --base-url at it. --api-key or $OPENAI_API_KEY.
@@ -195,6 +197,38 @@ def answer_openai(system, prompt, *, model, base_url, api_key, temperature, max_
     return r.choices[0].message.content or ""
 
 
+def _response_output_text(response):
+    text = getattr(response, "output_text", "") or ""
+    if text:
+        return text
+    chunks = []
+    for item in getattr(response, "output", []) or []:
+        for part in getattr(item, "content", []) or []:
+            value = getattr(part, "text", None)
+            if value:
+                chunks.append(value)
+    return "\n".join(chunks).strip()
+
+
+def answer_responses(system, prompt, *, model, base_url, api_key, temperature, max_tokens):
+    """OpenAI Responses API — works for OpenAI and compatible /v1/responses servers."""
+    from openai import OpenAI
+    key = api_key or os.environ.get("OPENAI_API_KEY") or "x"
+    client = OpenAI(base_url=base_url or None, api_key=key)
+    kwargs = {
+        "model": model,
+        "input": [
+            {"role": "developer", "content": system},
+            {"role": "user", "content": prompt},
+        ],
+        "max_output_tokens": max_tokens,
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    r = client.responses.create(**kwargs)
+    return _response_output_text(r)
+
+
 def answer_hf(system, prompt, *, model, temperature, max_tokens, device, dtype):
     """Local Hugging Face causal LM via transformers (chat template if available)."""
     import torch
@@ -253,7 +287,7 @@ def main():
     pr.add_argument("--show-prompt", action="store_true", help="print the built prompt and exit")
 
     be = p.add_argument_group("backend")
-    be.add_argument("--backend", choices=["openai", "hf"], default="openai")
+    be.add_argument("--backend", choices=["responses", "openai", "hf"], default="responses")
     be.add_argument("--model", help="model id (e.g. gpt-4o, or a HF repo id)")
     be.add_argument("--base-url", help="[openai] OpenAI-compatible server base url (e.g. http://localhost:8000/v1)")
     be.add_argument("--api-key", help="[openai] api key (else $OPENAI_API_KEY)")
@@ -316,7 +350,11 @@ def main():
                          "Use --show-prompt to preview the prompt without a model.")
 
     # ---- generate ------------------------------------------------------------
-    if args.backend == "openai":
+    if args.backend == "responses":
+        answer = answer_responses(system, prompt, model=args.model, base_url=args.base_url,
+                                  api_key=args.api_key, temperature=args.temperature,
+                                  max_tokens=args.max_tokens)
+    elif args.backend == "openai":
         answer = answer_openai(system, prompt, model=args.model, base_url=args.base_url,
                                api_key=args.api_key, temperature=args.temperature,
                                max_tokens=args.max_tokens)
