@@ -468,21 +468,177 @@ function DownloadTextButton({ fileName, text }: { fileName: string; text: string
   return (
     <button
       onClick={() => {
-        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
+        downloadTextFile(fileName, text);
       }}
       type="button"
     >
       Download
     </button>
   );
+}
+
+function downloadTextFile(fileName: string, text: string, type = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function safeFilePart(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 42);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function chatExportBaseName(graph: GraphPayload | null) {
+  const source = graph?.topic || graph?.name || "graph-preflexor-chat";
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  return `${safeFilePart(source) || "graph-preflexor-chat"}-${stamp}`;
+}
+
+function chatMessagesAsMarkdown({
+  agentMode,
+  contextLabel,
+  graph,
+  messages,
+  model,
+}: {
+  agentMode: ChatContextMode;
+  contextLabel: string;
+  graph: GraphPayload | null;
+  messages: ChatMessage[];
+  model: string;
+}) {
+  const lines = [
+    "# Graph-PRefLexOR Chat",
+    "",
+    `- Exported: ${new Date().toLocaleString()}`,
+    `- Graph: ${graph?.name || "No graph loaded"}`,
+    `- Context: ${contextLabel}`,
+    `- Retrieval mode: ${chatContextLabel(agentMode)}`,
+    `- Chat model: ${model || "not configured"}`,
+    "",
+  ];
+  messages.forEach((message, index) => {
+    lines.push(`## ${index + 1}. ${message.role.toUpperCase()}${message.meta ? ` | ${message.meta}` : ""}`);
+    lines.push("");
+    lines.push(message.content.trim() || "(empty)");
+    lines.push("");
+  });
+  return lines.join("\n");
+}
+
+function openChatPdfWindow({
+  agentMode,
+  contextLabel,
+  graph,
+  messages,
+  model,
+}: {
+  agentMode: ChatContextMode;
+  contextLabel: string;
+  graph: GraphPayload | null;
+  messages: ChatMessage[];
+  model: string;
+}) {
+  const win = window.open("", "_blank", "noopener,noreferrer,width=900,height=1100");
+  if (!win) return false;
+  const exportedAt = new Date().toLocaleString();
+  const body = messages
+    .map(
+      (message, index) => `
+        <article class="message ${escapeHtml(message.role)}">
+          <header>
+            <strong>${index + 1}. ${escapeHtml(message.role.toUpperCase())}</strong>
+            ${message.meta ? `<span>${escapeHtml(message.meta)}</span>` : ""}
+          </header>
+          <pre>${escapeHtml(message.content.trim() || "(empty)")}</pre>
+        </article>
+      `,
+    )
+    .join("");
+  win.document.write(`<!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Graph-PRefLexOR Chat</title>
+        <style>
+          @page { margin: 18mm; }
+          body {
+            margin: 0;
+            color: #2d2a25;
+            background: #fff;
+            font: 12px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          }
+          h1 { margin: 0 0 8px; font-size: 20px; line-height: 1.15; }
+          .meta {
+            display: grid;
+            gap: 3px;
+            margin-bottom: 18px;
+            color: #6f695f;
+            font-size: 10.5px;
+          }
+          .message {
+            break-inside: avoid;
+            margin: 0 0 12px;
+            border: 1px solid #ddd7cb;
+            border-radius: 8px;
+            padding: 10px;
+          }
+          .message header {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 7px;
+            color: #292721;
+            font-size: 10.5px;
+            text-transform: uppercase;
+          }
+          .message header span {
+            color: #7b7468;
+            text-align: right;
+            text-transform: none;
+          }
+          pre {
+            margin: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font: inherit;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Graph-PRefLexOR Chat</h1>
+        <section class="meta">
+          <span>Exported: ${escapeHtml(exportedAt)}</span>
+          <span>Graph: ${escapeHtml(graph?.name || "No graph loaded")}</span>
+          <span>Context: ${escapeHtml(contextLabel)}</span>
+          <span>Retrieval mode: ${escapeHtml(chatContextLabel(agentMode))}</span>
+          <span>Chat model: ${escapeHtml(model || "not configured")}</span>
+        </section>
+        ${body || "<p>No chat messages.</p>"}
+        <script>window.addEventListener("load", () => setTimeout(() => window.print(), 150));</script>
+      </body>
+    </html>`);
+  win.document.close();
+  return true;
 }
 
 function ServeModelModal({ probe, onClose }: { probe: ModelProbe; onClose: () => void }) {
@@ -2253,6 +2409,7 @@ function ChatPanel({
   const [reportPreviewOpen, setReportPreviewOpen] = useState(false);
   const [insightsModalRun, setInsightsModalRun] = useState("");
   const [contextInfoOpen, setContextInfoOpen] = useState(false);
+  const [chatExportOpen, setChatExportOpen] = useState(false);
   const [reportMaxChars, setReportMaxChars] = useState(14000);
   const [lastRagNodes, setLastRagNodes] = useState<GraphAskContextNode[]>([]);
   const [followups, setFollowups] = useState<string[]>([
@@ -2323,6 +2480,36 @@ function ChatPanel({
       setReportPreviewOpen(false);
     }
   }, [selectedReportOut, sessionReports]);
+
+  function downloadChatMarkdown() {
+    const markdown = chatMessagesAsMarkdown({
+      agentMode,
+      contextLabel,
+      graph,
+      messages,
+      model: activeChatRole?.model || "",
+    });
+    downloadTextFile(`${chatExportBaseName(graph)}.md`, markdown, "text/markdown;charset=utf-8");
+    setChatExportOpen(false);
+  }
+
+  function downloadChatPdf() {
+    const opened = openChatPdfWindow({
+      agentMode,
+      contextLabel,
+      graph,
+      messages,
+      model: activeChatRole?.model || "",
+    });
+    if (!opened) {
+      addChatMessage({
+        role: "system",
+        meta: "export",
+        content: "The browser blocked the PDF export window. Allow pop-ups for this local app and try again.",
+      });
+    }
+    setChatExportOpen(false);
+  }
 
   function recentHistory() {
     return messages
@@ -2880,6 +3067,29 @@ function ChatPanel({
           <span className="chat-context-line">{contextLabel} | {chatContextLabel(agentMode)} | chat model: {activeChatRole?.model || "not configured"}</span>
         </div>
         <div className="chat-actions">
+          <div className="chat-export-shell">
+            <button
+              className="context-info-button"
+              disabled={!messages.length}
+              onClick={() => setChatExportOpen((value) => !value)}
+              title="Export the entire chat as Markdown or a print-ready PDF."
+              type="button"
+            >
+              <Download size={14} />
+            </button>
+            {chatExportOpen ? (
+              <div className="chat-export-menu">
+                <button onClick={downloadChatMarkdown} type="button">
+                  <FileText size={12} />
+                  Markdown
+                </button>
+                <button onClick={downloadChatPdf} type="button">
+                  <Download size={12} />
+                  PDF
+                </button>
+              </div>
+            ) : null}
+          </div>
           <button
             className="context-info-button"
             disabled={!activeChatRole?.model}
