@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, BarChart3, FileText, GitBranch, Loader2, Network, RotateCcw, Square, Zap } from "lucide-react";
+import { Activity, BarChart3, Braces, FileText, GitBranch, Image as ImageIcon, Loader2, Network, RotateCcw, Route, Square, Zap } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { formatRunTime } from "../components/common";
+import { MarkdownReport } from "./reporting";
 import { formatNumber } from "../graph-utils";
-import type { RunAnalysisJobStatus, RunDashboard } from "../types";
+import type { RunAnalysisFigure, RunAnalysisJson, RunAnalysisJobStatus, RunDashboard, RunDashboardInsight } from "../types";
 
 type XY = { x: number; y: number };
 type Series = { label: string; color: string; points: XY[] };
@@ -27,7 +28,7 @@ function pathFor(points: XY[], xMin: number, xMax: number, yMin: number, yMax: n
   return points.map((point, index) => `${index ? "L" : "M"}${sx(point.x).toFixed(2)},${sy(point.y).toFixed(2)}`).join(" ");
 }
 
-function LineChart({ series, yHint }: { series: Series[]; yHint?: string }) {
+function LineChart({ series, yHint, xHint = "iter" }: { series: Series[]; yHint?: string; xHint?: string }) {
   const all = series.flatMap((item) => item.points);
   if (!all.length) return <div className="plot-empty">No time-series data yet.</div>;
   const [xMin, xMax] = extent(all.map((point) => point.x));
@@ -53,7 +54,7 @@ function LineChart({ series, yHint }: { series: Series[]; yHint?: string }) {
           <path d={pathFor(item.points, xMin, xMax, yMin, yMax)} fill="none" key={item.label} stroke={item.color} strokeWidth="2.4" />
         ))}
         <text x="34" y="149">
-          iter {formatNumber(xMin)} to {formatNumber(xMax)}
+          {xHint} {formatNumber(xMin)} to {formatNumber(xMax)}
         </text>
         {yHint ? (
           <text className="chart-hint" x="508" y="149">
@@ -69,6 +70,257 @@ function LineChart({ series, yHint }: { series: Series[]; yHint?: string }) {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function numberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => Number(item)).filter((item) => Number.isFinite(item));
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item)).filter(Boolean);
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function JsonTree({ value, name, level = 0 }: { value: unknown; name?: string; level?: number }) {
+  if (Array.isArray(value)) {
+    return (
+      <details className="json-node" open={level < 1}>
+        <summary>
+          <span>{name || "array"}</span>
+          <em>{value.length} items</em>
+        </summary>
+        <div>
+          {value.map((item, index) => (
+            <JsonTree key={index} level={level + 1} name={`[${index}]`} value={item} />
+          ))}
+        </div>
+      </details>
+    );
+  }
+  if (isRecord(value)) {
+    const entries = Object.entries(value);
+    return (
+      <details className="json-node" open={level < 1}>
+        <summary>
+          <span>{name || "object"}</span>
+          <em>{entries.length} keys</em>
+        </summary>
+        <div>
+          {entries.map(([key, item]) => (
+            <JsonTree key={key} level={level + 1} name={key} value={item} />
+          ))}
+        </div>
+      </details>
+    );
+  }
+  return (
+    <div className="json-leaf">
+      {name ? <span>{name}</span> : null}
+      <code>{value === null ? "null" : JSON.stringify(value)}</code>
+    </div>
+  );
+}
+
+function JsonArtifactViewer({ artifacts }: { artifacts: RunAnalysisJson[] }) {
+  if (!artifacts.length) return <div className="plot-empty">No analysis JSON artifacts yet.</div>;
+  return (
+    <div className="json-artifact-list">
+      {artifacts.map((artifact) => (
+        <details className="json-artifact" key={artifact.path}>
+          <summary>
+            <span>
+              <Braces size={13} />
+              <strong>{artifact.title}</strong>
+            </span>
+            <em>{artifact.note}</em>
+          </summary>
+          {artifact.error ? <div className="plot-empty">{artifact.error}</div> : <JsonTree name={artifact.name} value={artifact.data} />}
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function FigureGallery({ figures, run }: { figures: RunAnalysisFigure[]; run: string }) {
+  if (!figures.length) return <div className="plot-empty">No generated figures yet. Use Recompute analysis to create them.</div>;
+  const imagePreference = ["png", "svg", "gif", "webp", "jpg", "jpeg"];
+  return (
+    <div className="figure-gallery">
+      {figures.map((figure) => {
+        const displayPath = imagePreference.map((ext) => figure.formats[ext]).find(Boolean) || "";
+        return (
+          <div className="figure-card" key={figure.key}>
+            <div className="figure-card-head">
+              <div>
+                <strong>{figure.title}</strong>
+                <span>{figure.note}</span>
+              </div>
+              <div>
+                {Object.entries(figure.formats).map(([ext, path]) => (
+                  <a href={api.runAssetUrl(run, path)} key={ext} rel="noreferrer" target="_blank">
+                    {ext}
+                  </a>
+                ))}
+              </div>
+            </div>
+            {displayPath ? (
+              <img alt={figure.title} loading="lazy" src={api.runAssetUrl(run, displayPath)} />
+            ) : (
+              <a className="figure-pdf-only" href={api.runAssetUrl(run, figure.default_path)} rel="noreferrer" target="_blank">
+                Open PDF artifact
+              </a>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function insightFallback(insights: RunDashboardInsight[]) {
+  if (!insights.length) return <div className="plot-empty">No insights.md or insights.json yet. Use Recompute analysis to run the miners.</div>;
+  return (
+    <div className="insight-preview-list">
+      {insights.map((item) => (
+        <div key={`${item.kind}-${item.title}`}>
+          <strong>{item.title || item.kind}</strong>
+          <span>
+            {item.kind} | score {formatNumber(item.score, 2)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type LongRangePath = {
+  title: string;
+  path: string[];
+  relations: string[];
+  hops: number;
+  distance: number;
+  actionability: number;
+};
+
+function longRangePaths(artifacts: RunAnalysisJson[]): LongRangePath[] {
+  const insights = artifacts.find((item) => item.name === "insights.json");
+  if (!insights || !isRecord(insights.data) || !isRecord(insights.data.miners)) return [];
+  const bridges = insights.data.miners.conceptual_bridge;
+  if (!Array.isArray(bridges)) return [];
+  return bridges
+    .filter(isRecord)
+    .map((item) => ({
+      title: String(item.title || "Conceptual bridge"),
+      path: stringArray(item.path),
+      relations: stringArray(item.relations),
+      hops: numberValue(item.hops),
+      distance: numberValue(item.embed_distance),
+      actionability: numberValue(item.actionability),
+    }))
+    .filter((item) => item.path.length >= 2)
+    .sort((a, b) => b.hops - a.hops || b.actionability - a.actionability || b.distance - a.distance)
+    .slice(0, 8);
+}
+
+function LongRangePathPanel({ artifacts }: { artifacts: RunAnalysisJson[] }) {
+  const paths = longRangePaths(artifacts);
+  if (!paths.length) return <div className="plot-empty">No conceptual_bridge paths yet. Run insights.py to mine long-range routes.</div>;
+  return (
+    <div className="long-path-list">
+      {paths.map((item, index) => (
+        <div className="long-path-card" key={`${item.title}-${index}`}>
+          <div className="long-path-head">
+            <strong>{item.title}</strong>
+            <span>
+              {item.hops} hops | distance {formatNumber(item.distance, 2)} | action {formatNumber(item.actionability, 2)}
+            </span>
+          </div>
+          <div className="long-path-route" title={item.path.join(" -> ")}>
+            {item.path.map((node, nodeIndex) => (
+              <React.Fragment key={`${node}-${nodeIndex}`}>
+                <b>{node}</b>
+                {nodeIndex < item.path.length - 1 ? <em>{item.relations[nodeIndex] || "links"}</em> : null}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type ScalingCurve = {
+  label: string;
+  x: number[];
+  xHint: string;
+  ideas: number[];
+  spread: number[];
+  reach: number[];
+  recomb: number[];
+};
+
+function scalingCurves(artifact: RunAnalysisJson | undefined): ScalingCurve[] {
+  if (!artifact || !isRecord(artifact.data)) return [];
+  return Object.entries(artifact.data)
+    .map(([label, raw]) => {
+      if (!isRecord(raw)) return null;
+      const tokens = numberArray(raw.x_tokens);
+      const iters = numberArray(raw.iters);
+      const x = tokens.length ? tokens : iters;
+      return {
+        label,
+        x,
+        xHint: tokens.length ? "tokens" : "iter",
+        ideas: numberArray(raw.ideas),
+        spread: numberArray(raw.spread),
+        reach: numberArray(raw.reach),
+        recomb: numberArray(raw.recomb),
+      };
+    })
+    .filter((item): item is ScalingCurve => Boolean(item && item.x.length));
+}
+
+function ScalingAnalysis({ artifacts }: { artifacts: RunAnalysisJson[] }) {
+  const artifact =
+    artifacts.find((item) => item.name === "scaling_scaling.json") ||
+    artifacts.find((item) => item.key.includes("scaling_scaling"));
+  const curves = scalingCurves(artifact);
+  if (!curves.length) return <div className="plot-empty">No scaling_scaling.json curves yet.</div>;
+  const colors = ["#2f7d5d", "#6b84c7", "#c56f42", "#8a6fb4", "#348a9a"];
+  const metrics: Array<{ key: keyof Pick<ScalingCurve, "ideas" | "spread" | "reach" | "recomb">; title: string; yHint: string }> = [
+    { key: "ideas", title: "Distinct ideas", yHint: "cumulative" },
+    { key: "spread", title: "Idea-space expansion", yHint: "variance" },
+    { key: "reach", title: "Frontier reach", yHint: "distance" },
+    { key: "recomb", title: "Surprising recombinations", yHint: "count" },
+  ];
+  return (
+    <div className="scaling-chart-grid">
+      {metrics.map((metric) => (
+        <div className="scaling-chart-card" key={metric.key}>
+          <strong>{metric.title}</strong>
+          <LineChart
+            series={curves.map((curve, index) => ({
+              label: curve.label,
+              color: colors[index % colors.length],
+              points: curve.x.map((x, pointIndex) => ({ x, y: curve[metric.key][pointIndex] ?? 0 })),
+            }))}
+            xHint={curves[0]?.xHint || "iter"}
+            yHint={metric.yHint}
+          />
+        </div>
+      ))}
     </div>
   );
 }
@@ -216,6 +468,11 @@ export function RunDashboardPanel({ run }: { run: string }) {
     );
   }
 
+  const markdownArtifacts = data.analysis_markdown || [];
+  const jsonArtifacts = data.analysis_json || [];
+  const figureArtifacts = data.analysis_figures || [];
+  const insightsMarkdown = markdownArtifacts.find((item) => item.name === "insights.md") || markdownArtifacts[0];
+
   return (
     <div className="run-dashboard">
       <div className="run-dashboard-head">
@@ -308,21 +565,30 @@ export function RunDashboardPanel({ run }: { run: string }) {
         <PlotSection icon={<Network size={13} />} note="edge labels" title="Relation mix">
           <BarChart bars={data.relations} color="#7b9b62" labelKey="relation" valueKey="count" />
         </PlotSection>
-        <PlotSection icon={<FileText size={13} />} note="insights.json" title="Mined insight preview">
-          {data.insights.length ? (
-            <div className="insight-preview-list">
-              {data.insights.map((item) => (
-                <div key={`${item.kind}-${item.title}`}>
-                  <strong>{item.title || item.kind}</strong>
-                  <span>
-                    {item.kind} | score {formatNumber(item.score, 2)}
-                  </span>
-                </div>
-              ))}
+        <PlotSection icon={<FileText size={13} />} note="insights.md" open title="Mined insights report">
+          {insightsMarkdown?.markdown ? (
+            <div className="run-markdown-scroll compact">
+              <MarkdownReport
+                assetUrl={(file) => api.runAssetUrl(data.path, file)}
+                markdown={insightsMarkdown.markdown}
+                out={data.path}
+              />
             </div>
           ) : (
-            <div className="plot-empty">No insights.json yet. Use Recompute analysis to run the miners.</div>
+            insightFallback(data.insights)
           )}
+        </PlotSection>
+        <PlotSection icon={<Route size={13} />} note="conceptual_bridge" open title="Long-range paths">
+          <LongRangePathPanel artifacts={jsonArtifacts} />
+        </PlotSection>
+        <PlotSection icon={<ImageIcon size={13} />} note="png / svg / pdf" open={Boolean(figureArtifacts.length)} title="Generated artifact figures">
+          <FigureGallery figures={figureArtifacts} run={data.path} />
+        </PlotSection>
+        <PlotSection icon={<BarChart3 size={13} />} note="scaling_scaling.json" title="Scaling analysis">
+          <ScalingAnalysis artifacts={jsonArtifacts} />
+        </PlotSection>
+        <PlotSection icon={<Braces size={13} />} note="expandable JSON" title="Structured analysis data">
+          <JsonArtifactViewer artifacts={jsonArtifacts} />
         </PlotSection>
       </div>
     </div>

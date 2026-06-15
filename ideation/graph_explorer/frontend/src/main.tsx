@@ -3857,6 +3857,7 @@ function App() {
     [rememberReport],
   );
 
+  const activeRun = inferRunFromGraphPath(graph?.path || "");
   const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
   const reportArtifactOpen = activeMode === "reports";
   const workspaceStyle = {
@@ -3900,7 +3901,12 @@ function App() {
         />
         <button aria-label="Resize tool panel" className="panel-resizer left" onPointerDown={startPanelResize("left")} title="Resize tool panel" type="button" />
         {reportArtifactOpen ? (
-          <ReportStage out={activeReportOut} onOpenReports={() => setActiveMode("reports")} />
+          <ReportStage
+            out={activeReportOut}
+            run={activeRun}
+            onOpenReports={() => setActiveMode("reports")}
+            onReportReady={handleReportReady}
+          />
         ) : graphArtifactOpen ? (
           <section className="artifact-stage">
             <div className="artifact-toolbar">

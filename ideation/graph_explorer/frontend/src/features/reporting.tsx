@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { CircleStop, ExternalLink, FileText, Loader2, Network, Play, RotateCcw } from "lucide-react";
+import { CircleStop, ExternalLink, FileText, Loader2, Network, Play } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { formatNumber } from "../graph-utils";
 import { useExplorerStore } from "../store";
-import type { GraphFileSummary, GraphPayload, ProfileJobStatus, ProfileOptions, ProfileReportPayload } from "../types";
+import type { GraphFileSummary, GraphPayload, ProfileArtifacts, ProfileJobStatus, ProfileOptions, ProfileReportPayload } from "../types";
 import { cx, Drawer, formatRunTime, HelpTip, IconButton } from "../components/common";
 
 const REPORT_STUDIO_STORAGE_KEY = "graph-preflexor-explorer.report-studio.v1";
@@ -436,13 +436,6 @@ export function ReportStudio({
           onClick={stop}
           tone="danger"
         />
-        <IconButton
-          disabled={!options.run || reportsQuery.isFetching}
-          description="Refresh discovered report folders for the selected run."
-          icon={reportsQuery.isFetching ? <Loader2 className="spin" size={14} /> : <RotateCcw size={14} />}
-          label="Reports"
-          onClick={() => void reportsQuery.refetch()}
-        />
       </div>
 
       <details className="settings-block">
@@ -548,20 +541,6 @@ export function ReportStudio({
           </label>
         </div>
       </details>
-
-      {reportsQuery.data?.reports?.length ? (
-        <div className="report-list">
-          {reportsQuery.data.reports.map((report) => (
-            <button key={report.out} onClick={() => onReportReady(report.out)} type="button">
-              <strong>{report.out.split("/").pop() || report.out}</strong>
-              <span>
-                {formatRunTime(report.updated_at)} | {formatNumber(report.summary.nodes || 0)} nodes |{" "}
-                {formatNumber(report.summary.modules || 0)} modules
-              </span>
-            </button>
-          ))}
-        </div>
-      ) : null}
       {status ? <div className="status-box">{status}</div> : null}
       {job?.cmd?.length ? <pre className="code-preview">{job.cmd.join(" ")}</pre> : null}
       {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
@@ -590,7 +569,7 @@ function renderInline(text: string) {
   });
 }
 
-export function MarkdownReport({ markdown, out }: { markdown: string; out: string }) {
+export function MarkdownReport({ markdown, out, assetUrl }: { markdown: string; out: string; assetUrl?: (file: string) => string }) {
   const blocks: React.ReactNode[] = [];
   const lines = markdown.split(/\r?\n/);
   let i = 0;
@@ -623,7 +602,8 @@ export function MarkdownReport({ markdown, out }: { markdown: string; out: strin
     }
     const image = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (image) {
-      const src = /^https?:\/\//.test(image[2]) ? image[2] : api.reportAssetUrl(out, image[2].replace(/^\.?\//, ""));
+      const file = image[2].replace(/^\.?\//, "");
+      const src = /^https?:\/\//.test(image[2]) ? image[2] : assetUrl ? assetUrl(file) : api.reportAssetUrl(out, file);
       blocks.push(<img alt={image[1]} key={blocks.length} src={src} />);
       i += 1;
       continue;
@@ -691,33 +671,124 @@ export function MarkdownReport({ markdown, out }: { markdown: string; out: strin
   return <article className="markdown-report">{blocks}</article>;
 }
 
-export function ReportStage({ out, onOpenReports }: { out: string; onOpenReports: () => void }) {
+function inferRunFromReportOut(out = "") {
+  const parts = out.split("/").filter(Boolean);
+  const profileIndex = parts.findIndex((part) => part.startsWith("profile"));
+  if (profileIndex > 0) return parts.slice(0, profileIndex).join("/");
+  const match = out.match(/(?:^|\/)(runs\/[^/]+)/);
+  return match?.[1] || "";
+}
+
+function profileLabel(report: ProfileArtifacts) {
+  return report.out.split("/").pop() || report.out;
+}
+
+function ProfilePicker({
+  reports,
+  activeOut,
+  onSelect,
+}: {
+  reports: ProfileArtifacts[];
+  activeOut: string;
+  onSelect: (out: string) => void;
+}) {
+  if (!reports.length) return null;
+  return (
+    <div className="profile-picker">
+      <div className="profile-picker-head">
+        <strong>Existing profiles</strong>
+        <span>{reports.length} found</span>
+      </div>
+      <div className="profile-picker-grid">
+        {reports.map((report) => (
+          <button className={cx(report.out === activeOut && "active")} key={report.out} onClick={() => onSelect(report.out)} type="button">
+            <strong>{profileLabel(report)}</strong>
+            <span>
+              {formatRunTime(report.updated_at)} | {formatNumber(report.summary.nodes || 0)} nodes |{" "}
+              {formatNumber(report.summary.modules || 0)} modules
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ReportStage({
+  out,
+  run,
+  onOpenReports,
+  onReportReady,
+}: {
+  out: string;
+  run: string;
+  onOpenReports: () => void;
+  onReportReady: (out: string) => void;
+}) {
+  const reportRun = run || inferRunFromReportOut(out);
   const reportQuery = useQuery<ProfileReportPayload>({
     queryKey: ["profile-report", out],
     queryFn: () => api.profileReport(out),
     enabled: Boolean(out),
     refetchInterval: (query) => (query.state.data?.artifacts.ready ? false : 5000),
   });
+  const reportsQuery = useQuery({
+    queryKey: ["profile-reports-stage", reportRun],
+    queryFn: () => api.profileReports(reportRun),
+    enabled: Boolean(reportRun),
+    refetchInterval: 8000,
+  });
   const artifacts = reportQuery.data?.artifacts;
   const summary = artifacts?.summary || {};
-  if (!out) {
+  const reports = reportsQuery.data?.reports || [];
+  const markdown = reportQuery.data?.markdown || "";
+  const hasMarkdown = Boolean(markdown);
+  const selectedName = out ? out.split("/").pop() || out : "";
+
+  if (!hasMarkdown) {
     return (
       <section className="report-stage">
-        <div className="report-empty">
-          <FileText size={24} />
-          <strong>No report selected</strong>
+        <div className="report-stage-empty-toolbar">
+          <div>
+            <strong>Profile reports</strong>
+            <span>{reportRun || "No run selected"}</span>
+          </div>
           <button onClick={onOpenReports} type="button">
-            Open reports
+            Generate report
           </button>
+        </div>
+        <div className="report-scroll">
+          <div className="report-empty">
+            <FileText size={23} />
+            <strong>{out ? "No rendered report.md yet" : "No profile report selected"}</strong>
+            <span>
+              {out
+                ? `Selected ${selectedName}, but report.md is not available yet.`
+                : reports.length
+                  ? "Choose an existing profile below or generate a new one."
+                  : "Generate a profile report to render report.md here."}
+            </span>
+            {reportQuery.isLoading ? (
+              <span className="inline-status">
+                <Loader2 className="spin" size={13} /> Checking selected report...
+              </span>
+            ) : null}
+            {reportQuery.error ? <span className="inline-status">{String(reportQuery.error)}</span> : null}
+            <button onClick={onOpenReports} type="button">
+              Generate report
+            </button>
+          </div>
+          <ProfilePicker activeOut={out} onSelect={onReportReady} reports={reports} />
         </div>
       </section>
     );
   }
+
   return (
     <section className="report-stage">
       <div className="artifact-toolbar">
         <div>
-          <strong>Profile report</strong>
+          <strong>{summary.topic || "Profile report"}</strong>
           <span>{out}</span>
         </div>
         <div className="artifact-actions">
@@ -740,32 +811,11 @@ export function ReportStage({ out, onOpenReports }: { out: string; onOpenReports
         </div>
       </div>
       <div className="report-scroll">
-        <section className="report-hero">
-          <span>Generated graph profile</span>
-          <h1>{summary.topic || out.split("/").pop() || "Report"}</h1>
-          <div className="report-summary-grid">
-            <div>
-              <b>{formatNumber(summary.nodes || 0)}</b>
-              <span>Nodes</span>
-            </div>
-            <div>
-              <b>{formatNumber(summary.edges || 0)}</b>
-              <span>Edges</span>
-            </div>
-            <div>
-              <b>{formatNumber(summary.modules || 0)}</b>
-              <span>Modules</span>
-            </div>
-            <div>
-              <b>{formatNumber(summary.modularity || 0, 3)}</b>
-              <span>Modularity</span>
-            </div>
-          </div>
-        </section>
+        <ProfilePicker activeOut={out} onSelect={onReportReady} reports={reports} />
         {reportQuery.isLoading ? <div className="status-box">Loading report...</div> : null}
         {reportQuery.error ? <div className="status-box">{String(reportQuery.error)}</div> : null}
-        {reportQuery.data?.markdown ? (
-          <MarkdownReport markdown={reportQuery.data.markdown} out={out} />
+        {hasMarkdown ? (
+          <MarkdownReport markdown={markdown} out={out} />
         ) : (
           <div className="status-box">
             {artifacts?.ready ? "Report markdown is empty." : "Report job is still preparing artifacts."}

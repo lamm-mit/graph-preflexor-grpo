@@ -186,6 +186,15 @@ def _is_unsupported_param_error(message):
     return any(token in msg for token in ("unsupported", "unexpected", "not supported", "unknown", "unrecognized"))
 
 
+def _is_official_openai_endpoint(base_url):
+    url = str(base_url or "").strip().lower()
+    return not url or "api.openai.com" in url
+
+
+def _send_temperature(cfg):
+    return not _is_official_openai_endpoint((cfg or {}).get("base_url"))
+
+
 def _lower_token_limit(kwargs, key):
     current = _safe_int(kwargs.get(key), DEFAULT_CHAT_MAX_OUTPUT_TOKENS)
     for limit in TOKEN_LIMIT_BACKOFF:
@@ -826,22 +835,211 @@ def _analysis_file_item(path):
     }
 
 
-def _run_analysis_artifacts(run_dir):
-    candidates = [
-        run_dir / "insights.json",
-        run_dir / "insights.md",
-        run_dir / "figures" / "ideation_curves_index.png",
-        run_dir / "figures" / (f"ideation_analysis_{run_dir.name}.json"),
-        run_dir / "figures" / "novelty_novelty.json",
-        run_dir / "figures" / "scaling_scaling.json",
-        run_dir / "figures" / "dynamics.png",
+FIGURE_SUFFIXES = {".png", ".svg", ".pdf", ".gif", ".webp", ".jpg", ".jpeg"}
+JSON_ARTIFACT_MAX_BYTES = 8_000_000
+MARKDOWN_ARTIFACT_MAX_CHARS = 400_000
+
+
+def _artifact_title(path):
+    name = Path(path).with_suffix("").name
+    checks = [
+        ("insights_map", "Insight map"),
+        ("ideation_brokers", "Ideation brokers"),
+        ("ideation_semantic", "Semantic map"),
+        ("ideation_structure4", "Reasoning structure detail"),
+        ("ideation_structure", "Reasoning structure"),
+        ("ideation_analytics", "Graph analytics"),
+        ("ideation_curves_index", "Iteration curves"),
+        ("ideation_curves", "Depth curves"),
+        ("ideation_bars", "Final metrics"),
+        ("ideation_growth", "Graph growth montage"),
+        ("ideation_graph", "Graph snapshot"),
+        ("novelty_novelty_main", "Novelty summary"),
+        ("novelty_novelty_map", "Novelty map"),
+        ("novelty_novelty_stats", "Novelty statistics"),
+        ("scaling_scaling_iter", "Scaling by iteration"),
+        ("scaling_scaling", "Scaling by compute"),
+        ("dynamics", "Reasoning dynamics"),
+        ("insights", "Mined insights"),
     ]
+    for token, title in checks:
+        if name.startswith(token):
+            return title
+    return name.replace("_", " ").strip().title()
+
+
+def _artifact_note(path):
+    rel = str(path)
+    if "insights" in rel:
+        return "insights.py"
+    if "novelty" in rel:
+        return "novelty.py"
+    if "scaling" in rel:
+        return "scaling.py"
+    if "dynamics" in rel:
+        return "dynamics.py"
+    if "ideation" in rel:
+        return "plot_ideation.py"
+    return "analysis artifact"
+
+
+def _artifact_priority(path):
+    key = str(path)
+    order = [
+        "insights_map",
+        "insights.md",
+        "insights.json",
+        "ideation_curves",
+        "ideation_curves_index",
+        "ideation_brokers",
+        "ideation_semantic",
+        "ideation_analytics",
+        "ideation_structure",
+        "ideation_structure4",
+        "scaling_scaling",
+        "scaling_scaling_iter",
+        "novelty_novelty_main",
+        "novelty_novelty_map",
+        "novelty_novelty_stats",
+        "dynamics",
+    ]
+    for index, token in enumerate(order):
+        if token in key:
+            return index
+    return len(order)
+
+
+def _run_analysis_markdown(run_dir):
     out = []
-    for path in candidates:
+    for path in [run_dir / "insights.md"]:
         item = _analysis_file_item(path)
-        if item:
-            out.append(item)
+        if not item:
+            continue
+        try:
+            markdown = path.read_text(errors="replace")[:MARKDOWN_ARTIFACT_MAX_CHARS]
+        except OSError:
+            markdown = ""
+        out.append({
+            **item,
+            "key": Path(item["path"]).with_suffix("").as_posix(),
+            "title": _artifact_title(path),
+            "note": _artifact_note(path),
+            "markdown": markdown,
+        })
     return out
+
+
+def _run_analysis_json(run_dir):
+    candidates = [run_dir / "insights.json"]
+    figures = run_dir / "figures"
+    if figures.exists():
+        candidates.extend(sorted(figures.glob("*.json")))
+    out = []
+    seen = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        item = _analysis_file_item(path)
+        if not item:
+            continue
+        data = None
+        error = ""
+        try:
+            if path.stat().st_size > JSON_ARTIFACT_MAX_BYTES:
+                error = f"JSON artifact is larger than {JSON_ARTIFACT_MAX_BYTES} bytes."
+            else:
+                data = _clean(json.load(open(path, encoding="utf-8")))
+        except Exception as exc:
+            error = str(exc)
+        out.append({
+            **item,
+            "key": Path(item["path"]).with_suffix("").as_posix(),
+            "title": _artifact_title(path),
+            "note": _artifact_note(path),
+            "data": data,
+            "error": error,
+        })
+    return sorted(out, key=lambda item: (_artifact_priority(item["path"]), item["name"]))
+
+
+def _run_analysis_figures(run_dir):
+    candidates = []
+    candidates.extend(run_dir.glob("insights_map.*"))
+    figures = run_dir / "figures"
+    if figures.exists():
+        candidates.extend(figures.glob("*.*"))
+    groups = {}
+    for path in candidates:
+        if not path.is_file() or path.suffix.lower() not in FIGURE_SUFFIXES:
+            continue
+        rel = _relative_to_ideation(path)
+        base = Path(rel).with_suffix("").as_posix()
+        group = groups.setdefault(base, {
+            "key": base,
+            "title": _artifact_title(path),
+            "note": _artifact_note(path),
+            "formats": {},
+            "default_path": "",
+            "updated_at": 0,
+            "size": 0,
+        })
+        ext = path.suffix.lower().lstrip(".")
+        item = _analysis_file_item(path)
+        if not item:
+            continue
+        group["formats"][ext] = item["path"]
+        group["updated_at"] = max(group["updated_at"], item["updated_at"])
+        group["size"] += item["size"]
+    preferred = ("png", "svg", "gif", "webp", "jpg", "jpeg", "pdf")
+    out = []
+    for group in groups.values():
+        for ext in preferred:
+            if ext in group["formats"]:
+                group["default_path"] = group["formats"][ext]
+                break
+        if group["default_path"]:
+            out.append(group)
+    return sorted(out, key=lambda item: (_artifact_priority(item["key"]), item["title"]))
+
+
+def _run_analysis_artifacts(run_dir):
+    seen = set()
+    out = []
+    for item in [
+        *_run_analysis_markdown(run_dir),
+        *_run_analysis_json(run_dir),
+        *_run_analysis_figures(run_dir),
+    ]:
+        for path in [item.get("path"), item.get("default_path"), *list((item.get("formats") or {}).values())]:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            file_item = _analysis_file_item(IDEATION_DIR / path)
+            if file_item:
+                out.append(file_item)
+    return sorted(out, key=lambda item: (_artifact_priority(item["path"]), item["name"]))
+
+
+def _resolve_run_asset(run_value, file_value):
+    run_dir = _resolve_run_path(run_value)
+    if run_dir.is_file():
+        run_dir = run_dir.parent.parent if run_dir.parent.name == "graphml" else run_dir.parent
+    file_name = str(file_value or "").strip()
+    if not file_name:
+        raise ValueError("file is required")
+    raw = Path(file_name).expanduser()
+    if raw.is_absolute():
+        target = raw.resolve()
+    else:
+        run_relative = (run_dir / raw).resolve()
+        ideation_relative = (IDEATION_DIR / raw).resolve()
+        target = ideation_relative if ideation_relative.exists() else run_relative
+    if not (target == run_dir or run_dir in target.parents):
+        raise ValueError("run asset path escapes the run directory")
+    if not target.exists() or not target.is_file():
+        raise ValueError(f"run asset not found: {file_name}")
+    return target
 
 
 def _insights_preview(run_dir, limit=6):
@@ -891,6 +1089,9 @@ def _run_dashboard_payload(run_value):
         "transcript": _read_transcript_meta(run_dir),
         "snapshots": _run_graphs_payload(str(run_dir)).get("graphs", []),
         "analysis_artifacts": _run_analysis_artifacts(run_dir),
+        "analysis_markdown": _run_analysis_markdown(run_dir),
+        "analysis_json": _run_analysis_json(run_dir),
+        "analysis_figures": _run_analysis_figures(run_dir),
         "insights": _insights_preview(run_dir),
         "graph_error": "; ".join(graph_errors[:3]) if graph_errors and G is None else "",
         "graph_path": snapshot.get("graph_path") or payload.get("graph_path") or "",
@@ -2496,9 +2697,10 @@ def _prompt_completion_payload(cfg, messages):
     payload = {
         "model": cfg["model"],
         "prompt": _messages_to_prompt(messages),
-        "temperature": _safe_float(cfg.get("temperature"), 0.3),
         "max_tokens": _chat_max_tokens(cfg),
     }
+    if _send_temperature(cfg):
+        payload["temperature"] = _safe_float(cfg.get("temperature"), 0.3)
     return {k: v for k, v in payload.items() if v not in (None, "")}
 
 
@@ -2508,9 +2710,10 @@ def _responses_payload(cfg, messages, previous_response_id=None):
         "model": cfg["model"],
         "input": input_items or _messages_to_prompt(messages),
         "store": True,
-        "temperature": _safe_float(cfg.get("temperature"), 0.3),
         "max_output_tokens": _chat_max_tokens(cfg),
     }
+    if _send_temperature(cfg):
+        payload["temperature"] = _safe_float(cfg.get("temperature"), 0.3)
     if previous_response_id:
         payload["previous_response_id"] = previous_response_id
     if cfg.get("reasoning_effort"):
@@ -2709,9 +2912,10 @@ def _call_openai_compatible(cfg, messages, previous_response_id=None, return_met
     kwargs = {
         "model": cfg["model"],
         "messages": messages,
-        "temperature": _safe_float(cfg.get("temperature"), 0.3),
         "max_completion_tokens": _chat_max_tokens(cfg),
     }
+    if _send_temperature(cfg):
+        kwargs["temperature"] = _safe_float(cfg.get("temperature"), 0.3)
     if cfg.get("reasoning_effort"):
         kwargs["reasoning_effort"] = cfg["reasoning_effort"]
     last = None
@@ -3909,6 +4113,8 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_embedding_status())
             elif parsed.path == "/api/report_asset":
                 self._file(_resolve_report_asset((qs.get("out") or [""])[0], (qs.get("file") or [""])[0]))
+            elif parsed.path == "/api/run_asset":
+                self._file(_resolve_run_asset((qs.get("run") or [""])[0], (qs.get("file") or [""])[0]))
             elif parsed.path == "/api/config":
                 self._json(_config_payload())
             else:

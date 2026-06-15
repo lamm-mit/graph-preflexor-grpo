@@ -1781,6 +1781,11 @@ def _call_responses_llm(system: str, user: str, opts: LLMOptions) -> str:
     return _response_text(r)
 
 
+def _is_official_openai_endpoint(base_url: Optional[str]) -> bool:
+    url = str(base_url or "").strip().lower()
+    return not url or "api.openai.com" in url
+
+
 def _call_chat_llm(system: str, user: str, opts: LLMOptions) -> str:
     from openai import OpenAI
     client = OpenAI(base_url=opts.base_url or None,
@@ -1788,9 +1793,10 @@ def _call_chat_llm(system: str, user: str, opts: LLMOptions) -> str:
     kwargs = {
         "model": opts.model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "temperature": opts.temperature,
         "max_completion_tokens": opts.max_tokens,
     }
+    if not _is_official_openai_endpoint(opts.base_url):
+        kwargs["temperature"] = opts.temperature
     if opts.reasoning_effort:
         kwargs["reasoning_effort"] = opts.reasoning_effort
     for _ in range(5):

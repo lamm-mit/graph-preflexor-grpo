@@ -218,6 +218,31 @@ export type RunDashboardInsight = {
   detail: string;
 };
 
+export type RunAnalysisMarkdown = RunAnalysisArtifact & {
+  key: string;
+  title: string;
+  note: string;
+  markdown: string;
+};
+
+export type RunAnalysisJson = RunAnalysisArtifact & {
+  key: string;
+  title: string;
+  note: string;
+  data: unknown;
+  error?: string;
+};
+
+export type RunAnalysisFigure = {
+  key: string;
+  title: string;
+  note: string;
+  formats: Record<string, string>;
+  default_path: string;
+  updated_at: number;
+  size: number;
+};
+
 export type RunDashboard = RunSummary & {
   summary: Record<string, unknown>;
   growth: RunDashboardGrowthPoint[];
@@ -227,6 +252,9 @@ export type RunDashboard = RunSummary & {
   transcript: { turns: number; last_question: string; last_iter: number | null };
   snapshots: GraphFileSummary[];
   analysis_artifacts: RunAnalysisArtifact[];
+  analysis_markdown: RunAnalysisMarkdown[];
+  analysis_json: RunAnalysisJson[];
+  analysis_figures: RunAnalysisFigure[];
   insights: RunDashboardInsight[];
   graph_error?: string;
 };

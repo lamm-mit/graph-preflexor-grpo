@@ -154,6 +154,8 @@ export const api = {
   profileReport: (out: string) => request<ProfileReportPayload>("/api/profile_report", { out }),
   reportAssetUrl: (out: string, file: string) =>
     `/api/report_asset?out=${encodeURIComponent(out)}&file=${encodeURIComponent(file)}`,
+  runAssetUrl: (run: string, file: string) =>
+    `/api/run_asset?run=${encodeURIComponent(run)}&file=${encodeURIComponent(file)}`,
   modelStatus: (role: ModelRole) =>
     request<{ ok: boolean; url?: string; message?: string; models?: string[] }>("/api/model_status", { role }),
   modelProbe: (role: ModelRole) => request<ModelProbe>("/api/model_probe", { role }),

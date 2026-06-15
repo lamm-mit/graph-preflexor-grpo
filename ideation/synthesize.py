@@ -184,16 +184,29 @@ Be specific, mechanistic, and original."""
 # --------------------------------------------------------------------------- #
 #  Backends
 # --------------------------------------------------------------------------- #
+def _is_official_openai_endpoint(base_url):
+    url = (base_url or "").strip().lower()
+    return not url or "api.openai.com" in url
+
+
+def _send_temperature(base_url):
+    return not _is_official_openai_endpoint(base_url)
+
+
 def answer_openai(system, prompt, *, model, base_url, api_key, temperature, max_tokens):
     """OpenAI SDK chat-completions — works for real OpenAI and any compatible server."""
     from openai import OpenAI
     key = api_key or os.environ.get("OPENAI_API_KEY") or "x"
     client = OpenAI(base_url=base_url or None, api_key=key)
-    r = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system},
-                  {"role": "user", "content": prompt}],
-        temperature=temperature, max_tokens=max_tokens)
+    kwargs = {
+        "model": model,
+        "messages": [{"role": "system", "content": system},
+                     {"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+    }
+    if temperature is not None and _send_temperature(base_url):
+        kwargs["temperature"] = temperature
+    r = client.chat.completions.create(**kwargs)
     return r.choices[0].message.content or ""
 
 
@@ -223,9 +236,16 @@ def answer_responses(system, prompt, *, model, base_url, api_key, temperature, m
         ],
         "max_output_tokens": max_tokens,
     }
-    if temperature is not None:
+    if temperature is not None and _send_temperature(base_url):
         kwargs["temperature"] = temperature
-    r = client.responses.create(**kwargs)
+    try:
+        r = client.responses.create(**kwargs)
+    except Exception as exc:
+        if "temperature" in kwargs and "temperature" in str(exc).lower():
+            kwargs.pop("temperature", None)
+            r = client.responses.create(**kwargs)
+        else:
+            raise
     return _response_output_text(r)
 
 
