@@ -41,6 +41,7 @@ python run_orpo_graph.py \
 """
 
 import argparse
+import inspect
 import os
 from typing import Any, Dict
 
@@ -231,25 +232,28 @@ def main():
             processing_class=tokenizer,
         )
     else:  # sft
-        training_args = SFTConfig(
-            output_dir=args.output_dir,
-            num_train_epochs=args.epochs,
-            per_device_train_batch_size=args.batch_size,
-            gradient_accumulation_steps=args.grad_accum,
-            learning_rate=args.lr,
-            max_seq_length=args.max_length,
-            logging_steps=args.logging_steps,
-            save_strategy="steps",
-            save_steps=args.save_steps,
-            eval_strategy="steps",
-            eval_steps=args.eval_steps,
-            bf16=bool(dtype == torch.bfloat16),
-            fp16=bool(dtype == torch.float16),
-            push_to_hub=args.push_to_hub,
-            hub_model_id=args.hub_model_id if args.push_to_hub else None,
-            hub_private_repo=(not args.hub_public) if args.push_to_hub else None,
-            report_to=["wandb"],
-        )
+        sft_kwargs = {
+            "output_dir": args.output_dir,
+            "num_train_epochs": args.epochs,
+            "per_device_train_batch_size": args.batch_size,
+            "gradient_accumulation_steps": args.grad_accum,
+            "learning_rate": args.lr,
+            "logging_steps": args.logging_steps,
+            "save_strategy": "steps",
+            "save_steps": args.save_steps,
+            "eval_strategy": "steps",
+            "eval_steps": args.eval_steps,
+            "bf16": bool(dtype == torch.bfloat16),
+            "fp16": bool(dtype == torch.float16),
+            "push_to_hub": args.push_to_hub,
+            "hub_model_id": args.hub_model_id if args.push_to_hub else None,
+            "hub_private_repo": (not args.hub_public) if args.push_to_hub else None,
+            "report_to": ["wandb"],
+        }
+        sft_config_params = inspect.signature(SFTConfig).parameters
+        sft_length_arg = "max_seq_length" if "max_seq_length" in sft_config_params else "max_length"
+        sft_kwargs[sft_length_arg] = args.max_length
+        training_args = SFTConfig(**sft_kwargs)
 
         trainer = SFTTrainer(
             model=model,
