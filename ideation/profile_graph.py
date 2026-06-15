@@ -2861,11 +2861,7 @@ def _write_markdown(profile: Dict[str, Any], out_dir: Path) -> Path:
     abstract = _report_abstract(profile)
     profile["report_abstract"] = abstract
     lines = [
-        f"# Graph Profile Report - {_short(Path(gs['source'].get('graph_path', 'graph')).name, 80)}",
-        "",
-        f"Generated: {profile['generated_at']}",
-        "",
-        "## Abstract",
+        "# Abstract",
         "",
         abstract,
         "",

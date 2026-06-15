@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, BarChart3, Braces, FileText, GitBranch, Image as ImageIcon, Loader2, Network, RotateCcw, Route, Square, Zap } from "lucide-react";
+import { BarChart3, Braces, FileText, GitBranch, Image as ImageIcon, Loader2, Network, RotateCcw, Route, Square, Zap } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { formatRunTime } from "../components/common";
@@ -9,6 +9,16 @@ import type { RunAnalysisFigure, RunAnalysisJson, RunAnalysisJobStatus, RunDashb
 
 type XY = { x: number; y: number };
 type Series = { label: string; color: string; points: XY[] };
+type GrowthRow = {
+  iter: number;
+  nodes: number;
+  edges: number;
+  new_nodes: number;
+  new_edges: number;
+  tokens: number;
+  cum_tokens: number;
+  diversity: number;
+};
 
 function extent(values: number[]) {
   const clean = values.filter((value) => Number.isFinite(value));
@@ -76,11 +86,6 @@ function LineChart({ series, yHint, xHint = "iter" }: { series: Series[]; yHint?
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function numberArray(value: unknown): number[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => Number(item)).filter((item) => Number.isFinite(item));
 }
 
 function stringArray(value: unknown): string[] {
@@ -154,43 +159,77 @@ function JsonArtifactViewer({ artifacts }: { artifacts: RunAnalysisJson[] }) {
 }
 
 function FigureGallery({ figures, run }: { figures: RunAnalysisFigure[]; run: string }) {
-  if (!figures.length) return <div className="plot-empty">No generated figures yet. Use Recompute analysis to create them.</div>;
+  const [preview, setPreview] = useState<{ figure: RunAnalysisFigure; path: string } | null>(null);
+  const visibleFigures = figures.filter((figure) => !figure.key.includes("ideation_bars") && figure.title !== "Final metrics");
+  if (!visibleFigures.length) return <div className="plot-empty">No generated figures yet. Run analysis to create them.</div>;
   const imagePreference = ["png", "svg", "gif", "webp", "jpg", "jpeg"];
   return (
-    <div className="figure-gallery">
-      {figures.map((figure) => {
-        const displayPath = imagePreference.map((ext) => figure.formats[ext]).find(Boolean) || "";
-        return (
-          <div className="figure-card" key={figure.key}>
-            <div className="figure-card-head">
+    <>
+      <div className="figure-gallery">
+        {visibleFigures.map((figure) => {
+          const displayPath = imagePreference.map((ext) => figure.formats[ext]).find(Boolean) || "";
+          return (
+            <div className="figure-card" key={figure.key}>
+              <div className="figure-card-head">
+                <div>
+                  <strong>{figure.title}</strong>
+                  <span>{figure.note}</span>
+                </div>
+                <div>
+                  {Object.entries(figure.formats).map(([ext, path]) => (
+                    <a href={api.runAssetUrl(run, path)} key={ext} rel="noreferrer" target="_blank">
+                      {ext}
+                    </a>
+                  ))}
+                </div>
+              </div>
+              {displayPath ? (
+                <button
+                  className="figure-preview-button"
+                  onClick={() => setPreview({ figure, path: displayPath })}
+                  title={`Preview ${figure.title}`}
+                  type="button"
+                >
+                  <img alt={figure.title} loading="lazy" src={api.runAssetUrl(run, displayPath)} />
+                </button>
+              ) : (
+                <a className="figure-pdf-only" href={api.runAssetUrl(run, figure.default_path)} rel="noreferrer" target="_blank">
+                  Open PDF artifact
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {preview ? (
+        <div className="model-modal-backdrop figure-preview-backdrop" role="presentation">
+          <div aria-label="Figure preview" aria-modal="true" className="figure-preview-modal" role="dialog">
+            <div className="figure-preview-head">
               <div>
-                <strong>{figure.title}</strong>
-                <span>{figure.note}</span>
+                <strong>{preview.figure.title}</strong>
+                <span>{preview.figure.note}</span>
               </div>
               <div>
-                {Object.entries(figure.formats).map(([ext, path]) => (
+                {Object.entries(preview.figure.formats).map(([ext, path]) => (
                   <a href={api.runAssetUrl(run, path)} key={ext} rel="noreferrer" target="_blank">
                     {ext}
                   </a>
                 ))}
+                <button aria-label="Close figure preview" onClick={() => setPreview(null)} type="button">
+                  Close
+                </button>
               </div>
             </div>
-            {displayPath ? (
-              <img alt={figure.title} loading="lazy" src={api.runAssetUrl(run, displayPath)} />
-            ) : (
-              <a className="figure-pdf-only" href={api.runAssetUrl(run, figure.default_path)} rel="noreferrer" target="_blank">
-                Open PDF artifact
-              </a>
-            )}
+            <img alt={preview.figure.title} src={api.runAssetUrl(run, preview.path)} />
           </div>
-        );
-      })}
-    </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
 function insightFallback(insights: RunDashboardInsight[]) {
-  if (!insights.length) return <div className="plot-empty">No insights.md or insights.json yet. Use Recompute analysis to run the miners.</div>;
+  if (!insights.length) return <div className="plot-empty">No mined insights yet. Run analysis to mine graph structure, routes, and candidate leads.</div>;
   return (
     <div className="insight-preview-list">
       {insights.map((item) => (
@@ -236,7 +275,7 @@ function longRangePaths(artifacts: RunAnalysisJson[]): LongRangePath[] {
 
 function LongRangePathPanel({ artifacts }: { artifacts: RunAnalysisJson[] }) {
   const paths = longRangePaths(artifacts);
-  if (!paths.length) return <div className="plot-empty">No conceptual_bridge paths yet. Run insights.py to mine long-range routes.</div>;
+  if (!paths.length) return <div className="plot-empty">No long-range routes yet. Run analysis to mine multi-step routes through the graph.</div>;
   return (
     <div className="long-path-list">
       {paths.map((item, index) => (
@@ -255,70 +294,6 @@ function LongRangePathPanel({ artifacts }: { artifacts: RunAnalysisJson[] }) {
               </React.Fragment>
             ))}
           </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-type ScalingCurve = {
-  label: string;
-  x: number[];
-  xHint: string;
-  ideas: number[];
-  spread: number[];
-  reach: number[];
-  recomb: number[];
-};
-
-function scalingCurves(artifact: RunAnalysisJson | undefined): ScalingCurve[] {
-  if (!artifact || !isRecord(artifact.data)) return [];
-  return Object.entries(artifact.data)
-    .map(([label, raw]) => {
-      if (!isRecord(raw)) return null;
-      const tokens = numberArray(raw.x_tokens);
-      const iters = numberArray(raw.iters);
-      const x = tokens.length ? tokens : iters;
-      return {
-        label,
-        x,
-        xHint: tokens.length ? "tokens" : "iter",
-        ideas: numberArray(raw.ideas),
-        spread: numberArray(raw.spread),
-        reach: numberArray(raw.reach),
-        recomb: numberArray(raw.recomb),
-      };
-    })
-    .filter((item): item is ScalingCurve => Boolean(item && item.x.length));
-}
-
-function ScalingAnalysis({ artifacts }: { artifacts: RunAnalysisJson[] }) {
-  const artifact =
-    artifacts.find((item) => item.name === "scaling_scaling.json") ||
-    artifacts.find((item) => item.key.includes("scaling_scaling"));
-  const curves = scalingCurves(artifact);
-  if (!curves.length) return <div className="plot-empty">No scaling_scaling.json curves yet.</div>;
-  const colors = ["#2f7d5d", "#6b84c7", "#c56f42", "#8a6fb4", "#348a9a"];
-  const metrics: Array<{ key: keyof Pick<ScalingCurve, "ideas" | "spread" | "reach" | "recomb">; title: string; yHint: string }> = [
-    { key: "ideas", title: "Distinct ideas", yHint: "cumulative" },
-    { key: "spread", title: "Idea-space expansion", yHint: "variance" },
-    { key: "reach", title: "Frontier reach", yHint: "distance" },
-    { key: "recomb", title: "Surprising recombinations", yHint: "count" },
-  ];
-  return (
-    <div className="scaling-chart-grid">
-      {metrics.map((metric) => (
-        <div className="scaling-chart-card" key={metric.key}>
-          <strong>{metric.title}</strong>
-          <LineChart
-            series={curves.map((curve, index) => ({
-              label: curve.label,
-              color: colors[index % colors.length],
-              points: curve.x.map((x, pointIndex) => ({ x, y: curve[metric.key][pointIndex] ?? 0 })),
-            }))}
-            xHint={curves[0]?.xHint || "iter"}
-            yHint={metric.yHint}
-          />
         </div>
       ))}
     </div>
@@ -385,7 +360,7 @@ function PlotSection({
   );
 }
 
-function growthSeries(data: RunDashboard | undefined) {
+function growthSeries(data: RunDashboard | undefined): GrowthRow[] {
   const growth = data?.growth || [];
   if (growth.length) {
     return growth.map((row) => ({
@@ -400,6 +375,61 @@ function growthSeries(data: RunDashboard | undefined) {
     }));
   }
   return (data?.graph_series || []).map((row) => ({ ...row, tokens: 0, cum_tokens: 0, diversity: 0 }));
+}
+
+function GrowthHeadline({ graphSeries, series }: { graphSeries: RunDashboard["graph_series"]; series: GrowthRow[] }) {
+  if (!series.length) {
+    return (
+      <section className="growth-headline">
+        <div className="plot-empty">No growth trace yet. Start or load a run with growth.csv to populate the session trajectory.</div>
+      </section>
+    );
+  }
+  const edgeYield = new Map(graphSeries.map((row) => [row.iter, row.new_edges]));
+  const enriched = series.map((row) => ({ ...row, new_edges: edgeYield.get(row.iter) ?? row.new_edges }));
+  const first = enriched[0];
+  const latest = enriched[enriched.length - 1];
+  const peak = enriched.reduce((best, row) => (row.new_nodes + row.new_edges > best.new_nodes + best.new_edges ? row : best), enriched[0]);
+  const nodeGain = Math.max(0, latest.nodes - first.nodes);
+  const edgeGain = Math.max(0, latest.edges - first.edges);
+  return (
+    <section className="growth-headline">
+      <div className="growth-headline-copy">
+        <span>Run trajectory</span>
+        <strong>Growth over iterations</strong>
+        <p>
+          {formatNumber(nodeGain)} new nodes and {formatNumber(edgeGain)} new edges across {formatNumber(enriched.length)} recorded steps.
+        </p>
+      </div>
+      <div className="growth-headline-chart">
+        <LineChart
+          series={[
+            { label: "nodes", color: "#2f7d5d", points: enriched.map((row) => ({ x: row.iter, y: row.nodes })) },
+            { label: "edges", color: "#6b84c7", points: enriched.map((row) => ({ x: row.iter, y: row.edges })) },
+            { label: "new nodes", color: "#c56f42", points: enriched.map((row) => ({ x: row.iter, y: row.new_nodes })) },
+          ]}
+          yHint="count"
+        />
+      </div>
+      <div className="growth-headline-stats">
+        <div>
+          <span>Peak yield</span>
+          <strong>{formatNumber(peak.new_nodes + peak.new_edges)}</strong>
+          <em>iter {formatNumber(peak.iter)}</em>
+        </div>
+        <div>
+          <span>Token total</span>
+          <strong>{formatNumber(latest.cum_tokens || 0)}</strong>
+          <em>{formatNumber(latest.tokens || 0)} last step</em>
+        </div>
+        <div>
+          <span>Diversity</span>
+          <strong>{formatNumber(latest.diversity || 0, 3)}</strong>
+          <em>latest</em>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function RunDashboardPanel({ run }: { run: string }) {
@@ -468,10 +498,10 @@ export function RunDashboardPanel({ run }: { run: string }) {
     );
   }
 
-  const markdownArtifacts = data.analysis_markdown || [];
   const jsonArtifacts = data.analysis_json || [];
   const figureArtifacts = data.analysis_figures || [];
-  const insightsMarkdown = markdownArtifacts.find((item) => item.name === "insights.md") || markdownArtifacts[0];
+  const visibleFigureCount = figureArtifacts.filter((figure) => !figure.key.includes("ideation_bars") && figure.title !== "Final metrics").length;
+  const analysisButtonLabel = data.analysis_artifacts.length ? "Recompute analysis" : "Run analysis";
 
   return (
     <div className="run-dashboard">
@@ -493,9 +523,9 @@ export function RunDashboardPanel({ run }: { run: string }) {
               Stop
             </button>
           ) : (
-            <button onClick={() => void recompute()} type="button" title="Run insights.py, plot_ideation.py, novelty.py, scaling.py, and dynamics.py for this run.">
+            <button onClick={() => void recompute()} type="button" title="Recompute graph growth, mined insights, routes, novelty, scaling, and dynamics for this run.">
               <Zap size={13} />
-              Recompute analysis
+              {analysisButtonLabel}
             </button>
           )}
         </div>
@@ -531,16 +561,9 @@ export function RunDashboardPanel({ run }: { run: string }) {
         </div>
       </div>
 
+      <GrowthHeadline graphSeries={graphSeries} series={series} />
+
       <div className="run-plot-grid">
-        <PlotSection icon={<Activity size={13} />} note="growth.csv" open title="Growth over iterations">
-          <LineChart
-            series={[
-              { label: "nodes", color: "#2f7d5d", points: series.map((row) => ({ x: row.iter, y: row.nodes })) },
-              { label: "edges", color: "#6b84c7", points: series.map((row) => ({ x: row.iter, y: row.edges })) },
-            ]}
-            yHint="cumulative"
-          />
-        </PlotSection>
         <PlotSection icon={<BarChart3 size={13} />} note="yield rate" open title="Per-iteration yield">
           <LineChart
             series={[
@@ -565,27 +588,14 @@ export function RunDashboardPanel({ run }: { run: string }) {
         <PlotSection icon={<Network size={13} />} note="edge labels" title="Relation mix">
           <BarChart bars={data.relations} color="#7b9b62" labelKey="relation" valueKey="count" />
         </PlotSection>
-        <PlotSection icon={<FileText size={13} />} note="insights.md" open title="Mined insights report">
-          {insightsMarkdown?.markdown ? (
-            <div className="run-markdown-scroll compact">
-              <MarkdownReport
-                assetUrl={(file) => api.runAssetUrl(data.path, file)}
-                markdown={insightsMarkdown.markdown}
-                out={data.path}
-              />
-            </div>
-          ) : (
-            insightFallback(data.insights)
-          )}
+        <PlotSection icon={<FileText size={13} />} note="insight preview" open title="Top mined leads">
+          {insightFallback(data.insights)}
         </PlotSection>
-        <PlotSection icon={<Route size={13} />} note="conceptual_bridge" open title="Long-range paths">
+        <PlotSection icon={<Route size={13} />} note="route miner" open title="Long-range paths">
           <LongRangePathPanel artifacts={jsonArtifacts} />
         </PlotSection>
-        <PlotSection icon={<ImageIcon size={13} />} note="png / svg / pdf" open={Boolean(figureArtifacts.length)} title="Generated artifact figures">
+        <PlotSection icon={<ImageIcon size={13} />} note="figures" open={Boolean(visibleFigureCount)} title="Generated figures">
           <FigureGallery figures={figureArtifacts} run={data.path} />
-        </PlotSection>
-        <PlotSection icon={<BarChart3 size={13} />} note="scaling_scaling.json" title="Scaling analysis">
-          <ScalingAnalysis artifacts={jsonArtifacts} />
         </PlotSection>
         <PlotSection icon={<Braces size={13} />} note="expandable JSON" title="Structured analysis data">
           <JsonArtifactViewer artifacts={jsonArtifacts} />

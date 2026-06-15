@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { CircleStop, ExternalLink, FileText, Loader2, Network, Play } from "lucide-react";
+import { ExternalLink, FileText, Loader2 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { formatNumber } from "../graph-utils";
 import { useExplorerStore } from "../store";
-import type { GraphFileSummary, GraphPayload, ProfileArtifacts, ProfileJobStatus, ProfileOptions, ProfileReportPayload } from "../types";
-import { cx, Drawer, formatRunTime, HelpTip, IconButton } from "../components/common";
+import type { GraphPayload, ProfileArtifacts, ProfileJobStatus, ProfileOptions, ProfileReportPayload } from "../types";
+import { cx, Drawer, formatRunTime, HelpTip } from "../components/common";
 
 const REPORT_STUDIO_STORAGE_KEY = "graph-preflexor-explorer.report-studio.v1";
 
@@ -92,39 +92,23 @@ const profilePresetHelp = {
     "Metrics-only audit. Disables LLM reporting and PDF generation; useful to inspect graph statistics quickly before spending model calls.",
 } as const;
 
-function graphFileLabel(file: GraphFileSummary) {
-  const iter = file.iter == null ? "final" : `iter ${file.iter}`;
-  const run = file.run_name || file.run || "graph";
-  return `${run} | ${iter} | ${file.name}`;
-}
-
 export function ReportStudio({
   onReportReady,
   defaultOpen = false,
+  title = "Insights Mining Settings",
 }: {
   onReportReady: (out: string) => void;
   defaultOpen?: boolean;
+  title?: string;
 }) {
   const graph = useExplorerStore((state) => state.graph);
   const storedRef = useRef<StoredReportStudio | null>(null);
   if (!storedRef.current) storedRef.current = readReportStudioStorage();
   const stored = storedRef.current;
-  const [sourceMode, setSourceMode] = useState<"run" | "graph">(stored.graph ? "graph" : "run");
   const [options, setOptions] = useState<ProfileOptions>({ ...defaultProfileOptions, ...stored });
   const [job, setJob] = useState<ProfileJobStatus | null>(stored.job || null);
   const [status, setStatus] = useState(stored.job ? "Restored saved profile job." : "");
-  const [busy, setBusy] = useState(false);
 
-  const runsQuery = useQuery({
-    queryKey: ["runs"],
-    queryFn: api.runs,
-    refetchInterval: 7000,
-  });
-  const graphmlQuery = useQuery({
-    queryKey: ["graphml-files"],
-    queryFn: api.graphmlFiles,
-    refetchInterval: 9000,
-  });
   const reportsQuery = useQuery({
     queryKey: ["profile-reports", options.run],
     queryFn: () => api.profileReports(options.run || ""),
@@ -181,17 +165,6 @@ export function ReportStudio({
 
   function patchOptions(patch: Partial<ProfileOptions>) {
     setOptions((state) => ({ ...state, ...patch }));
-  }
-
-  function useCurrentRun() {
-    const inferred = inferRunFromGraph(graph);
-    if (!inferred) return;
-    patchOptions({ run: inferred, out: defaultProfileOut(inferred, options.model) });
-  }
-
-  function useCurrentGraphPath() {
-    if (!graph?.path) return;
-    patchOptions({ graph: graph.path, out: defaultProfileOut(inferRunFromGraph(graph) || "runs/explorer_run", options.model, "_graph") });
   }
 
   function setPreset(kind: "research" | "light" | "local" | "fast") {
@@ -262,135 +235,22 @@ export function ReportStudio({
     }
   }
 
-  async function start() {
-    const payload: ProfileOptions = { ...options };
-    if (sourceMode === "run") {
-      payload.graph = "";
-    } else {
-      payload.run = "";
-    }
-    if (!payload.out.trim()) {
-      payload.out = defaultProfileOut(payload.run || inferRunFromGraph(graph), payload.model);
-    }
-    setBusy(true);
-    setStatus("");
-    try {
-      const next = await api.profileGraph(payload);
-      setJob(next);
-      onReportReady(next.artifacts?.out || next.out);
-      setOptions(payload);
-      setStatus(`Started profile job ${next.id}.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function stop() {
-    if (!job) return;
-    const next = await api.stopProfileJob(job.id);
-    setJob(next);
-    setStatus(`Stop requested for profile job ${next.id}.`);
-  }
-
   const progress = job?.status === "done" ? 100 : Math.round((job?.progress?.percent || 0) * 100);
-  const canStart = sourceMode === "run" ? Boolean(options.run?.trim()) : Boolean(options.graph?.trim());
 
   return (
     <Drawer
       defaultOpen={defaultOpen}
-      description="Generate and review graph profile reports. It runs profile_graph.py, tracks progress from logs, lists report folders, renders report.md, and exposes PDF/JSON artifacts when present."
+      description="Configure defaults for mined insights and graph profile generation. Load runs, choose sources, and start jobs from Session Overview or Runs."
       icon={<FileText size={14} />}
-      note={job?.status || "profile"}
-      title="Report Studio"
+      note={job?.status || "settings"}
+      title={title}
     >
-      <div className="segmented-control">
-        <button className={cx(sourceMode === "run" && "active")} onClick={() => setSourceMode("run")} type="button">
-          Run Folder
-        </button>
-        <button className={cx(sourceMode === "graph" && "active")} onClick={() => setSourceMode("graph")} type="button">
-          GraphML
-        </button>
-      </div>
       <div className="source-help">
-        {sourceMode === "run" ? (
-          <>
-            <strong>Run folder source</strong>
-            <span>
-              Profiles the latest GraphML snapshot in the selected run folder. Existing report folders for that run are listed below.
-            </span>
-          </>
-        ) : (
-          <>
-            <strong>GraphML source</strong>
-            <span>
-              Profiles one exact server-visible GraphML file. Browser uploads are in memory only unless the file also exists on disk.
-            </span>
-          </>
-        )}
+        <strong>Insights mining settings</strong>
+        <span>
+          These are defaults only. The active run or GraphML source is selected in the Session Overview/Runs workflow, where generation is started and rendered.
+        </span>
       </div>
-      {sourceMode === "run" ? (
-        <div className="source-picker">
-          <label>
-            Available runs
-            <select
-              onChange={(event) => {
-                const run = event.target.value;
-                if (run) patchOptions({ run, out: defaultProfileOut(run, options.model) });
-              }}
-              value={runsQuery.data?.runs.some((run) => run.path === options.run) ? options.run || "" : ""}
-            >
-              <option value="">Choose a run folder...</option>
-              {(runsQuery.data?.runs || []).map((run) => (
-                <option disabled={!run.graph_ready} key={run.path} value={run.path}>
-                  {run.name} {run.snapshot_count ? `| ${run.snapshot_count} snapshots` : ""} {run.graph_ready ? "" : "| no graph"}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            onChange={(event) => patchOptions({ run: event.target.value })}
-            placeholder="runs/exp_leap"
-            value={options.run || ""}
-          />
-          <IconButton disabled={!inferRunFromGraph(graph)} icon={<Network size={14} />} label="Current" onClick={useCurrentRun} />
-        </div>
-      ) : (
-        <div className="source-picker">
-          <label>
-            Available GraphML
-            <select
-              onChange={(event) => {
-                const graphPath = event.target.value;
-                if (graphPath) patchOptions({ graph: graphPath, out: defaultProfileOut(options.run || "runs/explorer_run", options.model, "_graph") });
-              }}
-              value={graphmlQuery.data?.graphs.some((item) => item.path === options.graph || item.absolute_path === options.graph) ? options.graph || "" : ""}
-            >
-              <option value="">Choose a GraphML file...</option>
-              {(graphmlQuery.data?.graphs || []).map((file) => (
-                <option key={file.absolute_path || file.path} value={file.path}>
-                  {graphFileLabel(file)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            onChange={(event) => patchOptions({ graph: event.target.value })}
-            placeholder="/path/to/file.graphml"
-            value={options.graph || ""}
-          />
-          <IconButton disabled={!graph?.path} icon={<Network size={14} />} label="Current" onClick={useCurrentGraphPath} />
-        </div>
-      )}
-      <label>
-        Output
-        <input
-          onChange={(event) => patchOptions({ out: event.target.value })}
-          placeholder="runs/exp_leap/profile_gpt55"
-          value={options.out}
-        />
-      </label>
 
       <div className="preset-grid">
         <button onClick={() => setPreset("research")} title={profilePresetHelp.research} type="button">
@@ -411,35 +271,19 @@ export function ReportStudio({
         </button>
       </div>
 
-      <div className="profile-progress">
-        <div>
-          <b>{progress}%</b>
-          <span>{job?.progress?.message || "Idle"}</span>
+      {job?.status === "running" ? (
+        <div className="profile-progress">
+          <div>
+            <b>{progress}%</b>
+            <span>{job?.progress?.message || "Graph profile running"}</span>
+          </div>
+          <progress max={100} value={progress} />
+          {job?.progress?.detail ? <span>{job.progress.detail}</span> : null}
         </div>
-        <progress max={100} value={progress} />
-        {job?.progress?.detail ? <span>{job.progress.detail}</span> : null}
-      </div>
-      <div className="button-row">
-        <IconButton
-          disabled={busy || !canStart}
-          description="Start profile_graph.py with the selected source, preset, model, and output folder."
-          icon={busy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
-          label="Generate"
-          onClick={start}
-          tone="primary"
-        />
-        <IconButton
-          disabled={!job || job.status !== "running"}
-          description="Stop the active profile report job and keep any partial output."
-          icon={<CircleStop size={14} />}
-          label="Stop"
-          onClick={stop}
-          tone="danger"
-        />
-      </div>
+      ) : null}
 
       <details className="settings-block">
-        <summary>Model and LLM</summary>
+        <summary>Graph Profile Model Defaults</summary>
         <div className="control-grid">
           <label>
             LLM
@@ -489,7 +333,7 @@ export function ReportStudio({
       </details>
 
       <details className="settings-block">
-        <summary>Report Options</summary>
+        <summary>Analysis Defaults</summary>
         <div className="control-grid">
           <label>
             Profile preset
@@ -541,9 +385,7 @@ export function ReportStudio({
           </label>
         </div>
       </details>
-      {status ? <div className="status-box">{status}</div> : null}
-      {job?.cmd?.length ? <pre className="code-preview">{job.cmd.join(" ")}</pre> : null}
-      {job?.log_tail ? <pre className="run-log">{job.log_tail}</pre> : null}
+      {status && job?.status === "running" ? <div className="status-box">{status}</div> : null}
     </Drawer>
   );
 }
@@ -696,7 +538,7 @@ function ProfilePicker({
   return (
     <div className="profile-picker">
       <div className="profile-picker-head">
-        <strong>Existing profiles</strong>
+        <strong>Existing reports</strong>
         <span>{reports.length} found</span>
       </div>
       <div className="profile-picker-grid">
@@ -750,32 +592,32 @@ export function ReportStage({
       <section className="report-stage">
         <div className="report-stage-empty-toolbar">
           <div>
-            <strong>Profile reports</strong>
+            <strong>Graph profiles</strong>
             <span>{reportRun || "No run selected"}</span>
           </div>
           <button onClick={onOpenReports} type="button">
-            Generate report
+            Generate graph profile
           </button>
         </div>
         <div className="report-scroll">
           <div className="report-empty">
             <FileText size={23} />
-            <strong>{out ? "No rendered report.md yet" : "No profile report selected"}</strong>
+          <strong>{out ? "No rendered profile yet" : "No graph profile selected"}</strong>
             <span>
               {out
-                ? `Selected ${selectedName}, but report.md is not available yet.`
+                ? `Selected ${selectedName}, but the rendered markdown is not available yet.`
                 : reports.length
-                  ? "Choose an existing profile below or generate a new one."
-                  : "Generate a profile report to render report.md here."}
+                  ? "Choose an existing report below or generate a new one."
+                  : "Generate a graph profile to render it here."}
             </span>
             {reportQuery.isLoading ? (
               <span className="inline-status">
-                <Loader2 className="spin" size={13} /> Checking selected report...
+              <Loader2 className="spin" size={13} /> Checking selected report...
               </span>
             ) : null}
             {reportQuery.error ? <span className="inline-status">{String(reportQuery.error)}</span> : null}
             <button onClick={onOpenReports} type="button">
-              Generate report
+            Generate graph profile
             </button>
           </div>
           <ProfilePicker activeOut={out} onSelect={onReportReady} reports={reports} />

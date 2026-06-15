@@ -403,7 +403,7 @@ export function RunMonitor({
   return (
     <Drawer
       defaultOpen={defaultOpen}
-      description="Launch a new ideation CLI run, stop it, and monitor progress from the run logs. The monitor persists so navigation within the app will not lose the run."
+      description="Launch a new ideation run, stop it, and monitor progress from the run logs. The monitor persists so navigation within the app will not lose the run."
       icon={<Play size={14} />}
       note={job?.status || "idle"}
       title="Run Monitor"
@@ -466,7 +466,7 @@ export function RunMonitor({
       <div className="button-row">
         <IconButton
           disabled={busy}
-          description="Start a new CLI run with the selected strategy, call budget, iteration count, and output folder."
+          description="Start a new ideation run with the selected strategy, call budget, iteration count, and output folder."
           icon={busy ? <Loader2 className="spin" size={14} /> : <Play size={14} />}
           label="Start"
           onClick={start}
@@ -474,7 +474,7 @@ export function RunMonitor({
         />
         <IconButton
           disabled={!job || job.status !== "running"}
-          description="Ask the running CLI process to stop and keep the partial output folder."
+          description="Ask the running process to stop and keep the partial output folder."
           icon={<CircleStop size={14} />}
           label="Stop"
           onClick={stop}

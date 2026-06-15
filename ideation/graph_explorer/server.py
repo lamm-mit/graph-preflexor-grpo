@@ -871,15 +871,15 @@ def _artifact_title(path):
 def _artifact_note(path):
     rel = str(path)
     if "insights" in rel:
-        return "insights.py"
+        return "mined insights"
     if "novelty" in rel:
-        return "novelty.py"
+        return "novelty analysis"
     if "scaling" in rel:
-        return "scaling.py"
+        return "scaling analysis"
     if "dynamics" in rel:
-        return "dynamics.py"
+        return "reasoning dynamics"
     if "ideation" in rel:
-        return "plot_ideation.py"
+        return "run analysis"
     return "analysis artifact"
 
 
@@ -3647,6 +3647,14 @@ ANALYSIS_SPECS = {
     "dynamics": "dynamics.py",
 }
 
+ANALYSIS_DISPLAY_NAMES = {
+    "plot": "run figures",
+    "insights": "mined insights",
+    "novelty": "novelty analysis",
+    "scaling": "scaling analysis",
+    "dynamics": "reasoning dynamics",
+}
+
 
 def _analysis_commands(run_value, analyses, embed_model=None):
     run_dir = _resolve_run_path(run_value)
@@ -3703,7 +3711,7 @@ def _analysis_progress(log_text, job):
         "percent": max(0.0, min(1.0, current / total)),
         "current": min(current, total),
         "total": total,
-        "message": job.get("current_name") or "",
+        "message": ANALYSIS_DISPLAY_NAMES.get(job.get("current_name"), job.get("current_name") or ""),
         "detail": lines[-1] if lines else "",
     }
 
@@ -3996,6 +4004,16 @@ def _stop_synthesis_job(body):
     return _synthesis_job_status(job_id)
 
 
+def _normalize_profile_report_markdown(markdown):
+    text = str(markdown or "")
+    return re.sub(
+        r"^# Graph Profile Report[^\n]*\n\s*\nGenerated:[^\n]*\n\s*\n## Abstract\b",
+        "# Abstract",
+        text,
+        count=1,
+    )
+
+
 def _profile_report_payload(body):
     artifacts = _profile_artifacts(body.get("out") or "")
     markdown = ""
@@ -4003,7 +4021,7 @@ def _profile_report_payload(body):
     report_value = artifacts.get("report_path") or ""
     report_path = Path(report_value) if report_value else None
     if report_path and report_path.exists() and report_path.is_file():
-        markdown = report_path.read_text(errors="replace")
+        markdown = _normalize_profile_report_markdown(report_path.read_text(errors="replace"))
     profile_value = artifacts.get("profile_path") or ""
     profile_path = Path(profile_value) if profile_value else None
     if profile_path and profile_path.exists() and profile_path.is_file():

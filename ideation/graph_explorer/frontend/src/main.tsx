@@ -33,7 +33,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
-import { MarkdownReport, ReportStage, ReportStudio, readReportStudioStorage } from "./features/reporting";
+import { MarkdownReport, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunDashboardPanel } from "./features/run-dashboard";
 import { RunExplorer, RunMonitor } from "./features/runs";
 import {
@@ -64,6 +64,10 @@ import type {
   ModelProbe,
   ModelRole,
   PathConnector,
+  ProfileJobStatus,
+  ProfileOptions,
+  RunAnalysisJobStatus,
+  RunDashboard,
   SearchResult,
 } from "./types";
 import "./styles.css";
@@ -75,6 +79,7 @@ type OptionalToolMode = "graphrag";
 type WorkspaceMode = CoreWorkspaceMode | OptionalToolMode;
 type ChatContextMode = "none" | "focused" | "graph_rag";
 type ReportContextPart = "report" | "profile";
+type SessionReportPanelMode = "none" | "insights" | "profile";
 
 const TOOL_RAIL_STORAGE_KEY = "graph-preflexor-explorer.tool-rail.v1";
 const SESSION_REPORTS_STORAGE_KEY = "graph-preflexor-explorer.session-reports.v1";
@@ -112,6 +117,20 @@ function writeToolRailStorage(tools: OptionalToolMode[]) {
 
 function reportContextLabel(out: string) {
   return out.split("/").filter(Boolean).pop() || out || "report";
+}
+
+function profileModelSlug(model: string) {
+  return (
+    (model || "profile")
+      .toLowerCase()
+      .replace(/^.*\//, "")
+      .replace(/[^a-z0-9]+/g, "")
+      .slice(0, 18) || "profile"
+  );
+}
+
+function defaultProfileOutForRun(run: string, model: string, suffix = "") {
+  return `${run || "runs/explorer_run"}/profile_${profileModelSlug(model)}${suffix}`;
 }
 
 function readSessionReports(): SessionReport[] {
@@ -364,6 +383,13 @@ function parseSynthesizeCommand(input: string) {
   }
   opts.task = task.join(" ").trim();
   return opts;
+}
+
+function parseInsightsCommand(input: string) {
+  const args = splitCommandArgs(input);
+  return {
+    refresh: args.some((arg) => ["--refresh", "--recompute", "--force"].includes(arg)),
+  };
 }
 
 function isLocalModelProbeIssue(probe: ModelProbe) {
@@ -1864,6 +1890,153 @@ function MarkdownMessage({ content }: { content: string }) {
   return <div className="chat-markdown">{blocks.length ? blocks : <p>{content}</p>}</div>;
 }
 
+function insightsMarkdown(data?: RunDashboard | null) {
+  return (data?.analysis_markdown || []).find((item) => item.name === "insights.md")?.markdown || "";
+}
+
+function insightsJsonArtifact(data?: RunDashboard | null) {
+  return (data?.analysis_json || []).find((item) => item.name === "insights.json");
+}
+
+function hasMinedInsights(data?: RunDashboard | null) {
+  return Boolean(insightsMarkdown(data).trim() || (data?.insights || []).length || insightsJsonArtifact(data)?.data);
+}
+
+function safeJsonExcerpt(value: unknown, maxChars = 12000) {
+  if (value == null) return "";
+  try {
+    const text = JSON.stringify(value, null, 2);
+    return text.length > maxChars ? `${text.slice(0, maxChars)}\n... truncated ...` : text;
+  } catch {
+    return "";
+  }
+}
+
+function insightsSourceText(data: RunDashboard) {
+  const markdown = insightsMarkdown(data).trim();
+  const top = (data.insights || [])
+    .slice(0, 12)
+    .map((item, index) => `${index + 1}. ${item.title || item.kind} [${item.kind}, score ${formatNumber(item.score, 2)}]\n${item.detail}`)
+    .join("\n\n");
+  const jsonExcerpt = safeJsonExcerpt(insightsJsonArtifact(data)?.data, 14000);
+  return [
+    markdown ? `# Mined insight report\n${markdown.slice(0, 22000)}` : "",
+    top ? `# Top structured leads\n${top}` : "",
+    jsonExcerpt ? `# Structured insight data excerpt\n${jsonExcerpt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function fallbackInsightsSummary(data: RunDashboard) {
+  const insights = (data.insights || []).slice(0, 8);
+  if (!insights.length) {
+    return "No mined insights are available yet for this run. Run `/insights --refresh` after the graph has produced ideas and links.";
+  }
+  return [
+    "## Mined Insights Summary",
+    "",
+    ...insights.map(
+      (item) =>
+        `- **${item.title || item.kind}** (${item.kind}, score ${formatNumber(item.score, 2)}): ${item.detail || "No detail provided."}`,
+    ),
+    "",
+    "Use the full insights view to inspect the complete report, structured data, and generated maps.",
+  ].join("\n");
+}
+
+function insightRunFromMeta(meta?: string) {
+  const match = String(meta || "").match(/^insights(?:\s*\|\s*(.+))?$/);
+  return match?.[1]?.trim() || "";
+}
+
+function InsightsPreviewModal({
+  run,
+  onClose,
+  onOpenRuns,
+}: {
+  run: string;
+  onClose: () => void;
+  onOpenRuns: () => void;
+}) {
+  const dashboard = useQuery({
+    queryKey: ["run-dashboard", run, "insights-preview"],
+    queryFn: () => api.runDashboard(run),
+    enabled: Boolean(run),
+    refetchInterval: false,
+  });
+  const data = dashboard.data;
+  const markdown = insightsMarkdown(data);
+  const top = data?.insights || [];
+  const insightMap = (data?.analysis_figures || []).find((figure) => figure.key.includes("insights_map"));
+  const displayMap = insightMap
+    ? ["png", "svg", "webp", "jpg", "jpeg"].map((ext) => insightMap.formats[ext]).find(Boolean)
+    : "";
+  return (
+    <div className="model-modal-backdrop report-preview-backdrop" role="presentation">
+      <div aria-label="Mined insights preview" aria-modal="true" className="serve-modal report-preview-modal insights-preview-modal" role="dialog">
+        <div className="serve-modal-head report-preview-head">
+          <div>
+            <span>Mined insights</span>
+            <h3>{data?.topic || run}</h3>
+            <p>{run}</p>
+          </div>
+          <button aria-label="Close insights preview" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+        <div className="report-preview-actions">
+          <button onClick={() => void dashboard.refetch()} type="button">
+            Refresh
+          </button>
+          <button
+            onClick={() => {
+              onClose();
+              onOpenRuns();
+            }}
+            type="button"
+          >
+            Open run view
+          </button>
+        </div>
+        <div className="report-preview-body">
+          {dashboard.isLoading ? <div className="status-box">Loading mined insights...</div> : null}
+          {dashboard.error ? <div className="status-box">{dashboard.error instanceof Error ? dashboard.error.message : String(dashboard.error)}</div> : null}
+          {displayMap && data ? (
+            <section>
+              <h4>Insight map</h4>
+              <img alt="Mined insight map" className="insights-preview-map" src={api.runAssetUrl(data.path, displayMap)} />
+            </section>
+          ) : null}
+          {markdown && data ? (
+            <section>
+              <h4>Full insight report</h4>
+              <MarkdownReport assetUrl={(file) => api.runAssetUrl(data.path, file)} markdown={markdown} out={data.path} />
+            </section>
+          ) : top.length ? (
+            <section>
+              <h4>Top mined leads</h4>
+              <div className="insights-modal-leads">
+                {top.map((item) => (
+                  <div key={`${item.kind}-${item.title}`}>
+                    <strong>{item.title || item.kind}</strong>
+                    <span>
+                      {item.kind} | score {formatNumber(item.score, 2)}
+                    </span>
+                    <p>{item.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <div className="status-box">No mined insights are available for this run yet.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReportPreviewModal({
   report,
   contextParts,
@@ -1912,10 +2085,10 @@ function ReportPreviewModal({
             }}
             type="button"
           >
-            Open in Reports
+            Open profile panel
           </button>
           {artifacts?.pdf_path ? (
-            <a href={api.reportAssetUrl(report.out, "report.pdf")} rel="noreferrer" target="_blank">
+            <a download href={api.reportAssetUrl(report.out, "report.pdf")}>
               <Download size={13} /> PDF
             </a>
           ) : null}
@@ -2074,6 +2247,7 @@ function ChatPanel({
   const [reportContextParts, setReportContextParts] = useState<ReportContextPart[]>(["report"]);
   const [reportMenuOpen, setReportMenuOpen] = useState(false);
   const [reportPreviewOpen, setReportPreviewOpen] = useState(false);
+  const [insightsModalRun, setInsightsModalRun] = useState("");
   const [contextInfoOpen, setContextInfoOpen] = useState(false);
   const [reportMaxChars, setReportMaxChars] = useState(14000);
   const [lastRagNodes, setLastRagNodes] = useState<GraphAskContextNode[]>([]);
@@ -2108,7 +2282,8 @@ function ChatPanel({
   const commandItems = [
     { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
     { command: "/followups", label: "Generate follow-ups", detail: "Ask the active graph model for next query ideas.", action: () => void suggestFollowups() },
-    { command: "/synthesize <task>", label: "Run synthesis", detail: "Run synthesize.py on the active run and post answer.md here.", action: () => setQuestion("/synthesize ") },
+    { command: "/insights", label: "Summarize insights", detail: "Mine or summarize the active run's structural insights.", action: () => setQuestion("/insights ") },
+    { command: "/synthesize <task>", label: "Run synthesis", detail: "Generate a synthesis answer from the active run and post it here.", action: () => setQuestion("/synthesize ") },
     { command: "/none", label: "No retrieval", detail: "Use only selected nodes; with no selection this is regular chat.", action: () => setAgentMode("none") },
     { command: "/rag", label: "Graph-RAG retrieval", detail: "Retrieve broader semantic neighborhoods and path connectors.", action: () => setAgentMode("graph_rag") },
     { command: "/focus", label: "Focused selection", detail: "Use selected nodes, an optional focus query, and compact neighborhoods.", action: () => setAgentMode("focused") },
@@ -2180,29 +2355,127 @@ function ChatPanel({
       role: "system",
       meta: "commands",
       content:
-        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\n/synthesize <task> runs synthesize.py on the active run and posts answer.md here.\n/synthesize --style hypotheses --mine \"Rank three falsifiable hypotheses\" changes style and mines insights if needed.\n/synthesize --hf meta-llama/Llama-3.2-3B-Instruct \"...\" uses the Hugging Face backend.\nUse Model Settings to change the default chat/synthesis model role.",
+        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\n/insights summarizes mined insights for the active run; add --refresh to recompute first.\n/synthesize <task> generates a synthesis answer from the active run and posts it here.\n/synthesize --style hypotheses --mine \"Rank three falsifiable hypotheses\" changes style and refreshes mined insights if needed.\n/synthesize --hf meta-llama/Llama-3.2-3B-Instruct \"...\" uses the Hugging Face backend.\nUse Settings to change the default chat/synthesis model role.",
     });
+  }
+
+  async function pollInsightsJob(jobId: string, pendingId: string) {
+    let last = await api.runAnalysisJob(jobId);
+    while (["running", "stopping"].includes(last.status)) {
+      updateChatMessage(pendingId, {
+        content: "Mining insights",
+        meta: last.run ? `insights | ${last.run}` : "insights",
+      });
+      await new Promise((resolve) => window.setTimeout(resolve, 1600));
+      last = await api.runAnalysisJob(jobId);
+    }
+    return last;
+  }
+
+  async function summarizeInsightsWithAgent(data: RunDashboard, role: ModelRole) {
+    const source = insightsSourceText(data);
+    const prompt = [
+      "Summarize the mined graph insights for the current run.",
+      "Write as Graph-PRefLexOR Assistant in concise, polished Markdown.",
+      "Keep it detailed enough to be useful but compact enough for a chat turn.",
+      "Include the strongest leads, long-range/transitive routes if present, bridge concepts, practical next queries, and any caveats.",
+      "Do not mention implementation details, command names, scripts, or file names.",
+      "",
+      "# Mined insights context",
+      source || "No mined insight text was available.",
+    ].join("\n");
+    const summaryRole: ModelRole = {
+      ...role,
+      max_tokens: Math.min(Number(role.max_tokens) || 2000, 2200),
+      temperature: role.temperature ?? 0.2,
+    };
+    return api.ask({
+      question: prompt,
+      selected_nodes: [],
+      query: "",
+      depth: 1,
+      max_nodes: 20,
+      max_edges: 40,
+      context_mode: "none",
+      report_context: null,
+      model_config: summaryRole,
+      history: [],
+    });
+  }
+
+  async function startInsights(rawArgs: string) {
+    if (!activeRun) {
+      addChatMessage({ role: "assistant", content: "Load a run folder before using `/insights`; the tool summarizes insight artifacts for the active run.", meta: "insights" });
+      return;
+    }
+    const options = parseInsightsCommand(rawArgs);
+    const role = activeChatRole;
+    addChatMessage({ role: "user", content: `/insights ${rawArgs}`.trim(), meta: activeRun });
+    const pending = addChatMessage({
+      role: "assistant",
+      content: "Mining insights",
+      meta: `insights | ${activeRun}`,
+    });
+    try {
+      let dashboard = await api.runDashboard(activeRun);
+      if (options.refresh || !hasMinedInsights(dashboard)) {
+        const started = await api.runAnalysis({ run: activeRun, analyses: ["insights"] });
+        const finished = await pollInsightsJob(started.id, pending);
+        if (finished.status !== "done") {
+          updateChatMessage(pending, {
+            content: "Insights could not be completed for this run.",
+            meta: `insights error | ${activeRun}`,
+          });
+          return;
+        }
+        await queryClient.invalidateQueries({ queryKey: ["run-dashboard", activeRun] });
+        dashboard = await api.runDashboard(activeRun);
+      }
+      if (!hasMinedInsights(dashboard)) {
+        updateChatMessage(pending, {
+          content: "No mined insights are available yet for this run.",
+          meta: `insights | ${dashboard.path || activeRun}`,
+        });
+        return;
+      }
+      updateChatMessage(pending, { content: "Summarizing insights", meta: `insights | ${dashboard.path || activeRun}` });
+      if (role?.model) {
+        const res = await summarizeInsightsWithAgent(dashboard, role);
+        updateChatMessage(pending, {
+          content: res.answer || fallbackInsightsSummary(dashboard),
+          meta: `insights | ${dashboard.path || activeRun}`,
+          ...responseStateMeta(role, res.response_id),
+        });
+      } else {
+        updateChatMessage(pending, {
+          content: fallbackInsightsSummary(dashboard),
+          meta: `insights | ${dashboard.path || activeRun}`,
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["run-dashboard", activeRun] });
+    } catch (error) {
+      updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "insights error" });
+    }
   }
 
   async function pollSynthesis(jobId: string, pendingId: string) {
     let last = await api.synthesisJob(jobId);
     while (["running", "stopping"].includes(last.status)) {
-      const progress = last.progress;
       updateChatMessage(pendingId, {
-        content: `Synthesizing answer...\n\n${progress?.detail || "Waiting for synthesize.py output."}`,
-        meta: `synthesize ${Math.round((progress?.percent || 0) * 100)}% | ${last.model || "model"}`,
+        content: "Synthesizing answer",
+        meta: "synthesize",
       });
       await new Promise((resolve) => window.setTimeout(resolve, 1800));
       last = await api.synthesisJob(jobId);
     }
     if (last.status === "done") {
       updateChatMessage(pendingId, {
-        content: `${last.answer_markdown || "(synthesis completed but answer.md was empty)"}\n\n---\n\nSaved to \`${last.out}\`.`,
+        content: `${last.answer_markdown || "(synthesis completed but the answer was empty)"}\n\n---\n\nSaved to \`${last.out}\`.`,
         meta: `synthesize | ${last.model || "model"} | ${last.out}`,
       });
     } else {
       updateChatMessage(pendingId, {
-        content: `${last.status}: synthesize.py did not complete.\n\n${last.log_tail || ""}`.trim(),
+        content: "Synthesis did not complete.",
         meta: "synthesize error",
       });
     }
@@ -2218,16 +2491,15 @@ function ChatPanel({
     const backend = options.backend || role?.backend || "responses";
     const model = options.model || role?.model || "";
     if (!model) {
-      addChatMessage({ role: "assistant", content: "Configure a chat model under Model Settings, or pass `--model` / `--hf <repo>` to `/synthesize`.", meta: "synthesize" });
+      addChatMessage({ role: "assistant", content: "Configure a chat model under Settings, or pass `--model` / `--hf <repo>` to `/synthesize`.", meta: "synthesize" });
       return;
     }
     const task = options.task;
-    const taskLabel = task || `(style preset: ${options.style || "report"})`;
     addChatMessage({ role: "user", content: `/synthesize ${rawArgs}`.trim(), meta: activeRun });
     const pending = addChatMessage({
       role: "assistant",
-      content: `Starting synthesize.py for \`${activeRun}\`...\n\nTask: ${taskLabel}`,
-      meta: `synthesize | ${model}`,
+      content: "Synthesizing answer",
+      meta: "synthesize",
     });
     try {
       const started = await api.synthesize({
@@ -2271,6 +2543,11 @@ function ChatPanel({
     if (command === "synthesize") {
       setQuestion("");
       void startSynthesis(restText);
+      return true;
+    }
+    if (command === "insights") {
+      setQuestion("");
+      void startInsights(restText);
       return true;
     }
     if (command === "rag") {
@@ -2399,22 +2676,44 @@ function ChatPanel({
       {contextInfoOpen && activeChatRole?.model ? (
         <ChatContextInfoModal body={buildChatBody(activeChatRole)} onClose={() => setContextInfoOpen(false)} selectedLabels={selectedLabels} />
       ) : null}
+      {insightsModalRun ? (
+        <InsightsPreviewModal
+          onClose={() => setInsightsModalRun("")}
+          onOpenRuns={onOpenRuns}
+          run={insightsModalRun}
+        />
+      ) : null}
       <div className="chat-log">
         {messages.length ? (
-          messages.map((message) => (
-            <div className={cx("chat-message", message.role)} key={message.id}>
-              <div className="chat-avatar">{message.role === "user" ? "You" : "AI"}</div>
-              <div className="chat-message-body">
-                <div className="chat-meta">
-                  {message.role}
-                  {message.meta ? ` | ${message.meta}` : ""}
-                </div>
-                <div className="chat-bubble">
-                  <MarkdownMessage content={message.content} />
+          messages.map((message) => {
+            const insightRun = insightRunFromMeta(message.meta);
+            return (
+              <div className={cx("chat-message", message.role)} key={message.id}>
+                <div className="chat-avatar">{message.role === "user" ? "You" : "AI"}</div>
+                <div className="chat-message-body">
+                  <div className="chat-meta">
+                    {message.role}
+                    {message.meta ? ` | ${message.meta}` : ""}
+                  </div>
+                  <div className="chat-bubble">
+                    <MarkdownMessage content={message.content} />
+                  </div>
+                  {message.role === "assistant" && insightRun ? (
+                    <div className="chat-message-actions">
+                      <button onClick={() => setInsightsModalRun(insightRun)} type="button">
+                        <FileText size={12} />
+                        Open full insights
+                      </button>
+                      <button onClick={onOpenRuns} type="button">
+                        <Network size={12} />
+                        Open run view
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
-            </div>
-          ))
+            );
+          })
         ) : (
           <div className="empty-chat">
             {graph ? (
@@ -2573,7 +2872,7 @@ function ChatPanel({
                 key={item.command}
                 onClick={() => {
                   item.action();
-                  if (!item.command.startsWith("/synthesize")) setQuestion("");
+                  if (!item.command.startsWith("/synthesize") && !item.command.startsWith("/insights")) setQuestion("");
                 }}
                 type="button"
               >
@@ -3419,8 +3718,8 @@ function ChatSidebar({
           <button onClick={onOpenReports} type="button">
             <FileText size={14} />
             <div>
-              <strong>Report Studio</strong>
-              <span>Generate, view, and attach graph reports to chat.</span>
+              <strong>Run reports</strong>
+              <span>Open mined insights or generate the deeper graph profile report.</span>
             </div>
           </button>
           <button onClick={onOpenModels} type="button">
@@ -3486,8 +3785,8 @@ function SideRail({
       ) : null}
       {activeMode === "reports" ? (
         <>
-          <SidebarHeader title="Reports" subtitle="generate reports and open artifacts" />
-          <ReportStudio onReportReady={onReportReady} />
+          <SidebarHeader title="Settings" subtitle="analysis and profile defaults" />
+          <ReportStudio defaultOpen onReportReady={onReportReady} title="Insights Mining Settings" />
         </>
       ) : null}
       {activeMode === "graphrag" ? (
@@ -3498,8 +3797,9 @@ function SideRail({
       ) : null}
       {activeMode === "models" ? (
         <>
-          <SidebarHeader title="Models" subtitle="roles, endpoints, and config" />
+          <SidebarHeader title="Settings" subtitle="models, endpoints, and analysis defaults" />
           <ModelSettings defaultOpen />
+          <ReportStudio onReportReady={onReportReady} title="Insights Mining Settings" />
         </>
       ) : null}
     </aside>
@@ -3520,8 +3820,7 @@ function ActivityRail({
     { id: "graph", label: "Graph", icon: <Network size={17} /> },
     { id: "search", label: "Search", icon: <Search size={17} /> },
     { id: "runs", label: "Runs", icon: <Play size={17} /> },
-    { id: "reports", label: "Reports", icon: <FileText size={17} /> },
-    { id: "models", label: "Models", icon: <Settings2 size={17} /> },
+    { id: "models", label: "Settings", icon: <Settings2 size={17} /> },
   ];
   const optionalModes: Array<{ id: OptionalToolMode; label: string; icon: React.ReactNode; description: string }> = [
     {
@@ -3608,18 +3907,346 @@ function ActivityRail({
   );
 }
 
+function SessionReportPanel({
+  mode,
+  run,
+  activeReportOut,
+  onModeChange,
+  onOpenReportSettings,
+  onReportReady,
+}: {
+  mode: SessionReportPanelMode;
+  run: string;
+  activeReportOut: string;
+  onModeChange: (mode: SessionReportPanelMode) => void;
+  onOpenReportSettings: () => void;
+  onReportReady: (out: string) => void;
+}) {
+  const [analysisJob, setAnalysisJob] = useState<RunAnalysisJobStatus | null>(null);
+  const [profileJob, setProfileJob] = useState<ProfileJobStatus | null>(null);
+  const [profileStatus, setProfileStatus] = useState("");
+  const [selectedProfileOut, setSelectedProfileOut] = useState(activeReportOut);
+  const dashboard = useQuery({
+    queryKey: ["run-dashboard", run, "session-report-panel"],
+    queryFn: () => api.runDashboard(run),
+    enabled: Boolean(run && mode === "insights"),
+    refetchInterval: analysisJob?.status === "running" ? 3500 : false,
+  });
+  const analysisJobQuery = useQuery({
+    queryKey: ["session-insights-job", analysisJob?.id],
+    queryFn: () => api.runAnalysisJob(analysisJob?.id || ""),
+    enabled: Boolean(analysisJob?.id && ["running", "stopping"].includes(analysisJob.status)),
+    refetchInterval: 1500,
+  });
+  const profileJobQuery = useQuery({
+    queryKey: ["session-profile-job", profileJob?.id],
+    queryFn: () => api.profileJob(profileJob?.id || ""),
+    enabled: Boolean(profileJob?.id && ["running", "stopping"].includes(profileJob.status)),
+    refetchInterval: 2600,
+  });
+  const profileReports = useQuery({
+    queryKey: ["profile-reports-session", run],
+    queryFn: () => api.profileReports(run),
+    enabled: Boolean(run && mode === "profile"),
+    refetchInterval: 8000,
+  });
+  const selectedProfile =
+    selectedProfileOut ||
+    activeReportOut ||
+    profileReports.data?.reports?.[0]?.out ||
+    "";
+  const profileReport = useQuery({
+    queryKey: ["profile-report-session", selectedProfile],
+    queryFn: () => api.profileReport(selectedProfile),
+    enabled: Boolean(mode === "profile" && selectedProfile),
+    refetchInterval: (query) => (query.state.data?.artifacts.ready ? false : 5000),
+  });
+
+  useEffect(() => {
+    if (!analysisJobQuery.data) return;
+    setAnalysisJob(analysisJobQuery.data);
+    if (["done", "failed", "stopped"].includes(analysisJobQuery.data.status)) void dashboard.refetch();
+  }, [analysisJobQuery.data, dashboard]);
+
+  useEffect(() => {
+    if (!profileJobQuery.data) return;
+    const next = profileJobQuery.data;
+    setProfileJob(next);
+    if (next.artifacts?.out || next.out) {
+      const out = next.artifacts?.out || next.out;
+      setSelectedProfileOut(out);
+      onReportReady(out);
+    }
+    if (["done", "failed", "stopped"].includes(next.status)) {
+      void profileReports.refetch();
+      void profileReport.refetch();
+    }
+  }, [onReportReady, profileJobQuery.data, profileReport, profileReports]);
+
+  useEffect(() => {
+    if (activeReportOut && activeReportOut !== selectedProfileOut) setSelectedProfileOut(activeReportOut);
+  }, [activeReportOut, selectedProfileOut]);
+
+  useEffect(() => {
+    if (!selectedProfileOut && profileReports.data?.reports?.[0]?.out) {
+      setSelectedProfileOut(profileReports.data.reports[0].out);
+    }
+  }, [profileReports.data?.reports, selectedProfileOut]);
+
+  if (mode === "none") return null;
+
+  async function refreshInsights() {
+    if (!run || analysisJob?.status === "running") return;
+    const next = await api.runAnalysis({ run, analyses: ["insights"] });
+    setAnalysisJob(next);
+  }
+
+  const analysisRunning = Boolean(analysisJob && ["running", "stopping"].includes(analysisJob.status));
+
+  if (!run) {
+    return (
+      <section className="session-report-panel">
+        <div className="session-report-toolbar">
+          <div>
+            <strong>{mode === "insights" ? "Mined insights" : "Graph profile"}</strong>
+            <span>Load a run folder first.</span>
+          </div>
+          <button onClick={() => onModeChange("none")} type="button">
+            <X size={13} /> Close
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  if (mode === "insights") {
+    const data = dashboard.data;
+    const markdown = insightsMarkdown(data);
+    const insightMap = (data?.analysis_figures || []).find((figure) => figure.key.includes("insights_map"));
+    const displayMap = insightMap
+      ? ["png", "svg", "webp", "jpg", "jpeg"].map((ext) => insightMap.formats[ext]).find(Boolean)
+      : "";
+    return (
+      <section className="session-report-panel">
+        <div className="session-report-toolbar">
+          <div>
+            <strong>Mined insights</strong>
+            <span>Fast structural analysis from the active run: mined leads, bridge routes, maps, and structured insight data.</span>
+          </div>
+          <div>
+            <button disabled={dashboard.isFetching} onClick={() => void dashboard.refetch()} type="button">
+              <RotateCcw size={13} /> Refresh
+            </button>
+            <button disabled={analysisRunning} onClick={() => void refreshInsights()} type="button">
+              {analysisRunning ? <Loader2 className="spin" size={13} /> : <Sparkles size={13} />}
+              {markdown ? "Recompute" : "Generate"}
+            </button>
+            {markdown ? (
+              <a download href={api.runAssetUrl(run, "insights.md")}>
+                <Download size={13} /> MD
+              </a>
+            ) : null}
+            <button onClick={() => onModeChange("none")} type="button">
+              <X size={13} /> Close
+            </button>
+          </div>
+        </div>
+        {analysisJob?.progress ? (
+          <div className="analysis-progress session-progress">
+            <span>
+              {analysisJob.status} | {analysisJob.progress.message || "mining insights"} | {analysisJob.progress.current}/{analysisJob.progress.total}
+            </span>
+            <progress max={1} value={analysisJob.progress.percent || 0} />
+          </div>
+        ) : null}
+        <div className="session-report-body">
+          {dashboard.isLoading ? <div className="status-box">Loading mined insights...</div> : null}
+          {dashboard.error ? <div className="status-box">{dashboard.error instanceof Error ? dashboard.error.message : String(dashboard.error)}</div> : null}
+          {displayMap && data ? (
+            <img alt="Mined insight map" className="session-report-map" src={api.runAssetUrl(data.path, displayMap)} />
+          ) : null}
+          {markdown && data ? (
+            <MarkdownReport assetUrl={(file) => api.runAssetUrl(data.path, file)} markdown={markdown} out={data.path} />
+          ) : data?.insights?.length ? (
+            <div className="insights-modal-leads">
+              {data.insights.map((item) => (
+                <div key={`${item.kind}-${item.title}`}>
+                  <strong>{item.title || item.kind}</strong>
+                  <span>
+                    {item.kind} | score {formatNumber(item.score, 2)}
+                  </span>
+                  <p>{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="status-box">No mined insights are available yet. Generate them for this run to render the markdown report here.</div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const profiles = profileReports.data?.reports || [];
+  const artifacts = profileReport.data?.artifacts;
+  const markdown = profileReport.data?.markdown || "";
+  const profileSummary = artifacts?.summary || {};
+  const profileRunning = Boolean(profileJob && ["running", "stopping"].includes(profileJob.status));
+  const profileProgress = profileJob?.status === "done" ? 100 : Math.round((profileJob?.progress?.percent || 0) * 100);
+
+  async function generateProfile() {
+    if (!run || profileRunning) return;
+    const { job: _job, jobId: _jobId, activeReportOut: _activeReportOut, ...storedOptions } = readReportStudioStorage();
+    const model = storedOptions.model || "gpt-5.5";
+    const suffix = storedOptions.profile_preset === "light" ? "_light" : "";
+    const out =
+      storedOptions.out && storedOptions.out.startsWith(`${run}/`)
+        ? storedOptions.out
+        : defaultProfileOutForRun(run, model, suffix);
+    const payload: ProfileOptions = {
+      ...storedOptions,
+      run,
+      graph: "",
+      out,
+      model,
+      backend: "responses",
+      llm: storedOptions.llm !== false,
+    };
+    setProfileStatus("");
+    try {
+      const next = await api.profileGraph(payload);
+      setProfileJob(next);
+      const nextOut = next.artifacts?.out || next.out || out;
+      setSelectedProfileOut(nextOut);
+      onReportReady(nextOut);
+      setProfileStatus(`Graph profile started.`);
+    } catch (error) {
+      setProfileStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function stopProfile() {
+    if (!profileJob?.id) return;
+    try {
+      const next = await api.stopProfileJob(profileJob.id);
+      setProfileJob(next);
+      setProfileStatus("Graph profile stop requested.");
+    } catch (error) {
+      setProfileStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <section className="session-report-panel">
+      <div className="session-report-toolbar">
+        <div>
+          <strong>Graph profile report</strong>
+          <span>Deeper narrative profile of the current graph: structure, modules, central nodes, quality checks, markdown, profile JSON, and optional PDF output.</span>
+        </div>
+        <div>
+          <button disabled={profileReport.isFetching || !selectedProfile} onClick={() => void profileReport.refetch()} type="button">
+            <RotateCcw size={13} /> Refresh
+          </button>
+          {profileRunning ? (
+            <button onClick={() => void stopProfile()} type="button">
+              <X size={13} /> Stop
+            </button>
+          ) : (
+            <button onClick={() => void generateProfile()} type="button">
+              <Play size={13} /> Generate
+            </button>
+          )}
+          <button onClick={onOpenReportSettings} type="button">
+            <Settings2 size={13} /> Settings
+          </button>
+          {artifacts?.pdf_path ? (
+            <a download href={api.reportAssetUrl(selectedProfile, "report.pdf")}>
+              <Download size={13} /> PDF
+            </a>
+          ) : null}
+          {artifacts?.profile_path ? (
+            <a download href={api.reportAssetUrl(selectedProfile, "profile.json")}>
+              <Download size={13} /> JSON
+            </a>
+          ) : null}
+          <button onClick={() => onModeChange("none")} type="button">
+            <X size={13} /> Close
+          </button>
+        </div>
+      </div>
+      {profileJob?.progress ? (
+        <div className="analysis-progress session-progress">
+          <span>
+            {profileJob.status} | {profileJob.progress.message || "graph profile"} | {profileProgress}%
+          </span>
+          <progress max={100} value={profileProgress} />
+        </div>
+      ) : null}
+      <div className="session-report-body">
+        {profileStatus ? <div className="status-box">{profileStatus}</div> : null}
+        {profiles.length ? (
+          <div className="session-profile-picker">
+            {profiles.map((profile) => (
+              <button
+                className={cx(profile.out === selectedProfile && "active")}
+                key={profile.out}
+                onClick={() => {
+                  setSelectedProfileOut(profile.out);
+                  onReportReady(profile.out);
+                }}
+                type="button"
+              >
+                <strong>{profile.out.split("/").pop() || profile.out}</strong>
+                <span>
+                  {formatNumber(profile.summary.nodes || 0)} nodes | {formatNumber(profile.summary.modules || 0)} modules
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {profileReport.isLoading ? <div className="status-box">Loading graph profile...</div> : null}
+        {profileReports.error ? <div className="status-box">{profileReports.error instanceof Error ? profileReports.error.message : String(profileReports.error)}</div> : null}
+        {profileReport.error ? <div className="status-box">{profileReport.error instanceof Error ? profileReport.error.message : String(profileReport.error)}</div> : null}
+        {markdown ? (
+          <>
+            <div className="session-report-title">
+              <strong>{profileSummary.topic || "Graph profile report"}</strong>
+              <span>{selectedProfile}</span>
+            </div>
+            <MarkdownReport markdown={markdown} out={selectedProfile} />
+          </>
+        ) : (
+          <div className="status-box">
+            {selectedProfile
+              ? "The selected graph profile does not have rendered markdown yet."
+              : "No graph profile report is selected. Click Generate to create one for this run using the saved settings."}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function ThreadStage({
   onOpenGraph,
   onOpenSearch,
   onOpenRuns,
-  onOpenReports,
+  onOpenReportSettings,
+  reportPanel,
+  onReportPanelChange,
+  activeReportOut,
+  onReportReady,
   embeddingStatus,
   onRebuildEmbeddings,
 }: {
   onOpenGraph: () => void;
   onOpenSearch: () => void;
   onOpenRuns: () => void;
-  onOpenReports: () => void;
+  onOpenReportSettings: () => void;
+  reportPanel: SessionReportPanelMode;
+  onReportPanelChange: (mode: SessionReportPanelMode) => void;
+  activeReportOut: string;
+  onReportReady: (out: string) => void;
   embeddingStatus: EmbeddingStatus | null;
   onRebuildEmbeddings: () => void;
 }) {
@@ -3627,6 +4254,7 @@ function ThreadStage({
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const stats = graph?.stats;
   const activeRun = inferRunFromGraphPath(graph?.path || "");
+  const [reportsOpen, setReportsOpen] = useState(false);
 
   return (
     <section className="thread-stage">
@@ -3640,10 +4268,6 @@ function ThreadStage({
             <button type="button" onClick={onOpenRuns} title="Open run loader and launch controls">
               <Play size={13} />
               Runs
-            </button>
-            <button type="button" onClick={onOpenReports} title="Open report studio">
-              <FileText size={13} />
-              Reports
             </button>
           </div>
         </div>
@@ -3673,10 +4297,6 @@ function ThreadStage({
               <Search size={13} />
               Search
             </button>
-            <button type="button" onClick={onOpenReports} title="Generate or open graph reports">
-              <FileText size={13} />
-              Profile
-            </button>
           </div>
         </div>
 
@@ -3695,6 +4315,58 @@ function ThreadStage({
           </div>
         </div>
 
+        <details className="session-run-reports" open={reportsOpen || reportPanel !== "none"} onToggle={(event) => setReportsOpen(event.currentTarget.open)}>
+          <summary>
+            <span>
+              <FileText size={14} />
+              <strong>Run reports</strong>
+            </span>
+            <em>Mined insights and graph profile for this run</em>
+          </summary>
+          <div className="session-report-explainer">
+            <div>
+              <strong>
+                Mined insights
+                <HelpTip text="Fast structural mining from the active run. It surfaces bridge routes, candidate leads, insight maps, long-range paths, and structured analysis artifacts." />
+              </strong>
+              <span>Fast structural mining from this run: bridges, routes, maps, and candidate leads.</span>
+              <button
+                className={reportPanel === "insights" ? "active" : ""}
+                onClick={() => onReportPanelChange(reportPanel === "insights" ? "none" : "insights")}
+                title="Open mined insights for the active run."
+                type="button"
+              >
+                <FileText size={13} />
+                Open mined insights
+              </button>
+            </div>
+            <div>
+              <strong>
+                Graph profile
+                <HelpTip text="Deeper graph profile report for the current run. It combines statistics, modules, centrality, connector analysis, quality checks, markdown, profile JSON, and optional PDF output." />
+              </strong>
+              <span>Deeper report for graph structure, modules, hubs, connectors, and quality checks.</span>
+              <button
+                className={reportPanel === "profile" ? "active" : ""}
+                onClick={() => onReportPanelChange(reportPanel === "profile" ? "none" : "profile")}
+                title="Open graph profile report for the active run."
+                type="button"
+              >
+                <Sparkles size={13} />
+                Open graph profile
+              </button>
+            </div>
+          </div>
+          <SessionReportPanel
+            activeReportOut={activeReportOut}
+            mode={reportPanel}
+            onModeChange={onReportPanelChange}
+            onOpenReportSettings={onOpenReportSettings}
+            onReportReady={onReportReady}
+            run={activeRun}
+          />
+        </details>
+
         <RunDashboardPanel run={activeRun} />
       </div>
     </section>
@@ -3707,6 +4379,7 @@ function App() {
   const graph = useExplorerStore((state) => state.graph);
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const [activeMode, setActiveMode] = useState<WorkspaceMode>("chat");
+  const [overviewReportPanel, setOverviewReportPanel] = useState<SessionReportPanelMode>("none");
   const [activeReportOut, setActiveReportOut] = useState(() => readReportStudioStorage().activeReportOut || "");
   const [sessionReports, setSessionReports] = useState<SessionReport[]>(readSessionReports);
   const [embeddingStatus, setEmbeddingStatus] = useState<EmbeddingStatus | null>(null);
@@ -3852,14 +4525,13 @@ function App() {
       if (!out.trim()) return;
       rememberReport(out);
       setActiveReportOut(out);
-      setActiveMode("reports");
+      setOverviewReportPanel("profile");
     },
     [rememberReport],
   );
 
   const activeRun = inferRunFromGraphPath(graph?.path || "");
   const graphArtifactOpen = activeMode === "graph" || activeMode === "search";
-  const reportArtifactOpen = activeMode === "reports";
   const workspaceStyle = {
     "--left-panel-width": `${leftPanelWidth}px`,
     "--right-panel-width": `${rightPanelWidth}px`,
@@ -3900,14 +4572,7 @@ function App() {
           onReportReady={handleReportReady}
         />
         <button aria-label="Resize tool panel" className="panel-resizer left" onPointerDown={startPanelResize("left")} title="Resize tool panel" type="button" />
-        {reportArtifactOpen ? (
-          <ReportStage
-            out={activeReportOut}
-            run={activeRun}
-            onOpenReports={() => setActiveMode("reports")}
-            onReportReady={handleReportReady}
-          />
-        ) : graphArtifactOpen ? (
+        {graphArtifactOpen ? (
           <section className="artifact-stage">
             <div className="artifact-toolbar">
               <div>
@@ -3933,18 +4598,25 @@ function App() {
           </section>
         ) : (
           <ThreadStage
+            activeReportOut={activeReportOut}
             embeddingStatus={embeddingStatus}
+            onOpenReportSettings={() => setActiveMode("reports")}
             onRebuildEmbeddings={() => void startEmbeddingIndex(true)}
             onOpenGraph={() => setActiveMode("graph")}
-            onOpenReports={() => setActiveMode("reports")}
             onOpenRuns={() => setActiveMode("runs")}
             onOpenSearch={() => setActiveMode("search")}
+            onReportPanelChange={setOverviewReportPanel}
+            onReportReady={handleReportReady}
+            reportPanel={overviewReportPanel}
           />
         )}
         <button aria-label="Resize assistant panel" className="panel-resizer right" onPointerDown={startPanelResize("right")} title="Resize assistant panel" type="button" />
         <aside className="assistant-panel">
           <ChatPanel
-            onOpenReports={() => setActiveMode("reports")}
+            onOpenReports={() => {
+              setOverviewReportPanel("profile");
+              setActiveMode("reports");
+            }}
             onOpenRuns={() => setActiveMode("runs")}
             sessionReports={sessionReports}
           />
