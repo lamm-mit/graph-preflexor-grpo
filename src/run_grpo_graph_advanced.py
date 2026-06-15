@@ -49,6 +49,7 @@ python run_grpo_graph_advanced.py \
 """
 
 import argparse
+import inspect
 import json
 import logging
 import os
@@ -98,6 +99,16 @@ SPECIAL_TOKENS = [
     PATTERNS_START, PATTERNS_END,
     SYNTHESIS_START, SYNTHESIS_END,
 ]
+
+
+def build_grpo_config(**kwargs) -> GRPOConfig:
+    """Build GRPOConfig across TRL versions that add/remove keyword args."""
+    supported = inspect.signature(GRPOConfig).parameters
+    filtered = {key: value for key, value in kwargs.items() if key in supported}
+    skipped = sorted(set(kwargs) - set(filtered))
+    if skipped:
+        print(f"Skipping unsupported GRPOConfig args for installed TRL: {', '.join(skipped)}")
+    return GRPOConfig(**filtered)
 
 # ----- Graph schema (advanced, domain-agnostic) -----
 
@@ -1380,36 +1391,42 @@ def main():
 
     # GRPO config
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    grpo_args = GRPOConfig(
-        output_dir=args.output_dir,
-        learning_rate=args.learning_rate,
-        per_device_train_batch_size=args.per_device_train_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        num_train_epochs=args.epochs,
-        logging_steps=args.logging_steps,
-        save_strategy="steps",
-        save_steps=args.save_steps,
-        eval_strategy="no",
-        num_generations=args.num_generations,
-        max_prompt_length=args.max_prompt_length,
-        max_completion_length=args.max_completion_length,
-        temperature=args.temperature,
-        bf16=use_bf16,
-        fp16=(not use_bf16),
+    grpo_kwargs = {
+        "output_dir": args.output_dir,
+        "learning_rate": args.learning_rate,
+        "per_device_train_batch_size": args.per_device_train_batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "num_train_epochs": args.epochs,
+        "logging_steps": args.logging_steps,
+        "save_strategy": "steps",
+        "save_steps": args.save_steps,
+        "eval_strategy": "no",
+        "num_generations": args.num_generations,
+        "max_prompt_length": args.max_prompt_length,
+        "max_completion_length": args.max_completion_length,
+        "temperature": args.temperature,
+        "bf16": use_bf16,
+        "fp16": (not use_bf16),
         # vLLM options
-        use_vllm=args.use_vllm,
-        vllm_mode=args.vllm_mode if args.use_vllm else None,
-        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
-        vllm_server_host=args.vllm_server_host if args.use_vllm else None,
-        vllm_server_port=args.vllm_server_port if args.use_vllm else None,
-        push_to_hub=args.push_to_hub,
-        hub_model_id=args.hub_model_id if args.push_to_hub else None,
-        hub_private_repo=(not args.hub_public) if args.push_to_hub else None,
-        remove_unused_columns=False,
-        report_to=["wandb"],
-        scale_rewards=args.scale_rewards,
-        loss_type=args.loss_type,
-    )
+        "use_vllm": args.use_vllm,
+        "vllm_mode": args.vllm_mode if args.use_vllm else None,
+        "vllm_gpu_memory_utilization": args.vllm_gpu_memory_utilization,
+        "vllm_server_host": args.vllm_server_host if args.use_vllm else None,
+        "vllm_server_port": args.vllm_server_port if args.use_vllm else None,
+        "push_to_hub": args.push_to_hub,
+        "hub_model_id": args.hub_model_id if args.push_to_hub else None,
+        "hub_private_repo": (not args.hub_public) if args.push_to_hub else None,
+        "remove_unused_columns": False,
+        "report_to": ["wandb"],
+        "scale_rewards": args.scale_rewards,
+        "loss_type": args.loss_type,
+    }
+    if args.use_vllm:
+        max_model_len = args.max_prompt_length + args.max_completion_length
+        grpo_kwargs["vllm_max_model_len"] = max_model_len
+        grpo_kwargs["vllm_max_model_length"] = max_model_len
+
+    grpo_args = build_grpo_config(**grpo_kwargs)
     print(f"GRPO settings: scale_rewards={args.scale_rewards}, loss_type={args.loss_type}")
 
     api_client = get_llm_client(api_key=args.judge_api_key, base_url=args.judge_base_url)

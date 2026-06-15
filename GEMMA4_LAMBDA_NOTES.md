@@ -175,7 +175,7 @@ python src/run_orpo_graph.py \
   --lora_alpha 64 \
   --lora_dropout 0.05 \
   --lr 1e-5 \
-  --epochs 3 \
+  --epochs 1 \
   --batch_size 3 \
   --grad_accum 8 \
   --max_length 3072 \
@@ -310,8 +310,7 @@ python src/run_grpo_graph.py \
   --num_generations 4 \
   --learning_rate 5e-6 \
   --epochs 1 \
-  --max_prompt_length 1536 \
-  --max_completion_length 3072 \
+  --max_completion_length 8000 \
   --temperature 1.0 \
   --scale_rewards batch \
   --loss_type dapo \
