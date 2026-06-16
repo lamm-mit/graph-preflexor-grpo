@@ -3,8 +3,8 @@
 
 This is a complete OpenAI API example for Graph Explorer:
 
-1. Zip `ideation/graph_explorer/skills/graphml-deep-analysis`.
-2. Upload the ZIP to `/v1/skills`.
+1. Use `graphml-deep-analysis.zip` from this examples folder.
+2. If that ZIP is absent, create it from the skill folder first.
 3. Send a GraphML snapshot to the Responses API as base64 `file_data`.
 4. Mount the uploaded skill in a hosted shell container and ask a graph question.
 
@@ -14,6 +14,13 @@ Install:
 Run from the repository root:
     export OPENAI_API_KEY="sk-..."
     python ideation/graph_explorer/examples/upload_graphml_skill_and_ask.py
+
+Run against a local mistral.rs server:
+    cd ideation
+    mistralrs from-config -f models.toml
+    cd ..
+    python ideation/graph_explorer/examples/upload_graphml_skill_and_ask.py \
+      --local-mistralrs
 
 Use your own graph:
     python ideation/graph_explorer/examples/upload_graphml_skill_and_ask.py \
@@ -33,6 +40,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import tempfile
 import urllib.error
 import urllib.request
@@ -43,6 +51,9 @@ from typing import Any, Dict, Optional
 
 
 DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_LOCAL_MODEL = "google/gemma-4-E4B-it"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_MISTRALRS_BASE_URL = "http://localhost:1234/v1"
 DEFAULT_QUESTION = (
     "Which concepts are acting as the most surprising bridges between distant "
     "thematic modules, and what are three testable research hypotheses that "
@@ -56,6 +67,7 @@ def repo_root_from_this_file() -> Path:
 
 def default_graphml_path(repo_root: Path) -> Path:
     candidates = [
+        Path(__file__).resolve().parent / "iter_0002.graphml",
         repo_root / "ideation/runs/explorer_run/graphml/iter_0002.graphml",
         repo_root / "ideation/runs/explorer_run/graph.graphml",
     ]
@@ -88,6 +100,7 @@ def multipart_upload_skill_zip(
     zip_path: Path,
     api_key: str,
     base_url: str,
+    field_name: str,
     timeout: int = 120,
 ) -> Dict[str, Any]:
     """Upload a skill ZIP to POST /v1/skills using only the Python stdlib."""
@@ -97,7 +110,7 @@ def multipart_upload_skill_zip(
         [
             f"--{boundary}\r\n".encode("utf-8"),
             (
-                'Content-Disposition: form-data; name="files"; '
+                f'Content-Disposition: form-data; name="{field_name}"; '
                 f'filename="{zip_path.name}"\r\n'
             ).encode("utf-8"),
             b"Content-Type: application/zip\r\n\r\n",
@@ -161,6 +174,7 @@ def ask_with_skill(
     skill_id: str,
     graphml_path: Path,
     question: str,
+    require_tool: bool,
 ) -> Any:
     client = openai_client(api_key, sdk_base_url)
     graph_b64 = base64.b64encode(graphml_path.read_bytes()).decode("utf-8")
@@ -173,13 +187,17 @@ Analyze the attached GraphML file named `{filename}`. Run the bundled analyzer
 first if useful, then answer the research question using concrete graph
 evidence: module ids, bridge nodes, relation chains, and any important caveats.
 
+Tooling note: the available tool is the Responses shell tool from this request.
+Do not invent or call helper names such as `mistralrs_run_skills`. If you cannot
+call the shell tool, say that plainly instead of emitting a JSON function call.
+
 Research question:
 {question}
 """.strip()
 
-    return client.responses.create(
-        model=model,
-        tools=[
+    request: Dict[str, Any] = {
+        "model": model,
+        "tools": [
             {
                 "type": "shell",
                 "environment": {
@@ -196,7 +214,7 @@ Research question:
                 },
             }
         ],
-        input=[
+        "input": [
             {
                 "role": "user",
                 "content": [
@@ -213,7 +231,10 @@ Research question:
                 ],
             }
         ],
-    )
+    }
+    if require_tool:
+        request["tool_choice"] = "required"
+    return client.responses.create(**request)
 
 
 def response_text(response: Any) -> str:
@@ -225,23 +246,60 @@ def response_text(response: Any) -> str:
     return str(response)
 
 
+def looks_like_plain_text_tool_call(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return False
+    try:
+        payload = json.loads(re.sub(r"<\|eom_id\|>\s*$", "", stripped))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(payload, dict) and "name" in payload and "parameters" in payload
+
+
 def parse_args() -> argparse.Namespace:
     repo_root = repo_root_from_this_file()
+    examples_dir = Path(__file__).resolve().parent
     skill_dir = repo_root / "ideation/graph_explorer/skills/graphml-deep-analysis"
+    skill_zip = examples_dir / "graphml-deep-analysis.zip"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skill-dir", default=str(skill_dir), help="Path to graphml-deep-analysis skill folder")
+    parser.add_argument(
+        "--skill-zip",
+        default=str(skill_zip) if skill_zip.exists() else None,
+        help="Prebuilt graphml-deep-analysis skill ZIP to upload",
+    )
     parser.add_argument("--graphml", default=None, help="GraphML file to ask about")
     parser.add_argument("--question", default=DEFAULT_QUESTION, help="Question to ask about the GraphML graph")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help="Responses model")
+    parser.add_argument("--model", default=None, help="Responses model")
+    parser.add_argument(
+        "--local-mistralrs",
+        action="store_true",
+        help=(
+            "Use a local mistral.rs server at http://localhost:1234/v1, "
+            "request model google/gemma-4-E4B-it, dummy API key, and multipart field 'file'."
+        ),
+    )
     parser.add_argument(
         "--base-url",
-        default=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        help="OpenAI API base URL for raw skill upload",
+        default=os.environ.get("OPENAI_BASE_URL"),
+        help="API base URL for raw skill upload",
     )
     parser.add_argument(
         "--sdk-base-url",
         default=os.environ.get("OPENAI_BASE_URL"),
         help="Optional base URL passed to the OpenAI SDK",
+    )
+    parser.add_argument(
+        "--skill-upload-field",
+        choices=["files", "file"],
+        default=None,
+        help="Multipart field name for skill ZIP upload. OpenAI uses 'files'; mistral.rs docs use 'file'.",
+    )
+    parser.add_argument(
+        "--require-tool",
+        action="store_true",
+        help="Pass tool_choice='required' on the Responses request.",
     )
     parser.add_argument(
         "--keep-zip",
@@ -253,12 +311,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    api_key = os.environ.get("OPENAI_API_KEY")
+    local = bool(args.local_mistralrs)
+    api_key = os.environ.get("OPENAI_API_KEY") or ("not-used" if local else None)
     if not api_key:
         raise SystemExit("Set OPENAI_API_KEY before running this example.")
+    base_url = args.base_url or (DEFAULT_MISTRALRS_BASE_URL if local else DEFAULT_OPENAI_BASE_URL)
+    sdk_base_url = args.sdk_base_url or (DEFAULT_MISTRALRS_BASE_URL if local else None)
+    model = args.model or (DEFAULT_LOCAL_MODEL if local else DEFAULT_MODEL)
+    skill_upload_field = args.skill_upload_field or ("file" if local else "files")
+    require_tool = bool(args.require_tool)
 
     repo_root = repo_root_from_this_file()
     skill_dir = Path(args.skill_dir).expanduser().resolve()
+    skill_zip = Path(args.skill_zip).expanduser().resolve() if args.skill_zip else None
     graphml_path = (
         Path(args.graphml).expanduser().resolve()
         if args.graphml
@@ -267,9 +332,12 @@ def main() -> None:
     if not graphml_path.exists():
         raise FileNotFoundError(f"GraphML file not found: {graphml_path}")
 
+    if skill_zip and not skill_zip.exists():
+        raise FileNotFoundError(f"Skill ZIP not found: {skill_zip}")
+
     with tempfile.TemporaryDirectory(prefix="graphml-skill-upload-") as tmp:
         tmp_dir = Path(tmp)
-        zip_path = make_skill_zip(skill_dir, tmp_dir)
+        zip_path = skill_zip if skill_zip else make_skill_zip(skill_dir, tmp_dir)
         if args.keep_zip:
             persistent_zip = Path(tempfile.gettempdir()) / zip_path.name
             persistent_zip.write_bytes(zip_path.read_bytes())
@@ -279,7 +347,8 @@ def main() -> None:
         upload_response = multipart_upload_skill_zip(
             zip_path=zip_path,
             api_key=api_key,
-            base_url=args.base_url,
+            base_url=base_url,
+            field_name=skill_upload_field,
         )
         skill_id = extract_skill_id(upload_response)
         print(f"Uploaded skill_id: {skill_id}")
@@ -288,15 +357,25 @@ def main() -> None:
         print(f"Question: {args.question}")
         response = ask_with_skill(
             api_key=api_key,
-            sdk_base_url=args.sdk_base_url,
-            model=args.model,
+            sdk_base_url=sdk_base_url,
+            model=model,
             skill_id=skill_id,
             graphml_path=graphml_path,
             question=args.question,
+            require_tool=require_tool,
         )
 
     print("\n=== Model answer ===\n")
-    print(response_text(response))
+    text = response_text(response)
+    print(text)
+    if looks_like_plain_text_tool_call(text):
+        print(
+            "\nNOTE: The model returned a JSON-looking tool call as plain text. "
+            "That means the shell tool did not run. For mistral.rs, start the "
+            "server with `--enable-shell` and use a model/checkpoint with real "
+            "tool-call behavior. You can add `--require-tool` to make this fail "
+            "loudly instead of returning the pseudo-call."
+        )
 
 
 if __name__ == "__main__":

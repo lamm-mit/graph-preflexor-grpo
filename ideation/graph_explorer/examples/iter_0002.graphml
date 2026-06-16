@@ -1,0 +1,208 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"><key id="d9" for="edge" attr.name="response_id" attr.type="string"/>
+<key id="d8" for="edge" attr.name="depth" attr.type="long"/>
+<key id="d7" for="edge" attr.name="iter" attr.type="long"/>
+<key id="d6" for="edge" attr.name="question" attr.type="string"/>
+<key id="d5" for="edge" attr.name="relation" attr.type="string"/>
+<key id="d4" for="node" attr.name="response_id" attr.type="string"/>
+<key id="d3" for="node" attr.name="depth" attr.type="long"/>
+<key id="d2" for="node" attr.name="iter" attr.type="long"/>
+<key id="d1" for="node" attr.name="question" attr.type="string"/>
+<key id="d0" for="node" attr.name="label" attr.type="string"/>
+<graph edgedefault="directed"><node id="Cretes">
+  <data key="d0">Cretes</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="Crete">
+  <data key="d0">Crete</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="Tomatoes">
+  <data key="d0">Tomatoes</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="Elephants">
+  <data key="d0">Elephants</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="MythologicalContext">
+  <data key="d0">MythologicalContext</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="Minotaur">
+  <data key="d0">Minotaur</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="Abundance/Fertility">
+  <data key="d0">Abundance/Fertility</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="CulinaryAssociation">
+  <data key="d0">CulinaryAssociation</data>
+  <data key="d1">crete, tomatos, elephants</data>
+  <data key="d2">0</data>
+  <data key="d3">0</data>
+  <data key="d4">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</node>
+<node id="FlavorPatterns">
+  <data key="d0">FlavorPatterns</data>
+  <data key="d1">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d2">1</data>
+  <data key="d3">1</data>
+  <data key="d4">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</node>
+<node id="SpatialMemory">
+  <data key="d0">SpatialMemory</data>
+  <data key="d1">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d2">1</data>
+  <data key="d3">1</data>
+  <data key="d4">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</node>
+<node id="ScentMarking">
+  <data key="d0">ScentMarking</data>
+  <data key="d1">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d2">1</data>
+  <data key="d3">1</data>
+  <data key="d4">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</node>
+<node id="OlfactoryReceptors">
+  <data key="d0">OlfactoryReceptors</data>
+  <data key="d1">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d2">1</data>
+  <data key="d3">1</data>
+  <data key="d4">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</node>
+<node id="TasteBuds">
+  <data key="d0">TasteBuds</data>
+  <data key="d1">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d2">1</data>
+  <data key="d3">1</data>
+  <data key="d4">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</node>
+<node id="SocialBehavior">
+  <data key="d0">SocialBehavior</data>
+  <data key="d1">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d2">1</data>
+  <data key="d3">1</data>
+  <data key="d4">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</node>
+<edge source="Cretes" target="Crete">
+  <data key="d5">inhabited_by</data>
+  <data key="d6">crete, tomatos, elephants</data>
+  <data key="d7">0</data>
+  <data key="d8">0</data>
+  <data key="d9">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</edge>
+<edge source="Crete" target="MythologicalContext">
+  <data key="d5">associated_with</data>
+  <data key="d6">crete, tomatos, elephants</data>
+  <data key="d7">0</data>
+  <data key="d8">0</data>
+  <data key="d9">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</edge>
+<edge source="Crete" target="Minotaur">
+  <data key="d5">features</data>
+  <data key="d6">crete, tomatos, elephants</data>
+  <data key="d7">0</data>
+  <data key="d8">0</data>
+  <data key="d9">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</edge>
+<edge source="Crete" target="Elephants">
+  <data key="d5">provides</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="Tomatoes" target="Abundance/Fertility">
+  <data key="d5">cultural_symbol_for</data>
+  <data key="d6">crete, tomatos, elephants</data>
+  <data key="d7">0</data>
+  <data key="d8">0</data>
+  <data key="d9">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</edge>
+<edge source="Tomatoes" target="CulinaryAssociation">
+  <data key="d5">related_to</data>
+  <data key="d6">crete, tomatos, elephants</data>
+  <data key="d7">0</data>
+  <data key="d8">0</data>
+  <data key="d9">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</edge>
+<edge source="Elephants" target="MythologicalContext">
+  <data key="d5">part_of</data>
+  <data key="d6">crete, tomatos, elephants</data>
+  <data key="d7">0</data>
+  <data key="d8">0</data>
+  <data key="d9">resp_41ed6f4c8ab6867a5ea993b011e49086e6c9a5fb6f998872</data>
+</edge>
+<edge source="Elephants" target="SpatialMemory">
+  <data key="d5">possesses</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="CulinaryAssociation" target="FlavorPatterns">
+  <data key="d5">generates</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="SpatialMemory" target="ScentMarking">
+  <data key="d5">mediates</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="ScentMarking" target="FlavorPatterns">
+  <data key="d5">creates</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="OlfactoryReceptors" target="TasteBuds">
+  <data key="d5">transduce</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="TasteBuds" target="FlavorPatterns">
+  <data key="d5">detect</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+<edge source="SocialBehavior" target="SpatialMemory">
+  <data key="d5">drives</data>
+  <data key="d6">What radically new approach to crete, tomatos, elephants could emerge by combining 'CulinaryAssociation' and 'Elephants' — two ideas that seem unrelated? Propose a concrete mechanism that links them.</data>
+  <data key="d7">1</data>
+  <data key="d8">1</data>
+  <data key="d9">resp_8c73ac9b1c3921bbb43295de146a065cc22772c43cd5964a</data>
+</edge>
+</graph></graphml>

@@ -7,6 +7,13 @@ default_model_id = "lamm-mit/Graph-Preflexor-3b_08012026"   # generator = defaul
 host = "0.0.0.0"
 port = 1234
 
+[runtime]
+# Required for OpenAI-compatible Skills and Responses tools[*].type="shell".
+# Start with: mistralrs from-config -f models.toml
+# Agent mode is the mistral.rs shortcut for search + code execution + shell.
+agent = true
+shell_timeout = 120
+
 # Generator — Graph-PRefLexOR (Q8 keeps quality; it's small)
 [[models]]
 kind = "text"

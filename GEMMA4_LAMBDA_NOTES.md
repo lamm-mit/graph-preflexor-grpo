@@ -159,6 +159,8 @@ The current SFT path trains:
 It does not use the dataset `answer` field.
 
 ```bash
+tmux new -s gemma4-grpo
+
 export SFT_OUT="./gemma4-e4b-sft-graph-10k"
 export SFT_HUB="$HF_NAMESPACE/gemma4-e4b-sft-graph-10k"
 export WANDB_NAME="gemma4-e4b-sft-graph_reasoning_10K"
@@ -186,7 +188,37 @@ python src/run_orpo_graph.py \
   --hub_model_id "$SFT_HUB" \
   --hf_token "$HF_TOKEN"
 ```
+Longer SFT:
+```bash
+tmux new -s gemma4-grpo
 
+export SFT_OUT="./gemma4-e4b-sft-graph-10k-L"
+export SFT_HUB="$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L"
+export WANDB_NAME="gemma4-e4b-sft-L-graph_reasoning_10K"
+export WANDB_TAGS="sft,gemma4-e4b,graph_reasoning_10K-L"
+export WANDB_RUN_GROUP="gemma4-e4b-graph-10k-L"
+
+python src/run_orpo_graph.py \
+  --base_model "$MODEL_ID" \
+  --dataset "$DATASET_SFT" \
+  --output_dir "$SFT_OUT" \
+  --mode sft \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --lr 1e-5 \
+  --epochs 3 \
+  --batch_size 2 \
+  --grad_accum 8 \
+  --max_length 3000 \
+  --save_steps 100 \
+  --eval_steps 100 \
+  --logging_steps 10 \
+  --push_to_hub \
+  --hub_model_id "$SFT_HUB" \
+  --hf_token "$HF_TOKEN"
+```
 Notes:
 
 - Native Gemma thinking stays disabled for this baseline.
@@ -275,6 +307,85 @@ python src/test_model.py \
   --chat_template_enable_thinking false
 ```
 
+## ORPO variant
+
+```bash
+tmux new -s gemma4-grpo
+
+export ORPO_OUT="./gemma4-e4b-orpo-graph-10k"
+export ORPO_HUB="$HF_NAMESPACE/gemma4-e4b-orpo-graph-10k"
+export WANDB_NAME="gemma4-e4b-orpo-graph_reasoning_10K"
+export WANDB_TAGS="orpo,gemma4-e4b,graph_reasoning_10K"
+export WANDB_RUN_GROUP="gemma4-e4b-graph-10k"
+
+python src/run_orpo_graph.py \
+  --base_model "$MODEL_ID" \
+  --dataset "$DATASET_SFT" \
+  --output_dir "$ORPO_OUT" \
+  --mode orpo \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --lr 5e-6 \
+  --epochs 3 \
+  --batch_size 2 \
+  --grad_accum 8 \
+  --max_length 3072 \
+  --save_steps 100 \
+  --eval_steps 100 \
+  --logging_steps 10 \
+  --push_to_hub \
+  --hub_model_id "$ORPO_HUB" \
+  --hf_token "$HF_TOKEN"
+```
+And merging:
+
+```bash
+export ORPO_MERGED_OUT="./gemma4-e4b-orpo-graph-10k-merged"
+export ORPO_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-orpo-graph-10k-merged"
+
+python - <<'PY'
+import os
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+
+base = os.environ["MODEL_ID"]
+adapter = os.environ["ORPO_OUT"]
+out = os.environ["ORPO_MERGED_OUT"]
+hub = os.environ["ORPO_MERGED_HUB"]
+token = os.environ["HF_TOKEN"]
+
+dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+print("Loading base:", base)
+model = AutoModelForCausalLM.from_pretrained(
+    base,
+    dtype=dtype,
+    device_map="auto",
+    trust_remote_code=True,
+)
+
+print("Loading ORPO adapter:", adapter)
+model = PeftModel.from_pretrained(model, adapter)
+model = model.merge_and_unload()
+
+print("Loading base processor/tokenizer:", base)
+processor = AutoProcessor.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
+tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
+
+print("Saving merged ORPO:", out)
+model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
+tok.save_pretrained(out)
+
+print("Pushing merged ORPO:", hub)
+model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
+tok.push_to_hub(hub, private=True, token=token)
+PY
+```
 
 ## Install vLLM Only Before GRPO
 
@@ -303,6 +414,8 @@ python -m pip uninstall -y vllm
 ## Graph-GRPO
 
 ```bash
+tmux new -s gemma4-grpo
+
 export GRPO_OUT="./gemma4-e4b-grpo-graph-10k"
 export GRPO_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-graph-10k"
 export WANDB_NAME="gemma4-e4b-grpo-graph_reasoning_10K"
@@ -325,9 +438,9 @@ python src/run_grpo_graph.py \
   --gradient_accumulation_steps 8 \
   --num_generations 8 \
   --learning_rate 5e-6 \
-  --epochs 1 \
+  --epochs 1 --save_steps 50 \
   --max_completion_length 8000 \
-  --temperature 1.0 \
+  --temperature 0.4 \
   --scale_rewards batch \
   --loss_type dapo \
   --lora_target_modules language-default \
@@ -369,11 +482,53 @@ python src/run_grpo_graph.py \
   --weight_graph_structure 0.10 \
   --per_device_train_batch_size 2 \
   --gradient_accumulation_steps 8 \
-  --num_generations 8 \
+  --num_generations 4 \
   --learning_rate 5e-6 \
-  --epochs 1 \
-  --max_completion_length 8000 \
-  --temperature 1.0 \
+  --epochs 1 --save_steps 50 \
+  --max_completion_length 4000 \
+  --temperature 0.4 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --save_steps 100 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --push_to_hub \
+  --hub_model_id "$GRPO_HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards
+```
+With Grok model as judge
+
+```bash
+export GRPO_OUT="./gemma4-e4b-grpo-graph-10k"
+export GRPO_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-graph-10k"
+export WANDB_NAME="gemma4-e4b-grpo-graph_reasoning_10K"
+export WANDB_TAGS="grpo,gemma4-e4b,graph_reasoning_10K,vllm"
+
+python src/run_grpo_graph.py \
+  --base_model_dir "$SFT_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
+  --dataset "$DATASET_GRPO" \
+  --output_dir "$GRPO_OUT" \
+  --judge_model grok-4-1-fast-non-reasoning --judge_api_key "$GROK_API_KEY" \
+  --judge_base_url https://api.x.ai/v1 \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 4 \
+  --learning_rate 5e-6 \
+  --epochs 1 --save_steps 50 \
+  --max_completion_length 4000 \
+  --temperature 0.4 \
   --scale_rewards batch \
   --loss_type dapo \
   --lora_target_modules language-default \
