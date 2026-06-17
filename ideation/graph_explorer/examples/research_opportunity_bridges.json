@@ -1,0 +1,183 @@
+{
+  "title": "Research Opportunity Bridge Map",
+  "description": "Synthetic example data for the d3-viz skill. Nodes are scientific concepts, links are plausible cross-module relations, and opportunities describe testable research directions.",
+  "modules": [
+    {
+      "id": "materials",
+      "label": "Adaptive Materials",
+      "color": "#2F6B4F"
+    },
+    {
+      "id": "mechanics",
+      "label": "Mechanics And Damage",
+      "color": "#3B5BA9"
+    },
+    {
+      "id": "ai",
+      "label": "AI-Guided Design",
+      "color": "#8B4A9C"
+    },
+    {
+      "id": "biology",
+      "label": "Bioinspired Repair",
+      "color": "#B35C2E"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "dynamic-bonds",
+      "label": "Dynamic covalent bonds",
+      "module": "materials",
+      "bridge_score": 0.92,
+      "novelty": 0.74,
+      "readiness": 0.82
+    },
+    {
+      "id": "microcrack-fields",
+      "label": "Microcrack stress fields",
+      "module": "mechanics",
+      "bridge_score": 0.86,
+      "novelty": 0.62,
+      "readiness": 0.78
+    },
+    {
+      "id": "graph-active-learning",
+      "label": "Graph active learning",
+      "module": "ai",
+      "bridge_score": 0.89,
+      "novelty": 0.81,
+      "readiness": 0.67
+    },
+    {
+      "id": "vascular-healing",
+      "label": "Vascular self-healing",
+      "module": "biology",
+      "bridge_score": 0.83,
+      "novelty": 0.7,
+      "readiness": 0.58
+    },
+    {
+      "id": "mechanophore-sensing",
+      "label": "Mechanophore sensing",
+      "module": "materials",
+      "bridge_score": 0.88,
+      "novelty": 0.77,
+      "readiness": 0.73
+    },
+    {
+      "id": "fracture-process-zone",
+      "label": "Fracture process zone",
+      "module": "mechanics",
+      "bridge_score": 0.79,
+      "novelty": 0.55,
+      "readiness": 0.84
+    },
+    {
+      "id": "inverse-design-loop",
+      "label": "Closed-loop inverse design",
+      "module": "ai",
+      "bridge_score": 0.9,
+      "novelty": 0.84,
+      "readiness": 0.64
+    },
+    {
+      "id": "mineralized-interfaces",
+      "label": "Mineralized biological interfaces",
+      "module": "biology",
+      "bridge_score": 0.75,
+      "novelty": 0.68,
+      "readiness": 0.61
+    }
+  ],
+  "links": [
+    {
+      "source": "microcrack-fields",
+      "target": "mechanophore-sensing",
+      "relation": "activates",
+      "strength": 0.84
+    },
+    {
+      "source": "mechanophore-sensing",
+      "target": "dynamic-bonds",
+      "relation": "triggers",
+      "strength": 0.78
+    },
+    {
+      "source": "dynamic-bonds",
+      "target": "vascular-healing",
+      "relation": "complements",
+      "strength": 0.62
+    },
+    {
+      "source": "fracture-process-zone",
+      "target": "graph-active-learning",
+      "relation": "prioritizes measurements for",
+      "strength": 0.75
+    },
+    {
+      "source": "graph-active-learning",
+      "target": "inverse-design-loop",
+      "relation": "feeds",
+      "strength": 0.91
+    },
+    {
+      "source": "inverse-design-loop",
+      "target": "dynamic-bonds",
+      "relation": "optimizes",
+      "strength": 0.82
+    },
+    {
+      "source": "mineralized-interfaces",
+      "target": "fracture-process-zone",
+      "relation": "informs",
+      "strength": 0.69
+    },
+    {
+      "source": "vascular-healing",
+      "target": "mineralized-interfaces",
+      "relation": "inspires",
+      "strength": 0.66
+    },
+    {
+      "source": "mechanophore-sensing",
+      "target": "graph-active-learning",
+      "relation": "supplies labels for",
+      "strength": 0.73
+    }
+  ],
+  "opportunities": [
+    {
+      "id": "opp-1",
+      "title": "Stress-activated repair chemistry",
+      "bridge_path": [
+        "microcrack-fields",
+        "mechanophore-sensing",
+        "dynamic-bonds"
+      ],
+      "hypothesis": "Mechanophore signals can localize reversible bond exchange to the fracture process zone and improve recovery without globally softening the material.",
+      "experiment": "Compare healing efficiency and modulus retention in samples with and without mechanophore-gated catalysts under controlled crack opening."
+    },
+    {
+      "id": "opp-2",
+      "title": "Active-learning guided healing-agent placement",
+      "bridge_path": [
+        "fracture-process-zone",
+        "graph-active-learning",
+        "inverse-design-loop"
+      ],
+      "hypothesis": "Graph active learning can reduce the number of fracture simulations needed to identify high-value healing-agent placement rules.",
+      "experiment": "Run an active-learning loop over simulated crack geometries and compare discovered placement strategies against random and uniform baselines."
+    },
+    {
+      "id": "opp-3",
+      "title": "Bioinspired vascular-mineral hybrid repair",
+      "bridge_path": [
+        "vascular-healing",
+        "mineralized-interfaces",
+        "fracture-process-zone"
+      ],
+      "hypothesis": "Vascular delivery paired with mineralized interfacial gradients can increase crack deflection while preserving transport paths for repair agents.",
+      "experiment": "Fabricate gradient-interface test coupons and measure crack path tortuosity, repair-agent transport, and post-healing toughness."
+    }
+  ]
+}

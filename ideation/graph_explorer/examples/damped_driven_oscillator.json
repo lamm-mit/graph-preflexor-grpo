@@ -1,0 +1,1866 @@
+{
+  "title": "Driven Damped Harmonic Oscillator",
+  "description": "Compact real-physics simulation of a single mass on a spring with linear damping and sinusoidal forcing. The system transitions from free decay to a driven steady state near resonance.",
+  "model": {
+    "name": "mass-spring-damper with sinusoidal drive",
+    "equation": "m*x'' + c*x' + k*x = F0*cos(omega_d*t)",
+    "integrator": "fourth-order Runge-Kutta",
+    "dt": 0.02,
+    "steps": 3600,
+    "sample_every": 30,
+    "initial_position": 0.42,
+    "initial_velocity": 0.0,
+    "natural_omega": 1.0,
+    "damped_omega": 0.99819838,
+    "damping_ratio": 0.06,
+    "mass": 1.0,
+    "damping": 0.12,
+    "spring_constant": 1.0,
+    "drive_amplitude": 0.18,
+    "drive_omega": 0.82
+  },
+  "summary": {
+    "duration": 72.0,
+    "n_samples": 121,
+    "max_abs_position": 0.56095666,
+    "max_abs_velocity": 0.46851664,
+    "initial_mechanical_energy": 0.0882,
+    "final_mechanical_energy": 0.107976012,
+    "first_zero_crossings": [
+      2.1,
+      6.3,
+      9.9,
+      14.1,
+      17.7,
+      21.3,
+      25.5,
+      29.1
+    ]
+  },
+  "time_series": [
+    {
+      "step": 0,
+      "time": 0.0,
+      "position": 0.42,
+      "velocity": 0.0,
+      "drive_force": 0.18,
+      "kinetic_energy": 0.0,
+      "spring_energy": 0.0882,
+      "mechanical_energy": 0.0882
+    },
+    {
+      "step": 30,
+      "time": 0.6,
+      "position": 0.37843128,
+      "velocity": -0.13490394,
+      "drive_force": 0.15865017,
+      "kinetic_energy": 0.0090995362,
+      "spring_energy": 0.0716051178,
+      "mechanical_energy": 0.080704654
+    },
+    {
+      "step": 60,
+      "time": 1.2,
+      "position": 0.2644987,
+      "velocity": -0.23811835,
+      "drive_force": 0.0996653,
+      "kinetic_energy": 0.0283501752,
+      "spring_energy": 0.0349797799,
+      "mechanical_energy": 0.0633299551
+    },
+    {
+      "step": 90,
+      "time": 1.8,
+      "position": 0.10208988,
+      "velocity": -0.29456865,
+      "drive_force": 0.01703779,
+      "kinetic_energy": 0.0433853461,
+      "spring_energy": 0.0052111721,
+      "mechanical_energy": 0.0485965182
+    },
+    {
+      "step": 120,
+      "time": 2.4,
+      "position": -0.07799898,
+      "velocity": -0.29634301,
+      "drive_force": -0.06963142,
+      "kinetic_energy": 0.0439095889,
+      "spring_energy": 0.0030419205,
+      "mechanical_energy": 0.0469515094
+    },
+    {
+      "step": 150,
+      "time": 3.0,
+      "position": -0.24244417,
+      "velocity": -0.24299544,
+      "drive_force": -0.13978265,
+      "kinetic_energy": 0.0295233909,
+      "spring_energy": 0.0293895884,
+      "mechanical_energy": 0.0589129793
+    },
+    {
+      "step": 180,
+      "time": 3.6,
+      "position": -0.36001645,
+      "velocity": -0.14204245,
+      "drive_force": -0.1767746,
+      "kinetic_energy": 0.0100880288,
+      "spring_energy": 0.0648059209,
+      "mechanical_energy": 0.0748939496
+    },
+    {
+      "step": 210,
+      "time": 4.2,
+      "position": -0.40647912,
+      "velocity": -0.00926718,
+      "drive_force": -0.17183201,
+      "kinetic_energy": 4.29403e-05,
+      "spring_energy": 0.0826126391,
+      "mechanical_energy": 0.0826555794
+    },
+    {
+      "step": 240,
+      "time": 4.8,
+      "position": -0.36939267,
+      "velocity": 0.13206245,
+      "drive_force": -0.12612739,
+      "kinetic_energy": 0.0087202458,
+      "spring_energy": 0.0682254723,
+      "mechanical_energy": 0.0769457181
+    },
+    {
+      "step": 270,
+      "time": 5.4,
+      "position": -0.25189573,
+      "velocity": 0.25393531,
+      "drive_force": -0.05050278,
+      "kinetic_energy": 0.0322415704,
+      "spring_energy": 0.03172573,
+      "mechanical_energy": 0.0639673004
+    },
+    {
+      "step": 300,
+      "time": 6.0,
+      "position": -0.07416261,
+      "velocity": 0.32857149,
+      "drive_force": 0.03710211,
+      "kinetic_energy": 0.0539796114,
+      "spring_energy": 0.0027500461,
+      "mechanical_energy": 0.0567296575
+    },
+    {
+      "step": 330,
+      "time": 6.6,
+      "position": 0.12864611,
+      "velocity": 0.33493573,
+      "drive_force": 0.11590562,
+      "kinetic_energy": 0.0560909722,
+      "spring_energy": 0.0082749106,
+      "mechanical_energy": 0.0643658828
+    },
+    {
+      "step": 360,
+      "time": 7.2,
+      "position": 0.31241295,
+      "velocity": 0.26515969,
+      "drive_force": 0.16721397,
+      "kinetic_energy": 0.0351548303,
+      "spring_energy": 0.0488009257,
+      "mechanical_energy": 0.083955756
+    },
+    {
+      "step": 390,
+      "time": 7.8,
+      "position": 0.43339234,
+      "velocity": 0.12876202,
+      "drive_force": 0.17885577,
+      "kinetic_energy": 0.0082898289,
+      "spring_energy": 0.0939144598,
+      "mechanical_energy": 0.1022042886
+    },
+    {
+      "step": 420,
+      "time": 8.4,
+      "position": 0.45892724,
+      "velocity": -0.04719204,
+      "drive_force": 0.14806935,
+      "kinetic_energy": 0.0011135445,
+      "spring_energy": 0.1053071042,
+      "mechanical_energy": 0.1064206487
+    },
+    {
+      "step": 450,
+      "time": 9.0,
+      "position": 0.37679459,
+      "velocity": -0.22284882,
+      "drive_force": 0.08215787,
+      "kinetic_energy": 0.0248307978,
+      "spring_energy": 0.0709870799,
+      "mechanical_energy": 0.0958178778
+    },
+    {
+      "step": 480,
+      "time": 9.6,
+      "position": 0.20033635,
+      "velocity": -0.35462107,
+      "drive_force": -0.00324313,
+      "kinetic_energy": 0.0628780499,
+      "spring_energy": 0.0200673273,
+      "mechanical_energy": 0.0829453772
+    },
+    {
+      "step": 510,
+      "time": 10.2,
+      "position": -0.03263711,
+      "velocity": -0.40643846,
+      "drive_force": -0.08787479,
+      "kinetic_energy": 0.08259611,
+      "spring_energy": 0.0005325906,
+      "mechanical_energy": 0.0831287005
+    },
+    {
+      "step": 540,
+      "time": 10.8,
+      "position": -0.26759707,
+      "velocity": -0.36012684,
+      "drive_force": -0.15166076,
+      "kinetic_energy": 0.0648456691,
+      "spring_energy": 0.0358040955,
+      "mechanical_energy": 0.1006497646
+    },
+    {
+      "step": 570,
+      "time": 11.4,
+      "position": -0.44621326,
+      "velocity": -0.22177641,
+      "drive_force": -0.17946972,
+      "kinetic_energy": 0.0245923881,
+      "spring_energy": 0.0995531363,
+      "mechanical_energy": 0.1241455243
+    },
+    {
+      "step": 600,
+      "time": 12.0,
+      "position": -0.52129636,
+      "velocity": -0.02187867,
+      "drive_force": -0.16470482,
+      "kinetic_energy": 0.0002393382,
+      "spring_energy": 0.1358749482,
+      "mechanical_energy": 0.1361142864
+    },
+    {
+      "step": 630,
+      "time": 12.6,
+      "position": -0.4697707,
+      "velocity": 0.19130051,
+      "drive_force": -0.11086859,
+      "kinetic_energy": 0.0182979429,
+      "spring_energy": 0.1103422546,
+      "mechanical_energy": 0.1286401974
+    },
+    {
+      "step": 660,
+      "time": 13.2,
+      "position": -0.29995366,
+      "velocity": 0.36367623,
+      "drive_force": -0.03073207,
+      "kinetic_energy": 0.0661301995,
+      "spring_energy": 0.0449860989,
+      "mechanical_energy": 0.1111162984
+    },
+    {
+      "step": 690,
+      "time": 13.8,
+      "position": -0.05080461,
+      "velocity": 0.44954447,
+      "drive_force": 0.05669471,
+      "kinetic_energy": 0.1010451163,
+      "spring_energy": 0.0012905542,
+      "mechanical_energy": 0.1023356705
+    },
+    {
+      "step": 720,
+      "time": 14.4,
+      "position": 0.21704987,
+      "velocity": 0.4241365,
+      "drive_force": 0.13067236,
+      "kinetic_energy": 0.0899458835,
+      "spring_energy": 0.0235553224,
+      "mechanical_energy": 0.113501206
+    },
+    {
+      "step": 750,
+      "time": 15.0,
+      "position": 0.43640913,
+      "velocity": 0.2909484,
+      "drive_force": 0.17365187,
+      "kinetic_energy": 0.0423254869,
+      "spring_energy": 0.0952264638,
+      "mechanical_energy": 0.1375519507
+    },
+    {
+      "step": 780,
+      "time": 15.6,
+      "position": 0.55082191,
+      "velocity": 0.08163519,
+      "drive_force": 0.17543763,
+      "kinetic_energy": 0.0033321518,
+      "spring_energy": 0.1517023904,
+      "mechanical_energy": 0.1550345422
+    },
+    {
+      "step": 810,
+      "time": 16.2,
+      "position": 0.52951816,
+      "velocity": -0.15169875,
+      "drive_force": 0.13560602,
+      "kinetic_energy": 0.0115062558,
+      "spring_energy": 0.1401947416,
+      "mechanical_energy": 0.1517009974
+    },
+    {
+      "step": 840,
+      "time": 16.8,
+      "position": 0.37587687,
+      "velocity": -0.34985204,
+      "drive_force": 0.0636059,
+      "kinetic_energy": 0.0611982246,
+      "spring_energy": 0.0706417105,
+      "mechanical_energy": 0.1318399352
+    },
+    {
+      "step": 870,
+      "time": 17.4,
+      "position": 0.12705322,
+      "velocity": -0.46196486,
+      "drive_force": -0.02348282,
+      "kinetic_energy": 0.1067057654,
+      "spring_energy": 0.00807126,
+      "mechanical_energy": 0.1147770253
+    },
+    {
+      "step": 900,
+      "time": 18.0,
+      "position": -0.1552397,
+      "velocity": -0.45888315,
+      "drive_force": -0.10500095,
+      "kinetic_energy": 0.1052868723,
+      "spring_energy": 0.0120496815,
+      "mechanical_energy": 0.1173365538
+    },
+    {
+      "step": 930,
+      "time": 18.6,
+      "position": -0.40041359,
+      "velocity": -0.34084694,
+      "drive_force": -0.16161071,
+      "kinetic_energy": 0.0580883193,
+      "spring_energy": 0.0801655197,
+      "mechanical_energy": 0.138253839
+    },
+    {
+      "step": 960,
+      "time": 19.2,
+      "position": -0.54703598,
+      "velocity": -0.13745529,
+      "drive_force": -0.17988313,
+      "kinetic_energy": 0.0094469782,
+      "spring_energy": 0.1496241822,
+      "mechanical_energy": 0.1590711604
+    },
+    {
+      "step": 990,
+      "time": 19.8,
+      "position": -0.55848182,
+      "velocity": 0.10003916,
+      "drive_force": -0.15548362,
+      "kinetic_energy": 0.0050039169,
+      "spring_energy": 0.15595097,
+      "mechanical_energy": 0.1609548869
+    },
+    {
+      "step": 1020,
+      "time": 20.4,
+      "position": -0.43214365,
+      "velocity": 0.31199847,
+      "drive_force": -0.09420024,
+      "kinetic_energy": 0.0486715227,
+      "spring_energy": 0.093374065,
+      "mechanical_energy": 0.1420455877
+    },
+    {
+      "step": 1050,
+      "time": 21.0,
+      "position": -0.19987833,
+      "velocity": 0.44567934,
+      "drive_force": -0.01057064,
+      "kinetic_energy": 0.0993150379,
+      "spring_energy": 0.0199756724,
+      "mechanical_energy": 0.1192907104
+    },
+    {
+      "step": 1080,
+      "time": 21.6,
+      "position": 0.08030964,
+      "velocity": 0.46851664,
+      "drive_force": 0.07556652,
+      "kinetic_energy": 0.1097539222,
+      "spring_energy": 0.0032248188,
+      "mechanical_energy": 0.1129787411
+    },
+    {
+      "step": 1110,
+      "time": 22.2,
+      "position": 0.33907838,
+      "velocity": 0.37602435,
+      "drive_force": 0.14377778,
+      "kinetic_energy": 0.0706971567,
+      "spring_energy": 0.0574870748,
+      "mechanical_energy": 0.1281842315
+    },
+    {
+      "step": 1140,
+      "time": 22.8,
+      "position": 0.51316508,
+      "velocity": 0.19242181,
+      "drive_force": 0.17788202,
+      "kinetic_energy": 0.0185130758,
+      "spring_energy": 0.1316691986,
+      "mechanical_energy": 0.1501822743
+    },
+    {
+      "step": 1170,
+      "time": 23.4,
+      "position": 0.56095666,
+      "velocity": -0.03597308,
+      "drive_force": 0.16978903,
+      "kinetic_energy": 0.0006470313,
+      "spring_energy": 0.1573361887,
+      "mechanical_energy": 0.15798322
+    },
+    {
+      "step": 1200,
+      "time": 24.0,
+      "position": 0.47235941,
+      "velocity": -0.25269658,
+      "drive_force": 0.12141864,
+      "kinetic_energy": 0.0319277804,
+      "spring_energy": 0.1115617048,
+      "mechanical_energy": 0.1434894852
+    },
+    {
+      "step": 1230,
+      "time": 24.6,
+      "position": 0.27066592,
+      "velocity": -0.40526991,
+      "drive_force": 0.04424528,
+      "kinetic_energy": 0.0821218515,
+      "spring_energy": 0.0366300191,
+      "mechanical_energy": 0.1187518706
+    },
+    {
+      "step": 1260,
+      "time": 25.2,
+      "position": 0.00619098,
+      "velocity": -0.45792363,
+      "drive_force": -0.04342396,
+      "kinetic_energy": 0.1048470247,
+      "spring_energy": 1.91641e-05,
+      "mechanical_energy": 0.1048661888
+    },
+    {
+      "step": 1290,
+      "time": 25.8,
+      "position": -0.25650974,
+      "velocity": -0.39983628,
+      "drive_force": -0.12079216,
+      "kinetic_energy": 0.0799345256,
+      "spring_energy": 0.0328986221,
+      "mechanical_energy": 0.1128331477
+    },
+    {
+      "step": 1320,
+      "time": 26.4,
+      "position": -0.45452066,
+      "velocity": -0.24705245,
+      "drive_force": -0.169506,
+      "kinetic_energy": 0.0305174568,
+      "spring_energy": 0.1032945139,
+      "mechanical_energy": 0.1338119707
+    },
+    {
+      "step": 1350,
+      "time": 27.0,
+      "position": -0.5416079,
+      "velocity": -0.03787179,
+      "drive_force": -0.17800957,
+      "kinetic_energy": 0.0007171364,
+      "spring_energy": 0.1466695582,
+      "mechanical_energy": 0.1473866945
+    },
+    {
+      "step": 1380,
+      "time": 27.6,
+      "position": -0.49884521,
+      "velocity": 0.17691496,
+      "drive_force": -0.14428566,
+      "kinetic_energy": 0.0156494524,
+      "spring_energy": 0.1244232725,
+      "mechanical_energy": 0.1400727249
+    },
+    {
+      "step": 1410,
+      "time": 28.2,
+      "position": -0.33845063,
+      "velocity": 0.34640692,
+      "drive_force": -0.07633426,
+      "kinetic_energy": 0.0599988774,
+      "spring_energy": 0.0572744128,
+      "mechanical_energy": 0.1172732902
+    },
+    {
+      "step": 1440,
+      "time": 28.8,
+      "position": -0.10016539,
+      "velocity": 0.43156584,
+      "drive_force": 0.00972518,
+      "kinetic_energy": 0.0931245383,
+      "spring_energy": 0.0050165524,
+      "mechanical_energy": 0.0981410907
+    },
+    {
+      "step": 1470,
+      "time": 29.4,
+      "position": 0.15871739,
+      "velocity": 0.41400527,
+      "drive_force": 0.09347761,
+      "kinetic_energy": 0.0857001805,
+      "spring_energy": 0.0125956054,
+      "mechanical_energy": 0.0982957859
+    },
+    {
+      "step": 1500,
+      "time": 30.0,
+      "position": 0.37713807,
+      "velocity": 0.29969551,
+      "drive_force": 0.15505525,
+      "kinetic_energy": 0.0449086995,
+      "spring_energy": 0.0711165604,
+      "mechanical_energy": 0.1160252599
+    },
+    {
+      "step": 1530,
+      "time": 30.6,
+      "position": 0.50455841,
+      "velocity": 0.11693987,
+      "drive_force": 0.17985063,
+      "kinetic_energy": 0.0068374671,
+      "spring_energy": 0.1272895944,
+      "mechanical_energy": 0.1341270615
+    },
+    {
+      "step": 1560,
+      "time": 31.2,
+      "position": 0.51245626,
+      "velocity": -0.09069653,
+      "drive_force": 0.1619818,
+      "kinetic_energy": 0.0041129304,
+      "spring_energy": 0.1313057099,
+      "mechanical_energy": 0.1354186403
+    },
+    {
+      "step": 1590,
+      "time": 31.8,
+      "position": 0.40048724,
+      "velocity": -0.27472496,
+      "drive_force": 0.10568759,
+      "kinetic_energy": 0.0377369016,
+      "spring_energy": 0.0801950159,
+      "mechanical_energy": 0.1179319174
+    },
+    {
+      "step": 1620,
+      "time": 32.4,
+      "position": 0.19606324,
+      "velocity": -0.3929091,
+      "drive_force": 0.02432213,
+      "kinetic_energy": 0.0771887817,
+      "spring_energy": 0.0192203965,
+      "mechanical_energy": 0.0964091782
+    },
+    {
+      "step": 1650,
+      "time": 33.0,
+      "position": -0.05238981,
+      "velocity": -0.41876084,
+      "drive_force": -0.06281302,
+      "kinetic_energy": 0.0876803191,
+      "spring_energy": 0.001372346,
+      "mechanical_energy": 0.0890526651
+    },
+    {
+      "step": 1680,
+      "time": 33.6,
+      "position": -0.28683293,
+      "velocity": -0.3472932,
+      "drive_force": -0.13504766,
+      "kinetic_energy": 0.0603062825,
+      "spring_energy": 0.0411365662,
+      "mechanical_energy": 0.1014428487
+    },
+    {
+      "step": 1710,
+      "time": 34.2,
+      "position": -0.45302137,
+      "velocity": -0.1958452,
+      "drive_force": -0.17524624,
+      "kinetic_energy": 0.0191776711,
+      "spring_energy": 0.1026141824,
+      "mechanical_energy": 0.1217918535
+    },
+    {
+      "step": 1740,
+      "time": 34.8,
+      "position": -0.51287807,
+      "velocity": 0.00010844,
+      "drive_force": -0.17387286,
+      "kinetic_energy": 5.9e-09,
+      "spring_energy": 0.1315219572,
+      "mechanical_energy": 0.1315219631
+    },
+    {
+      "step": 1770,
+      "time": 35.4,
+      "position": -0.45307424,
+      "velocity": 0.19516217,
+      "drive_force": -0.1312533,
+      "kinetic_energy": 0.019044136,
+      "spring_energy": 0.1026381333,
+      "mechanical_energy": 0.1216822692
+    },
+    {
+      "step": 1800,
+      "time": 36.0,
+      "position": -0.2879309,
+      "velocity": 0.34434363,
+      "drive_force": -0.05749779,
+      "kinetic_energy": 0.0592862673,
+      "spring_energy": 0.0414521006,
+      "mechanical_energy": 0.1007383679
+    },
+    {
+      "step": 1830,
+      "time": 36.6,
+      "position": -0.05602748,
+      "velocity": 0.41332913,
+      "drive_force": 0.02989736,
+      "kinetic_energy": 0.0854204867,
+      "spring_energy": 0.0015695392,
+      "mechanical_energy": 0.0869900259
+    },
+    {
+      "step": 1860,
+      "time": 37.2,
+      "position": 0.1886984,
+      "velocity": 0.38624313,
+      "drive_force": 0.11020025,
+      "kinetic_energy": 0.0745918767,
+      "spring_energy": 0.0178035424,
+      "mechanical_energy": 0.0923954191
+    },
+    {
+      "step": 1890,
+      "time": 37.8,
+      "position": 0.38935059,
+      "velocity": 0.26929931,
+      "drive_force": 0.1643614,
+      "kinetic_energy": 0.036261058,
+      "spring_energy": 0.0757969396,
+      "mechanical_energy": 0.1120579976
+    },
+    {
+      "step": 1920,
+      "time": 38.4,
+      "position": 0.49917533,
+      "velocity": 0.08944664,
+      "drive_force": 0.17953269,
+      "kinetic_energy": 0.0040003504,
+      "spring_energy": 0.1245880028,
+      "mechanical_energy": 0.1285883532
+    },
+    {
+      "step": 1950,
+      "time": 39.0,
+      "position": 0.49238909,
+      "velocity": -0.11171603,
+      "drive_force": 0.15211518,
+      "kinetic_energy": 0.0062402359,
+      "spring_energy": 0.1212235064,
+      "mechanical_energy": 0.1274637424
+    },
+    {
+      "step": 1980,
+      "time": 39.6,
+      "position": 0.37024425,
+      "velocity": -0.28742982,
+      "drive_force": 0.08861286,
+      "kinetic_energy": 0.0413079518,
+      "spring_energy": 0.0685404033,
+      "mechanical_energy": 0.1098483551
+    },
+    {
+      "step": 2010,
+      "time": 40.2,
+      "position": 0.16089603,
+      "velocity": -0.39655137,
+      "drive_force": 0.00408976,
+      "kinetic_energy": 0.0786264937,
+      "spring_energy": 0.0129437665,
+      "mechanical_energy": 0.0915702602
+    },
+    {
+      "step": 2040,
+      "time": 40.8,
+      "position": -0.086968,
+      "velocity": -0.41316028,
+      "drive_force": -0.0814035,
+      "kinetic_energy": 0.0853507102,
+      "spring_energy": 0.0037817168,
+      "mechanical_energy": 0.089132427
+    },
+    {
+      "step": 2070,
+      "time": 41.4,
+      "position": -0.31533858,
+      "velocity": -0.33275954,
+      "drive_force": -0.14758621,
+      "kinetic_energy": 0.0553644555,
+      "spring_energy": 0.049719211,
+      "mechanical_energy": 0.1050836665
+    },
+    {
+      "step": 2100,
+      "time": 42.0,
+      "position": -0.47039259,
+      "velocity": -0.17356629,
+      "drive_force": -0.17875846,
+      "kinetic_energy": 0.0150626289,
+      "spring_energy": 0.1106345962,
+      "mechanical_energy": 0.1256972251
+    },
+    {
+      "step": 2130,
+      "time": 42.6,
+      "position": -0.51517314,
+      "velocity": 0.0275005,
+      "drive_force": -0.16752558,
+      "kinetic_energy": 0.0003781386,
+      "spring_energy": 0.1327016801,
+      "mechanical_energy": 0.1330798187
+    },
+    {
+      "step": 2160,
+      "time": 43.2,
+      "position": -0.43845195,
+      "velocity": 0.22329395,
+      "drive_force": -0.11655223,
+      "kinetic_energy": 0.0249300931,
+      "spring_energy": 0.096120057,
+      "mechanical_energy": 0.1210501501
+    },
+    {
+      "step": 2190,
+      "time": 43.8,
+      "position": -0.25762695,
+      "velocity": 0.36745847,
+      "drive_force": -0.03793032,
+      "kinetic_energy": 0.0675128643,
+      "spring_energy": 0.0331858228,
+      "mechanical_energy": 0.1006986871
+    },
+    {
+      "step": 2220,
+      "time": 44.4,
+      "position": -0.01487901,
+      "velocity": 0.42542766,
+      "drive_force": 0.04968943,
+      "kinetic_energy": 0.0904943469,
+      "spring_energy": 0.0001106925,
+      "mechanical_energy": 0.0906050394
+    },
+    {
+      "step": 2250,
+      "time": 45.0,
+      "position": 0.23259944,
+      "velocity": 0.38277988,
+      "drive_force": 0.12552184,
+      "kinetic_energy": 0.073260218,
+      "spring_energy": 0.0270512503,
+      "mechanical_energy": 0.1003114683
+    },
+    {
+      "step": 2280,
+      "time": 45.6,
+      "position": 0.42606179,
+      "velocity": 0.24890628,
+      "drive_force": 0.17157792,
+      "kinetic_energy": 0.0309771678,
+      "spring_energy": 0.0907643224,
+      "mechanical_energy": 0.1217414903
+    },
+    {
+      "step": 2310,
+      "time": 46.2,
+      "position": 0.51918649,
+      "velocity": 0.0550315,
+      "drive_force": 0.17693223,
+      "kinetic_energy": 0.001514233,
+      "spring_energy": 0.1347773057,
+      "mechanical_energy": 0.1362915387
+    },
+    {
+      "step": 2340,
+      "time": 46.8,
+      "position": 0.48923689,
+      "velocity": -0.15302723,
+      "drive_force": 0.14031462,
+      "kinetic_energy": 0.0117086661,
+      "spring_energy": 0.1196763697,
+      "mechanical_energy": 0.1313850358
+    },
+    {
+      "step": 2370,
+      "time": 47.4,
+      "position": 0.34268749,
+      "velocity": -0.32569523,
+      "drive_force": 0.07041153,
+      "kinetic_energy": 0.053038691,
+      "spring_energy": 0.0587173587,
+      "mechanical_energy": 0.1117560497
+    },
+    {
+      "step": 2400,
+      "time": 48.0,
+      "position": 0.11389937,
+      "velocity": -0.42150157,
+      "drive_force": -0.0161946,
+      "kinetic_energy": 0.0888317877,
+      "spring_energy": 0.0064865334,
+      "mechanical_energy": 0.0953183211
+    },
+    {
+      "step": 2430,
+      "time": 48.6,
+      "position": -0.14291071,
+      "velocity": -0.41710917,
+      "drive_force": -0.09895905,
+      "kinetic_energy": 0.0869900283,
+      "spring_energy": 0.0102117362,
+      "mechanical_energy": 0.0972017644
+    },
+    {
+      "step": 2460,
+      "time": 49.2,
+      "position": -0.36653675,
+      "velocity": -0.31306325,
+      "drive_force": -0.15824839,
+      "kinetic_energy": 0.0490042996,
+      "spring_energy": 0.067174593,
+      "mechanical_energy": 0.1161788927
+    },
+    {
+      "step": 2490,
+      "time": 49.8,
+      "position": -0.50342271,
+      "velocity": -0.13382162,
+      "drive_force": -0.17999801,
+      "kinetic_energy": 0.0089541129,
+      "spring_energy": 0.1267172113,
+      "mechanical_energy": 0.1356713242
+    },
+    {
+      "step": 2520,
+      "time": 50.4,
+      "position": -0.52055359,
+      "velocity": 0.07799071,
+      "drive_force": -0.15904844,
+      "kinetic_energy": 0.0030412757,
+      "spring_energy": 0.1354880225,
+      "mechanical_energy": 0.1385292982
+    },
+    {
+      "step": 2550,
+      "time": 51.0,
+      "position": -0.41347268,
+      "velocity": 0.27175138,
+      "drive_force": -0.10036935,
+      "kinetic_energy": 0.0369244056,
+      "spring_energy": 0.0854798299,
+      "mechanical_energy": 0.1224042355
+    },
+    {
+      "step": 2580,
+      "time": 51.6,
+      "position": -0.20746078,
+      "velocity": 0.40099492,
+      "drive_force": -0.01788061,
+      "kinetic_energy": 0.0803984624,
+      "spring_energy": 0.0215199868,
+      "mechanical_energy": 0.1019184492
+    },
+    {
+      "step": 2610,
+      "time": 52.2,
+      "position": 0.04843904,
+      "velocity": 0.43461308,
+      "drive_force": 0.06884977,
+      "kinetic_energy": 0.0944442639,
+      "spring_energy": 0.0011731703,
+      "mechanical_energy": 0.0956174342
+    },
+    {
+      "step": 2640,
+      "time": 52.8,
+      "position": 0.29313409,
+      "velocity": 0.36438202,
+      "drive_force": 0.13924759,
+      "kinetic_energy": 0.0663871284,
+      "spring_energy": 0.042963797,
+      "mechanical_energy": 0.1093509253
+    },
+    {
+      "step": 2670,
+      "time": 53.4,
+      "position": 0.46812027,
+      "velocity": 0.20698319,
+      "drive_force": 0.17661305,
+      "kinetic_energy": 0.0214210203,
+      "spring_energy": 0.1095682934,
+      "mechanical_energy": 0.1309893137
+    },
+    {
+      "step": 2700,
+      "time": 54.0,
+      "position": 0.53151943,
+      "velocity": 2.022e-05,
+      "drive_force": 0.17208231,
+      "kinetic_energy": 2e-10,
+      "spring_energy": 0.1412564505,
+      "mechanical_energy": 0.1412564507
+    },
+    {
+      "step": 2730,
+      "time": 54.6,
+      "position": 0.46813147,
+      "velocity": -0.20700785,
+      "drive_force": 0.12673015,
+      "kinetic_energy": 0.0214261251,
+      "spring_energy": 0.1095735365,
+      "mechanical_energy": 0.1309996615
+    },
+    {
+      "step": 2760,
+      "time": 55.2,
+      "position": 0.29307984,
+      "velocity": -0.36459421,
+      "drive_force": 0.05131502,
+      "kinetic_energy": 0.0664644707,
+      "spring_energy": 0.0429478972,
+      "mechanical_energy": 0.109412368
+    },
+    {
+      "step": 2790,
+      "time": 55.8,
+      "position": 0.04817761,
+      "velocity": -0.43510112,
+      "drive_force": -0.03627307,
+      "kinetic_energy": 0.0946564931,
+      "spring_energy": 0.001160541,
+      "mechanical_energy": 0.0958170341
+    },
+    {
+      "step": 2820,
+      "time": 56.4,
+      "position": -0.20810223,
+      "velocity": -0.40176451,
+      "drive_force": -0.11525646,
+      "kinetic_energy": 0.0807073627,
+      "spring_energy": 0.0216532682,
+      "mechanical_energy": 0.1023606309
+    },
+    {
+      "step": 2850,
+      "time": 57.0,
+      "position": -0.41463109,
+      "velocity": -0.27266869,
+      "drive_force": -0.16689867,
+      "kinetic_energy": 0.0371741085,
+      "spring_energy": 0.0859594694,
+      "mechanical_energy": 0.1231335779
+    },
+    {
+      "step": 2880,
+      "time": 57.6,
+      "position": -0.52223526,
+      "velocity": -0.07875427,
+      "drive_force": -0.17894912,
+      "kinetic_energy": 0.0031011177,
+      "spring_energy": 0.1363648344,
+      "mechanical_energy": 0.139465952
+    },
+    {
+      "step": 2910,
+      "time": 58.2,
+      "position": -0.50541124,
+      "velocity": 0.13363798,
+      "drive_force": -0.14854921,
+      "kinetic_energy": 0.0089295552,
+      "spring_energy": 0.1277202597,
+      "mechanical_energy": 0.1366498149
+    },
+    {
+      "step": 2940,
+      "time": 58.8,
+      "position": -0.36835399,
+      "velocity": 0.31387648,
+      "drive_force": -0.08291041,
+      "kinetic_energy": 0.049259221,
+      "spring_energy": 0.0678423326,
+      "mechanical_energy": 0.1171015536
+    },
+    {
+      "step": 2970,
+      "time": 59.4,
+      "position": -0.1438805,
+      "velocity": 0.41912674,
+      "drive_force": 0.00239643,
+      "kinetic_energy": 0.0878336136,
+      "spring_energy": 0.010350799,
+      "mechanical_energy": 0.0981844126
+    },
+    {
+      "step": 3000,
+      "time": 60.0,
+      "position": 0.11446464,
+      "velocity": 0.42452724,
+      "drive_force": 0.08713478,
+      "kinetic_energy": 0.0901116894,
+      "spring_energy": 0.0065510767,
+      "mechanical_energy": 0.0966627661
+    },
+    {
+      "step": 3030,
+      "time": 60.6,
+      "position": 0.3452098,
+      "velocity": 0.3290385,
+      "drive_force": 0.15120299,
+      "kinetic_energy": 0.0541331671,
+      "spring_energy": 0.0595849022,
+      "mechanical_energy": 0.1137180692
+    },
+    {
+      "step": 3060,
+      "time": 61.2,
+      "position": 0.49359416,
+      "velocity": 0.15559884,
+      "drive_force": 0.17940279,
+      "kinetic_energy": 0.0121054987,
+      "spring_energy": 0.1218175978,
+      "mechanical_energy": 0.1339230966
+    },
+    {
+      "step": 3090,
+      "time": 61.8,
+      "position": 0.52455461,
+      "velocity": -0.05441674,
+      "drive_force": 0.16504459,
+      "kinetic_energy": 0.0014805908,
+      "spring_energy": 0.1375787677,
+      "mechanical_energy": 0.1390593585
+    },
+    {
+      "step": 3120,
+      "time": 62.4,
+      "position": 0.43098622,
+      "velocity": -0.25108577,
+      "drive_force": 0.11153447,
+      "kinetic_energy": 0.0315220311,
+      "spring_energy": 0.0928745594,
+      "mechanical_energy": 0.1243965905
+    },
+    {
+      "step": 3150,
+      "time": 63.0,
+      "position": 0.23533983,
+      "velocity": -0.38780653,
+      "drive_force": 0.0315661,
+      "kinetic_energy": 0.0751969542,
+      "spring_energy": 0.0276924169,
+      "mechanical_energy": 0.1028893711
+    },
+    {
+      "step": 3180,
+      "time": 63.6,
+      "position": -0.01579059,
+      "velocity": -0.43232463,
+      "drive_force": -0.05589038,
+      "kinetic_energy": 0.0934522915,
+      "spring_energy": 0.0001246714,
+      "mechanical_energy": 0.093576963
+    },
+    {
+      "step": 3210,
+      "time": 64.2,
+      "position": -0.26277755,
+      "velocity": -0.37431537,
+      "drive_force": -0.13008853,
+      "kinetic_energy": 0.070055998,
+      "spring_energy": 0.0345260208,
+      "mechanical_energy": 0.1045820188
+    },
+    {
+      "step": 3240,
+      "time": 64.8,
+      "position": -0.44711425,
+      "velocity": -0.22774955,
+      "drive_force": -0.17342704,
+      "kinetic_energy": 0.0259349293,
+      "spring_energy": 0.0999555783,
+      "mechanical_energy": 0.1258905076
+    },
+    {
+      "step": 3270,
+      "time": 65.4,
+      "position": -0.52525588,
+      "velocity": -0.02751037,
+      "drive_force": -0.17562513,
+      "kinetic_energy": 0.0003784101,
+      "spring_energy": 0.1379468702,
+      "mechanical_energy": 0.1383252803
+    },
+    {
+      "step": 3300,
+      "time": 66.0,
+      "position": -0.47888047,
+      "velocity": 0.17891369,
+      "drive_force": -0.13616138,
+      "kinetic_energy": 0.0160050544,
+      "spring_energy": 0.1146632509,
+      "mechanical_energy": 0.1306683053
+    },
+    {
+      "step": 3330,
+      "time": 66.6,
+      "position": -0.31916068,
+      "velocity": 0.34268107,
+      "drive_force": -0.06439737,
+      "kinetic_energy": 0.0587151583,
+      "spring_energy": 0.0509317687,
+      "mechanical_energy": 0.109646927
+    },
+    {
+      "step": 3360,
+      "time": 67.2,
+      "position": -0.08405863,
+      "velocity": 0.42513284,
+      "drive_force": 0.02264299,
+      "kinetic_energy": 0.0903689679,
+      "spring_energy": 0.0035329268,
+      "mechanical_energy": 0.0939018947
+    },
+    {
+      "step": 3390,
+      "time": 67.8,
+      "position": 0.17069737,
+      "velocity": 0.40689492,
+      "drive_force": 0.10431198,
+      "kinetic_energy": 0.0827817375,
+      "spring_energy": 0.0145687969,
+      "mechanical_energy": 0.0973505344
+    },
+    {
+      "step": 3420,
+      "time": 68.4,
+      "position": 0.38481032,
+      "velocity": 0.2924119,
+      "drive_force": 0.16123605,
+      "kinetic_energy": 0.0427523601,
+      "spring_energy": 0.0740394894,
+      "mechanical_energy": 0.1167918495
+    },
+    {
+      "step": 3450,
+      "time": 69.0,
+      "position": 0.50766567,
+      "velocity": 0.10885756,
+      "drive_force": 0.17991165,
+      "kinetic_energy": 0.0059249844,
+      "spring_energy": 0.1288622187,
+      "mechanical_energy": 0.1347872031
+    },
+    {
+      "step": 3480,
+      "time": 69.6,
+      "position": 0.51027558,
+      "velocity": -0.10030966,
+      "drive_force": 0.15590856,
+      "kinetic_energy": 0.0050310142,
+      "spring_energy": 0.130190585,
+      "mechanical_energy": 0.1352215992
+    },
+    {
+      "step": 3510,
+      "time": 70.2,
+      "position": 0.39210427,
+      "velocity": -0.28562047,
+      "drive_force": 0.09492078,
+      "kinetic_energy": 0.0407895266,
+      "spring_energy": 0.0768728779,
+      "mechanical_energy": 0.1176624045
+    },
+    {
+      "step": 3540,
+      "time": 70.8,
+      "position": 0.1811721,
+      "velocity": -0.40327494,
+      "drive_force": 0.01141587,
+      "kinetic_energy": 0.0813153404,
+      "spring_energy": 0.0164116644,
+      "mechanical_energy": 0.0977270047
+    },
+    {
+      "step": 3570,
+      "time": 71.4,
+      "position": -0.07258064,
+      "velocity": -0.42547829,
+      "drive_force": -0.07479712,
+      "kinetic_energy": 0.0905158872,
+      "spring_energy": 0.0026339745,
+      "mechanical_energy": 0.0931498617
+    },
+    {
+      "step": 3600,
+      "time": 72.0,
+      "position": -0.30910196,
+      "velocity": -0.34699856,
+      "drive_force": -0.14326671,
+      "kinetic_energy": 0.0602040014,
+      "spring_energy": 0.0477720106,
+      "mechanical_energy": 0.107976012
+    }
+  ],
+  "phase_space": [
+    {
+      "time": 0.0,
+      "position": 0.42,
+      "velocity": 0.0
+    },
+    {
+      "time": 0.6,
+      "position": 0.37843128,
+      "velocity": -0.13490394
+    },
+    {
+      "time": 1.2,
+      "position": 0.2644987,
+      "velocity": -0.23811835
+    },
+    {
+      "time": 1.8,
+      "position": 0.10208988,
+      "velocity": -0.29456865
+    },
+    {
+      "time": 2.4,
+      "position": -0.07799898,
+      "velocity": -0.29634301
+    },
+    {
+      "time": 3.0,
+      "position": -0.24244417,
+      "velocity": -0.24299544
+    },
+    {
+      "time": 3.6,
+      "position": -0.36001645,
+      "velocity": -0.14204245
+    },
+    {
+      "time": 4.2,
+      "position": -0.40647912,
+      "velocity": -0.00926718
+    },
+    {
+      "time": 4.8,
+      "position": -0.36939267,
+      "velocity": 0.13206245
+    },
+    {
+      "time": 5.4,
+      "position": -0.25189573,
+      "velocity": 0.25393531
+    },
+    {
+      "time": 6.0,
+      "position": -0.07416261,
+      "velocity": 0.32857149
+    },
+    {
+      "time": 6.6,
+      "position": 0.12864611,
+      "velocity": 0.33493573
+    },
+    {
+      "time": 7.2,
+      "position": 0.31241295,
+      "velocity": 0.26515969
+    },
+    {
+      "time": 7.8,
+      "position": 0.43339234,
+      "velocity": 0.12876202
+    },
+    {
+      "time": 8.4,
+      "position": 0.45892724,
+      "velocity": -0.04719204
+    },
+    {
+      "time": 9.0,
+      "position": 0.37679459,
+      "velocity": -0.22284882
+    },
+    {
+      "time": 9.6,
+      "position": 0.20033635,
+      "velocity": -0.35462107
+    },
+    {
+      "time": 10.2,
+      "position": -0.03263711,
+      "velocity": -0.40643846
+    },
+    {
+      "time": 10.8,
+      "position": -0.26759707,
+      "velocity": -0.36012684
+    },
+    {
+      "time": 11.4,
+      "position": -0.44621326,
+      "velocity": -0.22177641
+    },
+    {
+      "time": 12.0,
+      "position": -0.52129636,
+      "velocity": -0.02187867
+    },
+    {
+      "time": 12.6,
+      "position": -0.4697707,
+      "velocity": 0.19130051
+    },
+    {
+      "time": 13.2,
+      "position": -0.29995366,
+      "velocity": 0.36367623
+    },
+    {
+      "time": 13.8,
+      "position": -0.05080461,
+      "velocity": 0.44954447
+    },
+    {
+      "time": 14.4,
+      "position": 0.21704987,
+      "velocity": 0.4241365
+    },
+    {
+      "time": 15.0,
+      "position": 0.43640913,
+      "velocity": 0.2909484
+    },
+    {
+      "time": 15.6,
+      "position": 0.55082191,
+      "velocity": 0.08163519
+    },
+    {
+      "time": 16.2,
+      "position": 0.52951816,
+      "velocity": -0.15169875
+    },
+    {
+      "time": 16.8,
+      "position": 0.37587687,
+      "velocity": -0.34985204
+    },
+    {
+      "time": 17.4,
+      "position": 0.12705322,
+      "velocity": -0.46196486
+    },
+    {
+      "time": 18.0,
+      "position": -0.1552397,
+      "velocity": -0.45888315
+    },
+    {
+      "time": 18.6,
+      "position": -0.40041359,
+      "velocity": -0.34084694
+    },
+    {
+      "time": 19.2,
+      "position": -0.54703598,
+      "velocity": -0.13745529
+    },
+    {
+      "time": 19.8,
+      "position": -0.55848182,
+      "velocity": 0.10003916
+    },
+    {
+      "time": 20.4,
+      "position": -0.43214365,
+      "velocity": 0.31199847
+    },
+    {
+      "time": 21.0,
+      "position": -0.19987833,
+      "velocity": 0.44567934
+    },
+    {
+      "time": 21.6,
+      "position": 0.08030964,
+      "velocity": 0.46851664
+    },
+    {
+      "time": 22.2,
+      "position": 0.33907838,
+      "velocity": 0.37602435
+    },
+    {
+      "time": 22.8,
+      "position": 0.51316508,
+      "velocity": 0.19242181
+    },
+    {
+      "time": 23.4,
+      "position": 0.56095666,
+      "velocity": -0.03597308
+    },
+    {
+      "time": 24.0,
+      "position": 0.47235941,
+      "velocity": -0.25269658
+    },
+    {
+      "time": 24.6,
+      "position": 0.27066592,
+      "velocity": -0.40526991
+    },
+    {
+      "time": 25.2,
+      "position": 0.00619098,
+      "velocity": -0.45792363
+    },
+    {
+      "time": 25.8,
+      "position": -0.25650974,
+      "velocity": -0.39983628
+    },
+    {
+      "time": 26.4,
+      "position": -0.45452066,
+      "velocity": -0.24705245
+    },
+    {
+      "time": 27.0,
+      "position": -0.5416079,
+      "velocity": -0.03787179
+    },
+    {
+      "time": 27.6,
+      "position": -0.49884521,
+      "velocity": 0.17691496
+    },
+    {
+      "time": 28.2,
+      "position": -0.33845063,
+      "velocity": 0.34640692
+    },
+    {
+      "time": 28.8,
+      "position": -0.10016539,
+      "velocity": 0.43156584
+    },
+    {
+      "time": 29.4,
+      "position": 0.15871739,
+      "velocity": 0.41400527
+    },
+    {
+      "time": 30.0,
+      "position": 0.37713807,
+      "velocity": 0.29969551
+    },
+    {
+      "time": 30.6,
+      "position": 0.50455841,
+      "velocity": 0.11693987
+    },
+    {
+      "time": 31.2,
+      "position": 0.51245626,
+      "velocity": -0.09069653
+    },
+    {
+      "time": 31.8,
+      "position": 0.40048724,
+      "velocity": -0.27472496
+    },
+    {
+      "time": 32.4,
+      "position": 0.19606324,
+      "velocity": -0.3929091
+    },
+    {
+      "time": 33.0,
+      "position": -0.05238981,
+      "velocity": -0.41876084
+    },
+    {
+      "time": 33.6,
+      "position": -0.28683293,
+      "velocity": -0.3472932
+    },
+    {
+      "time": 34.2,
+      "position": -0.45302137,
+      "velocity": -0.1958452
+    },
+    {
+      "time": 34.8,
+      "position": -0.51287807,
+      "velocity": 0.00010844
+    },
+    {
+      "time": 35.4,
+      "position": -0.45307424,
+      "velocity": 0.19516217
+    },
+    {
+      "time": 36.0,
+      "position": -0.2879309,
+      "velocity": 0.34434363
+    },
+    {
+      "time": 36.6,
+      "position": -0.05602748,
+      "velocity": 0.41332913
+    },
+    {
+      "time": 37.2,
+      "position": 0.1886984,
+      "velocity": 0.38624313
+    },
+    {
+      "time": 37.8,
+      "position": 0.38935059,
+      "velocity": 0.26929931
+    },
+    {
+      "time": 38.4,
+      "position": 0.49917533,
+      "velocity": 0.08944664
+    },
+    {
+      "time": 39.0,
+      "position": 0.49238909,
+      "velocity": -0.11171603
+    },
+    {
+      "time": 39.6,
+      "position": 0.37024425,
+      "velocity": -0.28742982
+    },
+    {
+      "time": 40.2,
+      "position": 0.16089603,
+      "velocity": -0.39655137
+    },
+    {
+      "time": 40.8,
+      "position": -0.086968,
+      "velocity": -0.41316028
+    },
+    {
+      "time": 41.4,
+      "position": -0.31533858,
+      "velocity": -0.33275954
+    },
+    {
+      "time": 42.0,
+      "position": -0.47039259,
+      "velocity": -0.17356629
+    },
+    {
+      "time": 42.6,
+      "position": -0.51517314,
+      "velocity": 0.0275005
+    },
+    {
+      "time": 43.2,
+      "position": -0.43845195,
+      "velocity": 0.22329395
+    },
+    {
+      "time": 43.8,
+      "position": -0.25762695,
+      "velocity": 0.36745847
+    },
+    {
+      "time": 44.4,
+      "position": -0.01487901,
+      "velocity": 0.42542766
+    },
+    {
+      "time": 45.0,
+      "position": 0.23259944,
+      "velocity": 0.38277988
+    },
+    {
+      "time": 45.6,
+      "position": 0.42606179,
+      "velocity": 0.24890628
+    },
+    {
+      "time": 46.2,
+      "position": 0.51918649,
+      "velocity": 0.0550315
+    },
+    {
+      "time": 46.8,
+      "position": 0.48923689,
+      "velocity": -0.15302723
+    },
+    {
+      "time": 47.4,
+      "position": 0.34268749,
+      "velocity": -0.32569523
+    },
+    {
+      "time": 48.0,
+      "position": 0.11389937,
+      "velocity": -0.42150157
+    },
+    {
+      "time": 48.6,
+      "position": -0.14291071,
+      "velocity": -0.41710917
+    },
+    {
+      "time": 49.2,
+      "position": -0.36653675,
+      "velocity": -0.31306325
+    },
+    {
+      "time": 49.8,
+      "position": -0.50342271,
+      "velocity": -0.13382162
+    },
+    {
+      "time": 50.4,
+      "position": -0.52055359,
+      "velocity": 0.07799071
+    },
+    {
+      "time": 51.0,
+      "position": -0.41347268,
+      "velocity": 0.27175138
+    },
+    {
+      "time": 51.6,
+      "position": -0.20746078,
+      "velocity": 0.40099492
+    },
+    {
+      "time": 52.2,
+      "position": 0.04843904,
+      "velocity": 0.43461308
+    },
+    {
+      "time": 52.8,
+      "position": 0.29313409,
+      "velocity": 0.36438202
+    },
+    {
+      "time": 53.4,
+      "position": 0.46812027,
+      "velocity": 0.20698319
+    },
+    {
+      "time": 54.0,
+      "position": 0.53151943,
+      "velocity": 2.022e-05
+    },
+    {
+      "time": 54.6,
+      "position": 0.46813147,
+      "velocity": -0.20700785
+    },
+    {
+      "time": 55.2,
+      "position": 0.29307984,
+      "velocity": -0.36459421
+    },
+    {
+      "time": 55.8,
+      "position": 0.04817761,
+      "velocity": -0.43510112
+    },
+    {
+      "time": 56.4,
+      "position": -0.20810223,
+      "velocity": -0.40176451
+    },
+    {
+      "time": 57.0,
+      "position": -0.41463109,
+      "velocity": -0.27266869
+    },
+    {
+      "time": 57.6,
+      "position": -0.52223526,
+      "velocity": -0.07875427
+    },
+    {
+      "time": 58.2,
+      "position": -0.50541124,
+      "velocity": 0.13363798
+    },
+    {
+      "time": 58.8,
+      "position": -0.36835399,
+      "velocity": 0.31387648
+    },
+    {
+      "time": 59.4,
+      "position": -0.1438805,
+      "velocity": 0.41912674
+    },
+    {
+      "time": 60.0,
+      "position": 0.11446464,
+      "velocity": 0.42452724
+    },
+    {
+      "time": 60.6,
+      "position": 0.3452098,
+      "velocity": 0.3290385
+    },
+    {
+      "time": 61.2,
+      "position": 0.49359416,
+      "velocity": 0.15559884
+    },
+    {
+      "time": 61.8,
+      "position": 0.52455461,
+      "velocity": -0.05441674
+    },
+    {
+      "time": 62.4,
+      "position": 0.43098622,
+      "velocity": -0.25108577
+    },
+    {
+      "time": 63.0,
+      "position": 0.23533983,
+      "velocity": -0.38780653
+    },
+    {
+      "time": 63.6,
+      "position": -0.01579059,
+      "velocity": -0.43232463
+    },
+    {
+      "time": 64.2,
+      "position": -0.26277755,
+      "velocity": -0.37431537
+    },
+    {
+      "time": 64.8,
+      "position": -0.44711425,
+      "velocity": -0.22774955
+    },
+    {
+      "time": 65.4,
+      "position": -0.52525588,
+      "velocity": -0.02751037
+    },
+    {
+      "time": 66.0,
+      "position": -0.47888047,
+      "velocity": 0.17891369
+    },
+    {
+      "time": 66.6,
+      "position": -0.31916068,
+      "velocity": 0.34268107
+    },
+    {
+      "time": 67.2,
+      "position": -0.08405863,
+      "velocity": 0.42513284
+    },
+    {
+      "time": 67.8,
+      "position": 0.17069737,
+      "velocity": 0.40689492
+    },
+    {
+      "time": 68.4,
+      "position": 0.38481032,
+      "velocity": 0.2924119
+    },
+    {
+      "time": 69.0,
+      "position": 0.50766567,
+      "velocity": 0.10885756
+    },
+    {
+      "time": 69.6,
+      "position": 0.51027558,
+      "velocity": -0.10030966
+    },
+    {
+      "time": 70.2,
+      "position": 0.39210427,
+      "velocity": -0.28562047
+    },
+    {
+      "time": 70.8,
+      "position": 0.1811721,
+      "velocity": -0.40327494
+    },
+    {
+      "time": 71.4,
+      "position": -0.07258064,
+      "velocity": -0.42547829
+    },
+    {
+      "time": 72.0,
+      "position": -0.30910196,
+      "velocity": -0.34699856
+    }
+  ],
+  "visualization_suggestions": [
+    "animated mass-spring displacement",
+    "position, velocity, and drive force time-series panel",
+    "phase-space trajectory colored by time",
+    "kinetic, spring, and total mechanical energy chart",
+    "parameter callout for natural frequency, drive frequency, and damping ratio"
+  ]
+}

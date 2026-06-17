@@ -1,0 +1,16 @@
+# mistral.rs serve --agent -m google/gemma-4-E4B-it --isq 8
+
+command = "serve"
+default_model_id = "google/gemma-4-E4B-it"
+
+[server]
+host = "0.0.0.0"
+port = 1234
+
+[runtime]
+agent = true
+
+[[models]]
+model_id = "google/gemma-4-E4B-it"
+[models.quantization]
+in_situ_quant = "8"

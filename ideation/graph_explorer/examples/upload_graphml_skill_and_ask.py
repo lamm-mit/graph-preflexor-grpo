@@ -43,6 +43,7 @@ import os
 import re
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 import zipfile
@@ -101,6 +102,7 @@ def multipart_upload_skill_zip(
     api_key: str,
     base_url: str,
     field_name: str,
+    try_root_fallback: bool = False,
     timeout: int = 120,
 ) -> Dict[str, Any]:
     """Upload a skill ZIP to POST /v1/skills using only the Python stdlib."""
@@ -120,26 +122,47 @@ def multipart_upload_skill_zip(
         ]
     )
 
-    url = f"{base_url.rstrip('/')}/skills"
-    request = urllib.request.Request(
-        url=url,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Content-Length": str(len(body)),
-        },
-    )
+    urls = [f"{base_url.rstrip('/')}/skills"]
+    parsed = urllib.parse.urlparse(base_url)
+    if try_root_fallback and parsed.path.rstrip("/") == "/v1":
+        root = urllib.parse.urlunparse(parsed._replace(path="", params="", query="", fragment="")).rstrip("/")
+        urls.append(f"{root}/skills")
 
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            payload = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Skill upload failed: HTTP {exc.code}\n{detail}") from exc
+    last_404: Optional[str] = None
+    for url in urls:
+        print(f"Skill upload endpoint: {url}")
+        request = urllib.request.Request(
+            url=url,
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Content-Length": str(len(body)),
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = response.read().decode("utf-8")
+            return json.loads(payload)
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            if exc.code == 404 and url != urls[-1]:
+                last_404 = f"HTTP 404 at {url}\n{detail}"
+                continue
+            if exc.code == 404:
+                hint = (
+                    "\n\nA 404 here means the running server does not expose the Skills upload "
+                    "route at this endpoint. For mistral.rs, restart the server from the TOML "
+                    "that has [runtime] agent = true, and verify you are not talking to an older "
+                    "process still bound to port 1234."
+                )
+                if last_404:
+                    hint = f"\n\nPrevious attempt:\n{last_404}" + hint
+                raise RuntimeError(f"Skill upload failed: HTTP {exc.code} at {url}\n{detail}{hint}") from exc
+            raise RuntimeError(f"Skill upload failed: HTTP {exc.code} at {url}\n{detail}") from exc
 
-    return json.loads(payload)
+    raise RuntimeError("Skill upload failed before making a request.")
 
 
 def extract_skill_id(upload_response: Dict[str, Any]) -> str:
@@ -246,6 +269,12 @@ def response_text(response: Any) -> str:
     return str(response)
 
 
+def response_json(response: Any) -> str:
+    if hasattr(response, "model_dump_json"):
+        return response.model_dump_json(indent=2)
+    return json.dumps(response, indent=2)
+
+
 def looks_like_plain_text_tool_call(text: str) -> bool:
     stripped = text.strip()
     if not stripped.startswith("{"):
@@ -349,6 +378,7 @@ def main() -> None:
             api_key=api_key,
             base_url=base_url,
             field_name=skill_upload_field,
+            try_root_fallback=local,
         )
         skill_id = extract_skill_id(upload_response)
         print(f"Uploaded skill_id: {skill_id}")
@@ -368,6 +398,8 @@ def main() -> None:
     print("\n=== Model answer ===\n")
     text = response_text(response)
     print(text)
+    print("\n=== Raw response JSON ===\n")
+    print(response_json(response))
     if looks_like_plain_text_tool_call(text):
         print(
             "\nNOTE: The model returned a JSON-looking tool call as plain text. "
