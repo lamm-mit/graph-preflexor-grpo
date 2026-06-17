@@ -1,0 +1,3 @@
+display_name: Reaction-Diffusion Poster
+short_description: Generate social-post science art from Gray-Scott dynamics.
+default_prompt: Create a square reaction-diffusion science-art poster with a caption.

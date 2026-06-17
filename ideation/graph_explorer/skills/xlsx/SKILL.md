@@ -1,10 +1,7 @@
 ---
 name: xlsx
-description: "Create, edit, analyze, or convert Excel spreadsheets (.xlsx, .xlsm) where the workbook file is the primary deliverable. Use for formulas, formatting, financial models, multi-sheet workbooks, and tabular cleanup exported to Excel. Also applies to .csv/.tsv when the user wants spreadsheet output. Do NOT use for Word documents, HTML reports, standalone Python scripts, database pipelines, or Google Sheets API work."
-allowed-tools: Read Write Edit Bash Grep Glob
+description: "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path — even casually (like \"the xlsx in my downloads\") — and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved."
 license: Proprietary. LICENSE.txt has complete terms
-metadata: {"version": "1.1", "skill-author": "K-Dense Inc."}
-compatibility: Requires Python 3.8+, LibreOffice (soffice on PATH), and gcc only when Unix sockets are restricted
 ---
 
 # Requirements for Outputs
@@ -72,39 +69,9 @@ Unless otherwise stated by the user or existing template
 
 A user may ask you to create, edit, or analyze the contents of an .xlsx file. You have different tools and workflows available for different tasks.
 
-## Installation
-
-```bash
-uv pip install openpyxl pandas
-```
-
-Optional — faster Excel reading across formats with pandas 2.2+:
-
-```bash
-uv pip install python-calamine
-```
-
-For untrusted workbook files, harden openpyxl against XML expansion attacks:
-
-```bash
-uv pip install defusedxml
-```
-
-See [openpyxl security guidance](https://openpyxl.readthedocs.io/en/stable/index.html#security).
-
 ## Important Requirements
 
-**LibreOffice required for formula recalculation**: Assume LibreOffice is installed for recalculating formula values using `scripts/recalc.py`. The script configures LibreOffice on first run, including in sandboxed environments where Unix sockets are restricted (handled by `scripts/office/soffice.py`).
-
-**System dependencies** (not installed via uv):
-
-| Tool | Purpose |
-|------|---------|
-| `soffice` (LibreOffice 7.x+) | Evaluates Excel formulas via `scripts/recalc.py` |
-| `gcc` | Only when Unix domain sockets are blocked; compiles a one-time shim into `~/.cache/xlsx-skill/lo-shim/` |
-| `gtimeout` (macOS, optional) | GNU coreutils `timeout` for recalc timeout support on Darwin |
-
-Verify LibreOffice is available: `soffice --version`
+**LibreOffice Required for Formula Recalculation**: You can assume LibreOffice is installed for recalculating formula values using the `scripts/recalc.py` script. The script automatically configures LibreOffice on first run, including in sandboxed environments where Unix sockets are restricted (handled by `scripts/office/soffice.py`)
 
 ## Reading and analyzing data
 
@@ -114,12 +81,9 @@ For data analysis, visualization, and basic operations, use **pandas** which pro
 ```python
 import pandas as pd
 
-# Read Excel (.xlsx default engine: openpyxl)
+# Read Excel
 df = pd.read_excel('file.xlsx')  # Default: first sheet
 all_sheets = pd.read_excel('file.xlsx', sheet_name=None)  # All sheets as dict
-
-# Optional: calamine engine (pandas 2.2+) — faster, supports .xlsx/.xls/.xlsb/.xlsm/.ods
-# df = pd.read_excel('file.xlsx', engine='calamine')
 
 # Analyze
 df.head()      # Preview data
@@ -170,9 +134,9 @@ This applies to ALL calculations - totals, percentages, ratios, differences, etc
 2. **Create/Load**: Create new workbook or load existing file
 3. **Modify**: Add/edit data, formulas, and formatting
 4. **Save**: Write to file
-5. **Recalculate formulas (MANDATORY IF USING FORMULAS)**: Use the `scripts/recalc.py` script
+5. **Recalculate formulas (MANDATORY IF USING FORMULAS)**: Use the scripts/recalc.py script
    ```bash
-   python skills/xlsx/scripts/recalc.py output.xlsx
+   python scripts/recalc.py output.xlsx
    ```
 6. **Verify and fix any errors**: 
    - The script returns JSON with error details
@@ -245,12 +209,12 @@ wb.save('modified.xlsx')
 Excel files created or modified by openpyxl contain formulas as strings but not calculated values. Use the provided `scripts/recalc.py` script to recalculate formulas:
 
 ```bash
-python skills/xlsx/scripts/recalc.py <excel_file> [timeout_seconds]
+python scripts/recalc.py <excel_file> [timeout_seconds]
 ```
 
 Example:
 ```bash
-python skills/xlsx/scripts/recalc.py output.xlsx 30
+python scripts/recalc.py output.xlsx 30
 ```
 
 The script:
@@ -302,7 +266,7 @@ The script returns JSON with error details:
 
 ### Library Selection
 - **pandas**: Best for data analysis, bulk operations, and simple data export
-- **openpyxl**: Best for complex formatting, formulas, and Excel-specific features (current stable: 3.1.5)
+- **openpyxl**: Best for complex formatting, formulas, and Excel-specific features
 
 ### Working with openpyxl
 - Cell indices are 1-based (row=1, column=1 refers to cell A1)

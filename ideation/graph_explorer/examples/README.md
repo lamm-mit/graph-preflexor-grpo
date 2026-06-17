@@ -281,6 +281,7 @@ skill_upload.json           uploaded skill metadata
 input_file_uploads.json     uploaded user file ids
 artifact_summary.json       downloaded/extracted artifact summary
 downloaded_files/           files downloaded from /v1/files/{id}/content
+                            or /v1/containers/{container_id}/files/{file_id}/content
 downloaded_files/shell_artifacts/
                             copied skill_output_* shell directories, when found
 extracted_artifacts/        extracted ZIP artifacts
@@ -289,9 +290,11 @@ extracted_artifacts/        extracted ZIP artifacts
 The CLI asks the skill to write shell artifacts into a directory named like
 `skill_output_<timestamp>_<skill>` and to report exact artifact paths. If
 mistral.rs surfaces generated files as response file objects, the CLI downloads
-them. If the server only leaves files in the shell workdir, the CLI scans for
-the requested `skill_output_*` directory in local mistral.rs shell/temp workdirs
-and copies it into `downloaded_files/shell_artifacts/`. If you pass
+them. It also understands OpenAI-style `container_file_citation` annotations
+with `container_id` and `file_id`, using the container file content endpoint.
+If the server only leaves files in the shell workdir, the CLI scans for the
+requested `skill_output_*` directory in local mistral.rs shell/temp workdirs and
+copies it into `downloaded_files/shell_artifacts/`. If you pass
 `--artifact-bundle`, the prompt also asks the skill to ZIP small artifacts and
 print a base64 marker that the CLI decodes into `downloaded_files/` and extracts
 into `extracted_artifacts/`. Keep this off for large D3/LaTeX/HTML/PDF artifacts
@@ -327,6 +330,7 @@ The CLI expects the skill directory name to match `SKILL.md` frontmatter
 | `scientific-schematics` | `scientific-schematics` | Scientific diagrams and schematics. |
 | `d3-viz` | `d3-viz` | Bespoke D3.js charts, graph visualizations, and interactive SVG/network views. |
 | `algorithmic-art` | `algorithmic-art` | Seeded p5.js generative art and interactive visual sketches. |
+| `reaction-diffusion-poster` | `reaction-diffusion-poster` | Deterministic Gray-Scott dynamics posters for social-ready science art. |
 | `slack-gif-creator` | `slack-gif-creator` | Animated GIFs optimized for Slack constraints. |
 | `skill-creator` | `skill-creator` | Creating, editing, benchmarking, and optimizing skills. |
 
@@ -605,6 +609,29 @@ Expected outputs:
 - candidate descriptor table,
 - clustering/similarity summary,
 - CSV artifact if generated.
+
+### 16. Reaction-Diffusion Science-Art Poster
+
+Use this as a reliable 4B-model-friendly visual skill. The model only needs to
+run a bundled renderer, so it avoids fragile HTML, JavaScript, or custom plotting
+code.
+
+```bash
+./mistralrs_skill_cli.py ../skills/reaction-diffusion-poster \
+  --max-tool-rounds 6 \
+  --response-timeout 900 \
+  --require-tool \
+  --query "Use reaction-diffusion-poster to create a square science-art social post titled 'Morphogenesis From Local Rules'. Use preset labyrinth, palette magma-cyan, seed 42. Save PNG posters, data, README, parameters, and caption. Verify files with find before answering."
+```
+
+Expected outputs:
+
+- `reaction_diffusion_poster.png` 4:5 social image,
+- `reaction_diffusion_poster_square.png` square social image,
+- `reaction_diffusion_data.npz`,
+- `parameters.json`,
+- `caption.txt`,
+- `README.md`.
 
 ## Troubleshooting
 

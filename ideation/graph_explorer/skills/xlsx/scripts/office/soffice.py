@@ -14,37 +14,15 @@ Usage:
     subprocess.run(["soffice", ...], env=env)
 """
 
-import hashlib
 import os
 import socket
 import subprocess
+import tempfile
 from pathlib import Path
-
-# User-owned cache dir (mode 0700) — not world-writable /tmp
-_SHIM_DIR = (
-    Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    / "xlsx-skill"
-    / "lo-shim"
-)
-_SHIM_SO = _SHIM_DIR / "lo_socket_shim.so"
-_SHIM_HASH_FILE = _SHIM_DIR / "lo_socket_shim.sha256"
-
-_SOFFICE_ENV_KEYS = (
-    "PATH",
-    "HOME",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "TMPDIR",
-    "TMP",
-    "TEMP",
-    "USER",
-)
 
 
 def get_soffice_env() -> dict:
-    """Return a minimal env for LibreOffice — avoids copying secrets from os.environ."""
-    env = {key: os.environ[key] for key in _SOFFICE_ENV_KEYS if key in os.environ}
+    env = os.environ.copy()
     env["SAL_USE_VCLPLUGIN"] = "svp"
 
     if _needs_shim():
@@ -59,8 +37,8 @@ def run_soffice(args: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(["soffice"] + args, env=env, **kwargs)
 
 
-def _shim_source_hash() -> str:
-    return hashlib.sha256(_SHIM_SOURCE.encode()).hexdigest()
+
+_SHIM_SO = Path(tempfile.gettempdir()) / "lo_socket_shim.so"
 
 
 def _needs_shim() -> bool:
@@ -73,31 +51,19 @@ def _needs_shim() -> bool:
 
 
 def _ensure_shim() -> Path:
-    _SHIM_DIR.mkdir(parents=True, exist_ok=True)
-    os.chmod(_SHIM_DIR, 0o700)
+    if _SHIM_SO.exists():
+        return _SHIM_SO
 
-    expected_hash = _shim_source_hash()
-
-    if _SHIM_SO.exists() and _SHIM_HASH_FILE.exists():
-        stored_hash = _SHIM_HASH_FILE.read_text().strip()
-        if stored_hash == expected_hash:
-            os.chmod(_SHIM_SO, 0o700)
-            return _SHIM_SO
-        _SHIM_SO.unlink(missing_ok=True)
-
-    src = _SHIM_DIR / "lo_socket_shim.c"
+    src = Path(tempfile.gettempdir()) / "lo_socket_shim.c"
     src.write_text(_SHIM_SOURCE)
-    os.chmod(src, 0o600)
     subprocess.run(
         ["gcc", "-shared", "-fPIC", "-o", str(_SHIM_SO), str(src), "-ldl"],
         check=True,
         capture_output=True,
     )
-    src.unlink(missing_ok=True)
-    os.chmod(_SHIM_SO, 0o700)
-    _SHIM_HASH_FILE.write_text(expected_hash)
-    os.chmod(_SHIM_HASH_FILE, 0o600)
+    src.unlink()
     return _SHIM_SO
+
 
 
 _SHIM_SOURCE = r"""
@@ -210,8 +176,8 @@ int close(int fd) {
 """
 
 
+
 if __name__ == "__main__":
     import sys
-
     result = run_soffice(sys.argv[1:])
     sys.exit(result.returncode)

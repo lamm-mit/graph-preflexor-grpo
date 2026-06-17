@@ -466,6 +466,35 @@ def iter_string_values(value: Any) -> Iterable[str]:
             yield from iter_string_values(child)
 
 
+def is_container_file_object(value: Dict[str, Any], inherited_container_id: Optional[str] = None) -> bool:
+    container_id = value.get("container_id") or inherited_container_id
+    file_id = value.get("file_id") or value.get("id")
+    return (
+        isinstance(container_id, str)
+        and bool(container_id)
+        and isinstance(file_id, str)
+        and bool(file_id)
+        and (
+            value.get("type") == "container_file_citation"
+            or file_id.startswith("cfile_")
+            or "filename" in value
+            or "name" in value
+        )
+    )
+
+
+def normalize_container_file_object(
+    value: Dict[str, Any],
+    inherited_container_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    normalized = dict(value)
+    if inherited_container_id and not normalized.get("container_id"):
+        normalized["container_id"] = inherited_container_id
+    if "file_id" not in normalized and isinstance(normalized.get("id"), str):
+        normalized["file_id"] = normalized["id"]
+    return normalized
+
+
 def is_file_object(value: Dict[str, Any]) -> bool:
     has_file_name = isinstance(value.get("name"), str) or isinstance(value.get("filename"), str)
     has_file_id = isinstance(value.get("id"), str) and value["id"].startswith("file")
@@ -484,24 +513,35 @@ def is_file_object(value: Dict[str, Any]) -> bool:
 
 def find_response_files(response: Dict[str, Any]) -> List[Dict[str, Any]]:
     found: List[Dict[str, Any]] = []
-    seen: set[Tuple[str, str, str]] = set()
+    seen: set[Tuple[str, str, str, str]] = set()
 
-    def visit(value: Any) -> None:
+    def add_file_object(value: Dict[str, Any]) -> None:
+        key = (
+            str(value.get("container_id") or ""),
+            str(value.get("file_id") or value.get("id") or ""),
+            str(value.get("name") or value.get("filename") or ""),
+            str(value.get("bytes") or ""),
+        )
+        if key not in seen:
+            seen.add(key)
+            found.append(value)
+
+    def visit(value: Any, inherited_container_id: Optional[str] = None) -> None:
         if isinstance(value, dict):
-            if is_file_object(value):
-                key = (
-                    str(value.get("id") or ""),
-                    str(value.get("name") or ""),
-                    str(value.get("bytes") or ""),
-                )
-                if key not in seen:
-                    seen.add(key)
-                    found.append(value)
+            container_id = value.get("container_id")
+            if not isinstance(container_id, str) or not container_id:
+                container_id = inherited_container_id
+
+            if is_container_file_object(value, container_id):
+                add_file_object(normalize_container_file_object(value, container_id))
+            elif is_file_object(value):
+                add_file_object(value)
+
             for child in value.values():
-                visit(child)
+                visit(child, container_id)
         elif isinstance(value, list):
             for child in value:
-                visit(child)
+                visit(child, inherited_container_id)
 
     visit(response.get("files", []))
     visit(response.get("output", []))
@@ -536,7 +576,15 @@ def write_file_object(
     timeout: int,
 ) -> Optional[Path]:
     download_dir.mkdir(parents=True, exist_ok=True)
-    name = safe_filename(str(file_obj.get("filename") or file_obj.get("name") or file_obj.get("id") or "file"))
+    name = safe_filename(
+        str(
+            file_obj.get("filename")
+            or file_obj.get("name")
+            or file_obj.get("file_id")
+            or file_obj.get("id")
+            or "file"
+        )
+    )
     dest = unique_path(download_dir / name)
 
     if file_obj.get("code") or file_obj.get("message"):
@@ -550,6 +598,21 @@ def write_file_object(
 
     if isinstance(file_obj.get("data_base64"), str):
         dest.write_bytes(base64.b64decode(file_obj["data_base64"]))
+        return dest
+
+    container_id = file_obj.get("container_id")
+    container_file_id = file_obj.get("file_id")
+    if not isinstance(container_file_id, str) and isinstance(file_obj.get("id"), str):
+        candidate_id = str(file_obj["id"])
+        if candidate_id.startswith("cfile_"):
+            container_file_id = candidate_id
+    if isinstance(container_id, str) and container_id and isinstance(container_file_id, str) and container_file_id:
+        url = (
+            f"{base_url.rstrip('/')}/containers/"
+            f"{urllib.parse.quote(container_id)}/files/"
+            f"{urllib.parse.quote(container_file_id)}/content"
+        )
+        dest.write_bytes(http_bytes("GET", url, timeout=timeout))
         return dest
 
     file_id = file_obj.get("id")
@@ -803,7 +866,9 @@ def save_response_artifacts(
         "saved_paths": [str(path) for path in saved],
         "note": (
             "First-class response files are saved from response files[] and fetched "
-            "from /v1/files/{id}/content when needed. ZIP marker bundles are parsed "
+            "from /v1/files/{id}/content when needed. OpenAI-style container file "
+            "annotations are fetched from /v1/containers/{container_id}/files/"
+            "{file_id}/content. ZIP marker bundles are parsed "
             f"from {ARTIFACT_BEGIN}/{ARTIFACT_END} blocks in tool output. If the "
             "model reports shell paths but mistral.rs does not expose files[], this "
             "CLI also looks for the requested skill_output_* directory in local "
@@ -887,9 +952,11 @@ See `answer.md` for the final model answer.
 The request asked the skill to write artifacts inside the shell working directory
 as `{output_label}` and, when possible, bundle that directory as `{output_label}.zip`.
 
-This CLI saves first-class `/v1/files` outputs, decodes optional artifact ZIP
-markers, and also tries to copy the requested `{output_label}` directory from
-local mistral.rs shell/temp workdirs when the server only reports shell paths.
+This CLI saves first-class `/v1/files` outputs, downloads OpenAI-style
+container file citations from `/v1/containers/{{container_id}}/files/{{file_id}}/content`,
+decodes optional artifact ZIP markers, and also tries to copy the requested
+`{output_label}` directory from local mistral.rs shell/temp workdirs when the
+server only reports shell paths.
 If no downloaded artifacts are listed, inspect `answer.md` and `response.json`.
 For the most reliable shell artifact retrieval, start mistral.rs with an
 explicit `--shell-workdir <path>`.

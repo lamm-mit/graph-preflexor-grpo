@@ -10,11 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
 from office.soffice import get_soffice_env
+
 from openpyxl import load_workbook
 
 MACRO_DIR_MACOS = "~/Library/Application Support/LibreOffice/4/user/basic/Standard"
@@ -167,7 +164,7 @@ def recalc(filename, timeout=30):
 def main():
     if len(sys.argv) < 2:
         print("Usage: python recalc.py <excel_file> [timeout_seconds]")
-        print("\nRecalculates all formulas in an Excel file using LibreOffice (soffice)")
+        print("\nRecalculates all formulas in an Excel file using LibreOffice")
         print("\nReturns JSON with error details:")
         print("  - status: 'success' or 'errors_found'")
         print("  - total_errors: Total number of Excel errors found")
