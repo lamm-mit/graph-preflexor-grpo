@@ -1,0 +1,4 @@
+interface:
+  display_name: "Fracture Mechanics"
+  short_description: "Run parameterized 2D lattice fracture simulations."
+  default_prompt: "Use $fracture-mechanics to simulate a pre-cracked 2D lattice with orientation 90 and 10000 steps, then save a high-quality fixed-axis movie plus stress-strain plot."
