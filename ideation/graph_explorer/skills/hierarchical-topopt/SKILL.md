@@ -39,7 +39,8 @@ python3 skills/hierarchical-topopt/scripts/run_hierarchical_topopt.py \
   --bc-preset cantilever-mid-down \
   --mesh-mode profile-stl \
   --dens-cut 0.30 \
-  --max-height 10
+  --max-height 10 \
+  --profile-origin bottom
 ```
 
 ## Core Parameters
@@ -57,6 +58,10 @@ python3 skills/hierarchical-topopt/scripts/run_hierarchical_topopt.py \
 - `--resize-scale`: scale density field before STL export.
 - `--dens-cut`: densities at or below this value are void for STL export.
 - `--max-height`: STL z-height.
+- `--profile-origin`: `bottom` creates a one-sided profile from `z=0` to
+  `density * max-height`; `center` creates a symmetric profile from
+  `-0.5 * density * max-height` to `+0.5 * density * max-height`. Applies to
+  `profile-stl`; flat and multimaterial STL exports remain bottom-anchored.
 - `--material-cuts`: comma-separated density bands for multimaterial export, e.g. `0.2,0.55,0.8,1.0`.
 
 ## Boundary Condition Model
