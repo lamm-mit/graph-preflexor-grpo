@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hierarchical TopOpt"
+  short_description: "Run 2D topology optimization with flexible supports, loads, and STL export."
+  default_prompt: "Use $hierarchical-topopt to optimize a 2D structure with custom supports and loads, then save density plots, boundary-condition previews, run metrics, and STL artifacts."
