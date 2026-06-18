@@ -98,6 +98,17 @@ Boundary condition JSON:
 Always prefer `distribution: "total"` for loads unless the user explicitly says
 force per node. A total load is split across selected nodes.
 
+Critical load selector rules:
+
+- `top_mid` means one top-center node, not a distributed line load.
+- `top_edge` means the entire top edge.
+- "middle 20 percent of the top edge" must use
+  `{"type": "edge_fraction", "edge": "top", "start": 0.4, "end": 0.6}`.
+- For "middle P percent" of an edge, use `edge_fraction` with
+  `start = (1 - P/100) / 2` and `end = (1 + P/100) / 2`.
+- For small local models, prefer a matching preset over custom JSON when one
+  exists.
+
 ## Selector Types
 
 String aliases:
@@ -226,9 +237,12 @@ Use presets for common cases:
 
 - `cantilever-tip-down`
 - `cantilever-mid-down`
+- `left-fixed-top-mid-20-down`
 - `bridge-center-load`
+- `bridge-top-mid-20-down`
 - `simply-supported-center-load`
 - `fixed-fixed-center-load`
+- `fixed-fixed-top-mid-20-down`
 - `tension-strip`
 - `shear-strip`
 

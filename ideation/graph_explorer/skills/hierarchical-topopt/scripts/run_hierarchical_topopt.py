@@ -41,12 +41,39 @@ BC_PRESETS: dict[str, dict[str, Any]] = {
         "supports": [{"selector": "left_edge", "ux": True, "uy": True, "source": "left edge clamp"}],
         "loads": [{"selector": "right_mid", "fx": 0.0, "fy": -1.0, "distribution": "total", "source": "downward right-mid load"}],
     },
+    "left-fixed-top-mid-20-down": {
+        "supports": [{"selector": "left_edge", "ux": True, "uy": True, "source": "left edge clamp"}],
+        "loads": [
+            {
+                "selector": {"type": "edge_fraction", "edge": "top", "start": 0.4, "end": 0.6},
+                "fx": 0.0,
+                "fy": -1.0,
+                "distribution": "total",
+                "source": "downward distributed load over middle 20 percent of top edge",
+            }
+        ],
+    },
     "bridge-center-load": {
         "supports": [
             {"selector": "left_bottom", "ux": True, "uy": True, "source": "lower-left pin"},
             {"selector": "right_bottom", "ux": False, "uy": True, "source": "lower-right roller"},
         ],
         "loads": [{"selector": "top_mid", "fx": 0.0, "fy": -1.0, "distribution": "total", "source": "downward top-center load"}],
+    },
+    "bridge-top-mid-20-down": {
+        "supports": [
+            {"selector": "left_bottom", "ux": True, "uy": True, "source": "lower-left pin"},
+            {"selector": "right_bottom", "ux": False, "uy": True, "source": "lower-right roller"},
+        ],
+        "loads": [
+            {
+                "selector": {"type": "edge_fraction", "edge": "top", "start": 0.4, "end": 0.6},
+                "fx": 0.0,
+                "fy": -1.0,
+                "distribution": "total",
+                "source": "downward distributed load over middle 20 percent of top edge",
+            }
+        ],
     },
     "simply-supported-center-load": {
         "supports": [
@@ -61,6 +88,21 @@ BC_PRESETS: dict[str, dict[str, Any]] = {
             {"selector": "right_edge", "ux": True, "uy": True, "source": "right edge clamp"},
         ],
         "loads": [{"selector": "top_mid", "fx": 0.0, "fy": -1.0, "distribution": "total", "source": "downward top-center load"}],
+    },
+    "fixed-fixed-top-mid-20-down": {
+        "supports": [
+            {"selector": "left_edge", "ux": True, "uy": True, "source": "left edge clamp"},
+            {"selector": "right_edge", "ux": True, "uy": True, "source": "right edge clamp"},
+        ],
+        "loads": [
+            {
+                "selector": {"type": "edge_fraction", "edge": "top", "start": 0.4, "end": 0.6},
+                "fx": 0.0,
+                "fy": -1.0,
+                "distribution": "total",
+                "source": "downward distributed load over middle 20 percent of top edge",
+            }
+        ],
     },
     "tension-strip": {
         "supports": [{"selector": "left_edge", "ux": True, "uy": True, "source": "left edge clamp"}],
