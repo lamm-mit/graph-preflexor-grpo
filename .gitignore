@@ -16,5 +16,8 @@ __pycache__/
 ./ideation/.cache/*
 ./ideation/.*
 *.cache
+/.beam_mechanics_cache/
+/.simple_beam_cache/
+/gemma4-e4b-sft-graph-10k-L_step_600/
 ./ideation/graph_explorer/job_*
 ideation/graph_explorer/examples/skill_cli_runs/
