@@ -2,7 +2,7 @@
 name: fracture-mechanics
 description: Run parameterized 2D lattice fracture simulations from the Fracture and Mechanics notebook as offline artifacts. Use when asked to simulate a pre-cracked triangular lattice, Mode I tension, Mode II shear, Morse/Lennard-Jones/MLIP pair potentials, temperature effects, strain-rate effects, crack propagation, stress-strain curves, or fracture movies. Produces an animated movie, stress-strain plot, final lattice image, CSV data, JSON run metrics, and README by running a bundled Python script.
 license: 3-clause BSD license
-metadata: {"version": "1.0", "skill-author": "Markus J. Buehler, Massachusetts Institute of Technology (MIT), Laboratory for Atomistic and Molecular Mechanics (LAMM)"}
+metadata: {"version": "1.1", "skill-author": "Markus J. Buehler, Massachusetts Institute of Technology (MIT), Laboratory for Atomistic and Molecular Mechanics (LAMM)"}
 ---
 
 # Fracture Mechanics
@@ -22,8 +22,10 @@ simulation from scratch.
    unless a server-side timeout requires the fallback `--frames 16 --dpi 90`.
    The renderer uses fixed slab bounds, fixed stress-strain axes, and a fixed color scale
    across frames to prevent movie flicker.
-4. Verify the artifacts with `find`.
-5. Final answer must list exact artifact paths and mention the peak stress/strain from `summary.json`.
+4. Run the simulation as its own shell command. Do not chain `find` or
+   `cat summary.json` after the long simulation command in the same shell call.
+5. Verify the artifacts with `find` in a separate shell call after the simulation succeeds.
+6. Final answer must list exact artifact paths and mention the peak stress/strain from `summary.json`.
 
 Default command:
 
@@ -84,6 +86,53 @@ Use these options when the user asks for specific settings:
 - `--color-by`: `stress`, `pe`, `coordination`, `ke`, or `speed`.
 - `--movie-fps`: GIF/HTML playback speed. Default 16.
 - `--dpi`: figure and movie-frame resolution. Default 120; use 90 only as a timeout fallback.
+
+## Local Shell Timeout Policy
+
+The local mistral.rs shell executor may stop a single shell call after about 30
+seconds. The CLI `--response-timeout` controls the HTTP response wait, not the
+per-shell-call runtime. Avoid sending a long simulation plus verification
+commands in one shell call, because the timeout can prevent `find` and
+`summary.json` inspection from running.
+
+Local-safe final artifact profile:
+
+```text
+nx <= 96
+ny <= 36
+max-atoms <= 5000
+steps = 10000
+frames = 48
+dpi = 120
+```
+
+Timeout fallback profile:
+
+```text
+nx <= 96
+ny <= 36
+max-atoms <= 5000
+steps = 10000
+frames = 16
+dpi = 90
+```
+
+If the user requests a larger exact run, such as `steps 30000`, `nx 128`,
+`ny 48`, or `max-atoms 50000`, first decide whether exact parameters are
+required:
+
+- If exact parameters are required, do not claim the agent shell completed the
+  run. Explain that the exact run exceeds the per-shell-call limit and provide
+  the direct command for the user to run in a normal terminal.
+- If the user mainly wants artifacts, run the timeout fallback profile while
+  preserving the requested physics choices where possible: potential, mode,
+  orientation, crack length, temperature, strain rate, damping, `dt`,
+  `bond-cutoff`, `break-stretch`, `color-by`, and potential parameters. State
+  explicitly which size/rendering/step parameters were reduced.
+
+If a command times out, do not end with failure if a fallback artifact can still
+be produced. Rerun with the timeout fallback profile, verify files with `find`,
+read `summary.json`, and report the fallback results clearly.
 
 ## Recommended Recipes
 

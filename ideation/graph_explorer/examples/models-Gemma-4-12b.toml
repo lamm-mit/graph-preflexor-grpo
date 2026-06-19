@@ -9,6 +9,7 @@ port = 1234
 
 [runtime]
 agent = true
+shell_timeout = 3600
 
 [[models]]
 model_id = "google/gemma-4-12B-it"

@@ -17,3 +17,4 @@ __pycache__/
 ./ideation/.*
 *.cache
 ./ideation/graph_explorer/job_*
+ideation/graph_explorer/examples/skill_cli_runs/

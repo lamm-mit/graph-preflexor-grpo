@@ -331,6 +331,10 @@ The CLI expects the skill directory name to match `SKILL.md` frontmatter
 | `d3-viz` | `d3-viz` | Bespoke D3.js charts, graph visualizations, and interactive SVG/network views. |
 | `algorithmic-art` | `algorithmic-art` | Seeded p5.js generative art and interactive visual sketches. |
 | `reaction-diffusion-poster` | `reaction-diffusion-poster` | Deterministic Gray-Scott dynamics posters for social-ready science art. |
+| `morphogenesis-postcard` | `morphogenesis-postcard` | Container-rendered morphogenesis PNG postcards from reaction-diffusion dynamics. |
+| `fracture-mechanics` | `fracture-mechanics` | Parameterized 2D pre-cracked lattice fracture movies and stress-strain plots. |
+| `beam-mechanics` | `beam-mechanics` | Simple dimensionless 1D beam mechanics with selectable supports, loads, plots, and deformation GIFs. |
+| `hierarchical-topopt` | `hierarchical-topopt` | Fast 2D SIMP topology optimization with flexible supports, loads, density plots, and STL exports. |
 | `slack-gif-creator` | `slack-gif-creator` | Animated GIFs optimized for Slack constraints. |
 | `skill-creator` | `skill-creator` | Creating, editing, benchmarking, and optimizing skills. |
 
@@ -632,6 +636,383 @@ Expected outputs:
 - `parameters.json`,
 - `caption.txt`,
 - `README.md`.
+
+### 17. One-Slide PPTX Visual Summary
+
+Use this when you want to test the `pptx` skill directly with a narrow,
+well-defined deliverable. It avoids web search and asks for exactly one slide.
+
+```bash
+./mistralrs_skill_cli.py ../skills/pptx \
+  --max-tool-rounds 10 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use the pptx skill to create exactly one PowerPoint slide named materiomics_one_slide_summary.pptx. The slide title is 'Materiomics: Hierarchy to Function'. Make a clean 16:9 slide with four labeled stages: nanoscale motif, fiber/interface, architecture, function/property. Use simple editable shapes, arrows, and short text only. Save the .pptx in the requested skill output directory. If possible, also export a PNG preview. Before answering, run find on the output directory and only report success if the .pptx file exists. Final answer must list exact artifact paths."
+```
+
+Expected outputs:
+
+- `materiomics_one_slide_summary.pptx`,
+- optional PNG preview,
+- exact paths in `answer.md` and `RESULTS.md`.
+
+### 18. Morphogenesis Science-Art Postcard
+
+Use this as a reliable container/shell visual skill for smaller local models.
+The model only needs to run a bundled standard-library Python renderer, so it
+does not depend on browser execution, JavaScript, Pillow, matplotlib, or npm.
+
+```bash
+./mistralrs_skill_cli.py ../skills/morphogenesis-postcard \
+  --max-tool-rounds 6 \
+  --response-timeout 900 \
+  --require-tool \
+  --query "Use morphogenesis-postcard to create a square science-art social post titled 'Stress Waves in a Growing Interface'. First write prompt-specific visual rule code as agent_rules.py in the requested skill output directory. Use this exact visual brief for the rule code and renderer: 'stress-wave interference in a growing hierarchical material interface with branching cracks, glowing defects, and nonlinear energy flow'. Then render with --rule-code pointing to agent_rules.py. Save the PNG, agent_rules.py, visual_rule_profile.json, parameters JSON, caption, and README. Before answering, run find on the output directory and list exact artifact paths."
+```
+
+Expected outputs:
+
+- social-post PNG,
+- `agent_rules.py` visual rule code,
+- `visual_rule_profile.json`,
+- `parameters.json`,
+- `caption.txt`,
+- `README.md`,
+- prompt profile recorded in `parameters.json`,
+- exact paths in `answer.md` and `RESULTS.md`.
+
+Alternative prompt-driven graph-art example:
+
+```bash
+./mistralrs_skill_cli.py ../skills/morphogenesis-postcard \
+  --max-tool-rounds 6 \
+  --response-timeout 900 \
+  --require-tool \
+  --query "Use morphogenesis-postcard to create a square science-art PNG titled 'Bridge Field'. First write prompt-specific visual rule code as agent_rules.py in the requested skill output directory. Use this exact visual brief for the rule code and renderer: 'luminous graph of research ideas bridging distant modules, with nodes, links, hidden paths, and morphogenesis-like diffusion'. Then render with --rule-code pointing to agent_rules.py. Save PNG, agent_rules.py, visual_rule_profile.json, parameters JSON, caption, and README artifacts. Before answering, run find on the output directory and list exact artifact paths."
+```
+
+Direct local script smoke test:
+
+```bash
+python ../skills/morphogenesis-postcard/scripts/write_visual_rules.py \
+  --out /tmp/morphogenesis-postcard-demo/agent_rules.py \
+  --profile-json /tmp/morphogenesis-postcard-demo/visual_rule_profile.json \
+  --prompt "stress-wave interference in a growing hierarchical material interface with branching cracks, glowing defects, and nonlinear energy flow" \
+  --title "Stress Waves in a Growing Interface" \
+  --subtitle "Prompt-written reaction-diffusion rules"
+
+python ../skills/morphogenesis-postcard/scripts/make_morphogenesis_postcard.py \
+  --out /tmp/morphogenesis-postcard-demo \
+  --rule-code /tmp/morphogenesis-postcard-demo/agent_rules.py \
+  --prompt "stress-wave interference in a growing hierarchical material interface with branching cracks, glowing defects, and nonlinear energy flow" \
+  --title "Stress Waves in a Growing Interface" \
+  --subtitle "Prompt-written reaction-diffusion rules" \
+  --auto-style \
+  --format square \
+  --steps 120 \
+  --size 720
+```
+
+Advanced direct local script smoke test with a prewritten custom rule file:
+
+```bash
+python ../skills/morphogenesis-postcard/scripts/make_morphogenesis_postcard.py \
+  --out /tmp/morphogenesis-agent-rules-demo \
+  --rule-code morphogenesis_agent_rules_example.py \
+  --title "Agent-Written Morphogenesis" \
+  --subtitle "Custom seed fields, tone rules, and overlay motifs" \
+  --seed agent-rules-01 \
+  --preset coral \
+  --palette noir-neon \
+  --format square \
+  --steps 120 \
+  --size 720
+```
+
+Other expressive recipes:
+
+```bash
+python ../skills/morphogenesis-postcard/scripts/write_visual_rules.py \
+  --out /tmp/morphogenesis-specimen-demo/agent_rules.py \
+  --profile-json /tmp/morphogenesis-specimen-demo/visual_rule_profile.json \
+  --prompt "quiet museum specimen of cellular morphogenesis in ice-blue symmetry, like an archived biological crystal" \
+  --title "Specimen of Emergent Order" \
+  --subtitle "Symmetric Turing field, constrained growth"
+
+python ../skills/morphogenesis-postcard/scripts/make_morphogenesis_postcard.py \
+  --out /tmp/morphogenesis-specimen-demo \
+  --rule-code /tmp/morphogenesis-specimen-demo/agent_rules.py \
+  --prompt "quiet museum specimen of cellular morphogenesis in ice-blue symmetry, like an archived biological crystal" \
+  --title "Specimen of Emergent Order" \
+  --subtitle "Symmetric Turing field, constrained growth" \
+  --auto-style \
+  --format square \
+  --steps 120 \
+  --size 720
+```
+
+```bash
+python ../skills/morphogenesis-postcard/scripts/write_visual_rules.py \
+  --out /tmp/morphogenesis-triptych-demo/agent_rules.py \
+  --profile-json /tmp/morphogenesis-triptych-demo/visual_rule_profile.json \
+  --prompt "three-panel scientific triptych of branching biofilm fibers, cellular growth fronts, and nonlinear wave coupling" \
+  --title "Three Views of a Reaction Field" \
+  --subtitle "One seed, shifted sampling windows"
+
+python ../skills/morphogenesis-postcard/scripts/make_morphogenesis_postcard.py \
+  --out /tmp/morphogenesis-triptych-demo \
+  --rule-code /tmp/morphogenesis-triptych-demo/agent_rules.py \
+  --prompt "three-panel scientific triptych of branching biofilm fibers, cellular growth fronts, and nonlinear wave coupling" \
+  --title "Three Views of a Reaction Field" \
+  --subtitle "One seed, shifted sampling windows" \
+  --auto-style \
+  --format portrait \
+  --steps 120 \
+  --size 720
+```
+
+### 19. Fracture Mechanics Movie And Stress-Strain Curve
+
+Use this when you want a serious simulation artifact that a smaller local model
+can produce reliably by running a bundled script. It simulates a pre-cracked 2D
+triangular lattice under Mode I or Mode II loading and saves a movie plus
+stress-strain data.
+
+```bash
+./mistralrs_skill_cli.py ../skills/fracture-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 2400 \
+  --require-tool \
+  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode I, orientation 90, nx 96, ny 36, max-atoms 5000, crack-length 0.34, temperature 0.003, strain-rate 0.0035, damping 0.30, dt 0.005, steps 10000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
+```
+
+Expected outputs:
+
+- `fracture_movie.gif`,
+- `fracture_movie.html`,
+- `frames/frame_*.png`,
+- `stress_strain.png`,
+- `final_lattice.png`,
+- `stress_strain.csv`,
+- `summary.json`,
+- `parameters.json`,
+- `README.md`.
+
+```bash
+./mistralrs_skill_cli.py ../skills/fracture-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 3600 \
+  --require-tool \
+  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode I, orientation 90, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 30000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
+```
+
+Mode II:
+```bash
+./mistralrs_skill_cli.py ../skills/fracture-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 3600 \
+  --require-tool \
+  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode II, orientation 90, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 80000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
+```
+
+
+Direct local full simulation:
+
+```bash
+python ../skills/fracture-mechanics/scripts/run_fracture_sim.py \
+  --out /tmp/fracture-mechanics-demo \
+  --title "Brittle Mode I Fracture" \
+  --potential morse \
+  --mode I \
+  --orientation 90 \
+  --nx 96 \
+  --ny 36 \
+  --max-atoms 5000 \
+  --crack-length 0.34 \
+  --temperature 0.003 \
+  --strain-rate 0.0035 \
+  --damping 0.30 \
+  --dt 0.005 \
+  --steps 10000 \
+  --frames 48 \
+  --dpi 120 \
+  --movie-fps 16 \
+  --bond-cutoff 1.35 \
+  --break-stretch 1.65 \
+  --morse-a 7.0 \
+  --color-by stress
+```
+
+### 20. Beam Mechanics Plots And Deformation GIFs
+
+Use this for a compact, reliable mechanics artifact. The skill is dimensionless:
+no units, no YAML, no JSON input schema. For local 4B models, start without
+`--require-tool`; add it only if your tool-calling setup is stable.
+
+Baseline simply supported beam:
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless simply supported beam of length 10 with a downward point load of magnitude 1 at midspan. Use the bundled simple_beam_lab.py script. Save all plots, the deformation GIF, field data CSV, reactions JSON, summary JSON, manifest JSON, and README. Verify the output directory with find before answering. Final answer must report support reactions, maximum absolute deflection, maximum absolute bending moment, maximum absolute shear, vertical equilibrium residual, and exact artifact paths."
+```
+
+Overhanging beam with mixed loading:
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless overhanging beam of length 10. Use the overhang preset, apply a downward point load of magnitude 1 at the free right end x=10, and a downward uniform load of magnitude 0.1 across the full span from x=0 to x=10. Use the bundled simple_beam_lab.py script. Save structure, deformed shape, deflection, shear, moment, dashboard, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find and report reactions, max deflection, max moment, max shear, equilibrium residual, and exact artifact paths."
+```
+
+Fixed-fixed beam with a local distributed load:
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless fixed-fixed beam of length 12. Apply a downward uniform load of magnitude 0.2 only across the middle third from x=4 to x=8, plus a clockwise point moment of magnitude 0.5 at x=6. Use the bundled simple_beam_lab.py script. Save plots, deformation GIF, CSV data, reactions JSON, summary JSON, manifest JSON, and README. Verify the output directory with find before answering. Final answer must list exact artifact paths and summarize support reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, and vertical equilibrium residual."
+```
+
+Custom beam with several supports and a spring:
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless custom beam of length 12. Use a pin at the left end, a roller at the right end, an additional roller support at x=8, and a vertical spring at x=6 with stiffness 20. Apply downward point loads of magnitude 1 at x=4 and 0.6 at x=9, plus a downward uniform load of magnitude 0.05 from x=2 to x=10. Use the bundled simple_beam_lab.py script. Save plots, deformation GIF, CSV data, reactions JSON, summary JSON, manifest JSON, and README. Verify the output directory with find before answering. Final answer must list exact artifact paths and summarize the reactions, max deflection, max moment, max shear, and equilibrium residual."
+```
+
+Visually clean point-load cases:
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless cantilever beam of length 9 titled 'Cantilever Tip Load'. Use a fixed support at the left end and a free right end. Apply only one downward point load of magnitude 1 at the free end x=9. Use the bundled simple_beam_lab.py script. Save structure, deformed shape, deflection, shear, moment, dashboard, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report the fixed-end reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, vertical equilibrium residual, and exact artifact paths."
+```
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless fixed-fixed beam of length 10 titled 'Locked Beam Center Load'. Use fixed supports at both ends. Apply only one downward point load of magnitude 1 at midspan x=5. Use the bundled simple_beam_lab.py script. Save all plots, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report support reactions, maximum absolute deflection, maximum absolute bending moment, maximum absolute shear, vertical equilibrium residual, and exact artifact paths."
+```
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless simply supported beam of length 12 titled 'Twin Point Loads'. Use a pin at x=0 and a roller at x=12. Apply only two downward point loads: magnitude 0.8 at x=4 and magnitude 0.8 at x=8. Use the bundled simple_beam_lab.py script. Save structure, deformed shape, deflection, shear, moment, dashboard, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, equilibrium residual, and exact artifact paths."
+```
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless custom beam of length 12 titled 'Elastic Midspan Prop'. Use a pin at x=0, a roller at x=12, and a vertical spring at x=6 with stiffness 12. Apply only one downward point load of magnitude 1.2 at x=6. Use the bundled simple_beam_lab.py script. Save all plots, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report support and spring reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, vertical equilibrium residual, and exact artifact paths."
+```
+
+Visually clean distributed-load cases:
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless simply supported beam of length 14 titled 'Central Patch Load'. Use a pin at x=0 and a roller at x=14. Apply only a downward uniform load of magnitude 0.18 over the central patch from x=5 to x=9. Use the bundled simple_beam_lab.py script. Save structure, deformed shape, deflection, shear, moment, dashboard, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, equilibrium residual, and exact artifact paths."
+```
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless cantilever beam of length 10 titled 'Wind Loaded Cantilever'. Use a fixed support at the left end and a free right end. Apply only a downward uniform load of magnitude 0.12 over the full span from x=0 to x=10. Use the bundled simple_beam_lab.py script. Save all plots, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report fixed-end reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, vertical equilibrium residual, and exact artifact paths."
+```
+
+```bash
+./mistralrs_skill_cli.py ../skills/beam-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --query "Use beam-mechanics to analyze a dimensionless custom beam of length 16 titled 'Suspended Span Patch Load'. Use a pin at x=0, a roller at x=16, and an internal roller support at x=10. Apply only a downward uniform load of magnitude 0.10 from x=3 to x=7. Use the bundled simple_beam_lab.py script. Save structure, deformed shape, deflection, shear, moment, dashboard, deformation GIF, field_data.csv, reactions.json, summary.json, manifest.json, and README. Verify files with find. Final answer must report support reactions, maximum absolute deflection, maximum absolute moment, maximum absolute shear, vertical equilibrium residual, and exact artifact paths."
+```
+
+Expected outputs:
+
+- `structure.png`,
+- `deformed_shape.png`,
+- `deflection.png`,
+- `moment.png`,
+- `shear.png`,
+- `dashboard.png`,
+- `deformation.gif`,
+- `frames/frame_*.png`,
+- `field_data.csv`,
+- `summary.json`,
+- `reactions.json`,
+- `manifest.json`,
+- `README.md`.
+
+### 21. Hierarchical Topology Optimization Examples
+
+Use this when you want a more design-like artifact: density fields, resolved
+boundary conditions, convergence history, and optional STL geometry. The skill
+is intentionally lightweight and avoids gyroids, hole lattices, marching cubes,
+and heavy boolean geometry.
+
+Cantilever with midpoint load, profile STL:
+
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 10 \
+  --response-timeout 1800 \
+  --query "Use hierarchical-topopt to optimize a 2D cantilever. Use nelx 100, nely 35, volfrac 0.50, penal 4.0, rmin 4.0, density filter, maxiter 220, and bc-preset cantilever-mid-down. Use mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin bottom. Save density.png, density_resized.png, density.npy, density.csv, optimization_history.csv, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, convergence.png, result_profile.stl, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
+
+Bridge with pin/roller supports and middle-20-percent top load:
+
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 12 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a bridge-like 2D structure. Use nelx 120, nely 40, volfrac 0.45, penal 4.0, rmin 4.2, density filter, and 250 iterations. Define custom boundary conditions with a pin support at the lower-left corner, a roller support at the lower-right corner, and a downward distributed total load across the middle 20 percent of the top edge. Write boundary_conditions.json using edge_fraction start 0.4 end 0.6 for the top-edge load, preview it as bc_preview.png, then run the optimization with mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. Save density images/data, optimization history, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, result_profile.stl, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
+
+Shear strip:
+
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 10 \
+  --response-timeout 1800 \
+  --query "Use hierarchical-topopt to optimize a compact shear strip. Use nelx 90, nely 30, volfrac 0.55, penal 3.5, rmin 3.5, sensitivity filter, maxiter 180, and bc-preset shear-strip. Use mesh-mode density-only for a fast run. Save density.png, density_resized.png, density.npy, density.csv, optimization_history.csv, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, convergence.png, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
+
+Fixed-fixed beam with centered top patch load and symmetric profile STL:
+
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 12 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a fixed-fixed beam-like plate with a localized downward top load. Use nelx 110, nely 32, volfrac 0.48, penal 4.0, rmin 4.0, density filter, and maxiter 220. Use the fixed-fixed-top-mid-20-down preset if available; otherwise write boundary_conditions.json with fixed left and right edges and an edge_fraction top load from start 0.4 to end 0.6 with distribution total. Run with mesh-mode profile-stl, dens-cut 0.32, max-height 8, and profile-origin center. Save all density plots/data, boundary-condition files, convergence plot, STL, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
+
+Expected outputs:
+
+- `density.png`,
+- `density_resized.png`,
+- `density.npy`,
+- `density_resized.npy`,
+- `density.csv`,
+- `optimization_history.csv`,
+- `boundary_conditions.json`,
+- `boundary_conditions_resolved.json`,
+- `bc_preview.png`,
+- `convergence.png`,
+- `summary.json`,
+- `parameters.json`,
+- `README.md`,
+- optional `result_profile.stl`, `result_flat.stl`, or multimaterial STL files depending on `--mesh-mode`.
 
 ## Troubleshooting
 

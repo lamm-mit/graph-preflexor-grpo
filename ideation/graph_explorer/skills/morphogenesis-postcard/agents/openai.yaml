@@ -1,0 +1,4 @@
+interface:
+  display_name: "Morphogenesis Postcard"
+  short_description: "Write visual-rule code and render morphogenesis PNGs."
+  default_prompt: "Use $morphogenesis-postcard to write prompt-specific visual rule code, then render a square science-art PNG from this prompt: stress-wave interference in hierarchical materials with branching cracks and glowing defects."

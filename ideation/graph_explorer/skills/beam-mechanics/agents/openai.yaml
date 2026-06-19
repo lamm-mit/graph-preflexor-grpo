@@ -1,0 +1,4 @@
+interface:
+  display_name: "Beam Mechanics"
+  short_description: "Run a simple dimensionless beam solver with selectable supports, loads, plots, data, and GIFs."
+  default_prompt: "Use $beam-mechanics to run the bundled simple_beam_lab.py script for a dimensionless beam with selected supports and loads. Verify the output directory, read summary.json and reactions.json, then report reactions, max deflection, max moment, max shear, equilibrium residual, and exact artifact paths."
