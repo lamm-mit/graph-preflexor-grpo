@@ -16,6 +16,9 @@ Usage:
     # Single prompt from command line
     python test_model.py --model ./checkpoint --prompt "Explain how spider silk achieves high strength"
 
+    # Load a Hub model/adapter at an earlier commit
+    python test_model.py --model lamm-mit/orpo-graph_v1 --revision <commit_sha> --test
+
     # Adjust generation params
     python test_model.py --model ./checkpoint --test --max_tokens 2048 --temperature 0.7
 """
@@ -56,42 +59,61 @@ def get_config_vocab_size(config):
     return None
 
 
-def load_tokenizer_with_fallback(model_path: str, tokenizer_model: Optional[str] = None):
+def load_tokenizer_with_fallback(
+    model_path: str,
+    tokenizer_model: Optional[str] = None,
+    revision: Optional[str] = None,
+):
     """Load tokenizer, falling back when merged checkpoints contain stale tokenizer metadata."""
-    candidates = [model_path]
+    model_revision = revision if not os.path.isdir(model_path) else None
+    candidates = [(model_path, model_revision)]
 
     if tokenizer_model:
-        candidates.append(tokenizer_model)
+        tokenizer_revision = revision if tokenizer_model == model_path and not os.path.isdir(tokenizer_model) else None
+        candidates.append((tokenizer_model, tokenizer_revision))
     else:
         try:
-            cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+            cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=True, revision=model_revision)
             config_source = getattr(cfg, "_name_or_path", None)
-            if config_source and config_source not in candidates:
-                candidates.append(config_source)
+            if config_source and config_source not in [candidate for candidate, _ in candidates]:
+                candidates.append((config_source, None))
         except Exception as exc:
             print(f"Could not inspect config for tokenizer fallback: {exc}")
 
     errors = []
-    for candidate in candidates:
+    for candidate, candidate_revision in candidates:
         for label, kwargs in (
             ("default", {}),
             ("extra_special_tokens override", {"extra_special_tokens": {}}),
         ):
             try:
-                tokenizer = AutoTokenizer.from_pretrained(candidate, trust_remote_code=True, **kwargs)
+                tokenizer = AutoTokenizer.from_pretrained(
+                    candidate,
+                    trust_remote_code=True,
+                    revision=candidate_revision,
+                    **kwargs,
+                )
                 if candidate != model_path or kwargs:
                     print(f"Loaded tokenizer from {candidate} ({label})")
                 return tokenizer
             except Exception as exc:
-                errors.append(f"{candidate} ({label}): {type(exc).__name__}: {exc}")
-                print(f"Tokenizer load failed from {candidate} ({label}): {exc}")
+                revision_label = f" @ {candidate_revision}" if candidate_revision else ""
+                errors.append(f"{candidate}{revision_label} ({label}): {type(exc).__name__}: {exc}")
+                print(f"Tokenizer load failed from {candidate}{revision_label} ({label}): {exc}")
 
     raise RuntimeError("Could not load tokenizer from any candidate:\n" + "\n".join(errors))
 
 
-def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_model: Optional[str] = None):
+def load_model_and_tokenizer(
+    model_path: str,
+    device: str = "auto",
+    tokenizer_model: Optional[str] = None,
+    revision: Optional[str] = None,
+):
     """Load model and tokenizer from local path or Hub (with PEFT adapter support)."""
     print(f"Loading model: {model_path}")
+    if revision:
+        print(f"Revision: {revision}")
 
     # Determine device and dtype
     if device == "auto":
@@ -117,6 +139,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
         dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
 
     # Check if this is a PEFT adapter (has adapter_config.json)
+    model_revision = revision if not os.path.isdir(model_path) else None
     adapter_config_path = os.path.join(model_path, "adapter_config.json")
     is_peft_adapter = os.path.exists(adapter_config_path)
 
@@ -124,7 +147,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
     if not is_peft_adapter and not os.path.isdir(model_path):
         try:
             from huggingface_hub import hf_hub_download
-            hf_hub_download(model_path, "adapter_config.json")
+            hf_hub_download(model_path, "adapter_config.json", revision=model_revision)
             is_peft_adapter = True
         except Exception:
             pass
@@ -137,7 +160,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
                 adapter_config = json.load(f)
         except FileNotFoundError:
             from huggingface_hub import hf_hub_download
-            config_path = hf_hub_download(model_path, "adapter_config.json")
+            config_path = hf_hub_download(model_path, "adapter_config.json", revision=model_revision)
             with open(config_path, "r") as f:
                 adapter_config = json.load(f)
 
@@ -146,7 +169,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
         print(f"  Adapter: {model_path}")
 
         # Load tokenizer from adapter, falling back to base model if adapter metadata is stale.
-        tokenizer = load_tokenizer_with_fallback(model_path, tokenizer_model or base_model_name)
+        tokenizer = load_tokenizer_with_fallback(model_path, tokenizer_model or base_model_name, revision=revision)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -165,7 +188,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
         # Try loading adapter without resizing first (works if no special tokens were added)
         # If that fails, try resizing to match tokenizer
         try:
-            model = PeftModel.from_pretrained(model, model_path)
+            model = PeftModel.from_pretrained(model, model_path, revision=model_revision)
             print("  Adapter loaded (no resize needed)")
         except RuntimeError as e:
             if "size mismatch" in str(e):
@@ -178,7 +201,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
                     trust_remote_code=True,
                 )
                 model.resize_token_embeddings(adapter_tokenizer_size)
-                model = PeftModel.from_pretrained(model, model_path)
+                model = PeftModel.from_pretrained(model, model_path, revision=model_revision)
                 print(f"  Adapter loaded after resize to {adapter_tokenizer_size}")
             else:
                 raise
@@ -187,7 +210,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
         print("  Adapter merged into base model")
     else:
         # Load as regular model
-        tokenizer = load_tokenizer_with_fallback(model_path, tokenizer_model)
+        tokenizer = load_tokenizer_with_fallback(model_path, tokenizer_model, revision=revision)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
@@ -196,6 +219,7 @@ def load_model_and_tokenizer(model_path: str, device: str = "auto", tokenizer_mo
             dtype=dtype,
             device_map=device_map,
             trust_remote_code=True,
+            revision=model_revision,
         )
 
     model.eval()
@@ -324,6 +348,12 @@ def main():
         default=None,
         help="Optional tokenizer source. Useful when a merged checkpoint has stale tokenizer metadata.",
     )
+    parser.add_argument(
+        "--revision",
+        type=str,
+        default=None,
+        help="Optional Hub branch, tag, or commit SHA to load for --model. Ignored for local paths.",
+    )
     parser.add_argument("--prompt", type=str, default=None, help="Single prompt to run")
     parser.add_argument("--test", action="store_true", help="Run built-in test prompts")
     parser.add_argument("--max_tokens", type=int, default=4096, help="Max new tokens (default: 4096)")
@@ -334,7 +364,7 @@ def main():
     args = parser.parse_args()
     chat_template_enable_thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 
-    model, tokenizer = load_model_and_tokenizer(args.model, args.device, args.tokenizer_model)
+    model, tokenizer = load_model_and_tokenizer(args.model, args.device, args.tokenizer_model, args.revision)
     print_separator()
 
     if args.prompt:

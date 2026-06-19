@@ -1,6 +1,6 @@
 ---
 name: hierarchical-topopt
-description: Run fast 2D SIMP topology optimization with flexible boundary conditions and lightweight STL exports. Use when asked to optimize cantilevers, beams, bridges, plates, tension/shear strips, custom support/load layouts, density fields, compliance minimization, profile/flat/multimaterial STL meshes, or topology optimization artifacts from text-defined boundary conditions. Produces density plots/data, boundary-condition previews and resolved node/DOF JSON, optimization history, summary files, and optional STL meshes by running a bundled Python script.
+description: Run fast 2D SIMP topology optimization with flexible boundary conditions, lightweight STL exports, and optional STL turntable renderings. Use when asked to optimize cantilevers, beams, bridges, plates, tension/shear strips, custom support/load layouts, density fields, compliance minimization, profile/flat/multimaterial STL meshes, polished STL previews, or rotating GIFs of optimized geometry. Produces density plots/data, boundary-condition previews and resolved node/DOF JSON, optimization history, summary files, optional STL meshes, and optional STL render artifacts by running bundled Python scripts.
 license: 3-clause BSD license
 metadata: {"version": "1.0", "skill-author": "Markus J. Buehler, Massachusetts Institute of Technology (MIT), Laboratory for Atomistic and Molecular Mechanics (LAMM)"}
 ---
@@ -274,6 +274,59 @@ Mesh outputs depend on `--mesh-mode`:
 - `result_flat.stl`
 - `MAT1.stl`, `MAT2.stl`, ...
 
+## STL Turntable Rendering
+
+When the user asks for a 3D render, preview image, social-post visual, or movie
+of an STL, use `scripts/render_stl_turntable.py` after generating or receiving
+the STL. The renderer is standalone and accepts any ASCII or binary STL file,
+including `result_profile.stl`, `result_flat.stl`, and existing user-provided
+STLs.
+
+Example:
+
+```bash
+python3 skills/hierarchical-topopt/scripts/render_stl_turntable.py \
+  skill_output_<timestamp>_hierarchical-topopt/result_profile.stl \
+  --out skill_output_<timestamp>_hierarchical-topopt/stl_turntable \
+  --title "Optimized Bridge Geometry" \
+  --material titanium \
+  --background dark \
+  --frames 48 \
+  --fps 18 \
+  --dpi 140
+```
+
+For a standalone STL outside this skill:
+
+```bash
+python3 skills/hierarchical-topopt/scripts/render_stl_turntable.py \
+  /path/to/existing_model.stl \
+  --out stl_turntable_render \
+  --title "Existing STL" \
+  --material blue-steel \
+  --background studio
+```
+
+Renderer options:
+
+- `--material`: `blue-steel`, `ceramic`, `gold`, `graphite`, `polymer`, or `titanium`.
+- `--background`: `dark`, `light`, or `studio`.
+- `--frames`, `--fps`, `--dpi`, and `--figsize`: control animation quality.
+- `--max-faces`: deterministic face downsampling limit for large STLs.
+- `--edge-alpha`: triangle edge visibility; keep low for polished renders.
+
+Renderer outputs:
+
+- `turntable.gif`
+- `preview.png`
+- `frames/frame_*.png`
+- `render_manifest.json`
+- `README.md`
+
 Do not claim success unless `find` lists the density image, BC preview, resolved
 BC JSON, optimization history, summary, parameters, README, and requested mesh
 files.
+
+If an STL render is requested, also verify the render output directory and list
+`turntable.gif`, `preview.png`, `frames/`, `render_manifest.json`, and
+`README.md`.

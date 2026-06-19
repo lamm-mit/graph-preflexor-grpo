@@ -997,6 +997,30 @@ Fixed-fixed beam with centered top patch load and symmetric profile STL:
   --query "Use hierarchical-topopt to optimize a fixed-fixed beam-like plate with a localized downward top load. Use nelx 110, nely 32, volfrac 0.48, penal 4.0, rmin 4.0, density filter, and maxiter 220. Use the fixed-fixed-top-mid-20-down preset if available; otherwise write boundary_conditions.json with fixed left and right edges and an edge_fraction top load from start 0.4 to end 0.6 with distribution total. Run with mesh-mode profile-stl, dens-cut 0.32, max-height 8, and profile-origin center. Save all density plots/data, boundary-condition files, convergence plot, STL, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
 ```
 
+Topology optimization plus polished STL turntable render:
+
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 14 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a bridge-like 2D structure with nelx 120, nely 40, volfrac 0.46, penal 4.0, rmin 4.2, density filter, maxiter 230, and bc-preset bridge-top-mid-20-down. Use mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. After result_profile.stl is created, use the STL turntable renderer to create a dark-background titanium render titled 'Optimized Bridge Geometry' with 48 frames, 18 fps, and dpi 140. Save density.png, bc_preview.png, convergence.png, result_profile.stl, summary.json, parameters.json, README, and the render artifacts turntable.gif, preview.png, frames, render_manifest.json, and render README. Verify everything with find and report exact artifact paths."
+```
+
+Standalone STL turntable helper, useful for an existing STL without running the
+topology optimizer:
+
+```bash
+python3 ../skills/hierarchical-topopt/scripts/render_stl_turntable.py \
+  /path/to/model.stl \
+  --out stl_turntable_render \
+  --title "Rendered STL" \
+  --material blue-steel \
+  --background dark \
+  --frames 48 \
+  --fps 18 \
+  --dpi 140
+```
+
 Expected outputs:
 
 - `density.png`,
@@ -1013,6 +1037,7 @@ Expected outputs:
 - `parameters.json`,
 - `README.md`,
 - optional `result_profile.stl`, `result_flat.stl`, or multimaterial STL files depending on `--mesh-mode`.
+- optional STL render directory with `turntable.gif`, `preview.png`, `frames/frame_*.png`, `render_manifest.json`, and `README.md`.
 
 ## Troubleshooting
 

@@ -77,6 +77,7 @@ The current repo includes fixes for:
 - current TRL ORPO import path
 - current TRL `SFTConfig(max_length=...)`
 - Gemma nested config vocab size in `test_model.py`
+- Hub commit/revision loading in `test_model.py`
 - configurable LoRA targets
 - Gemma native thinking disabled for this baseline
 
@@ -248,6 +249,93 @@ python src/test_model.py \
 ```
 
 If explicit format works but plain prompt does not, the adapter learned the structure but still needs instruction conditioning.
+
+## Load and Merge Longer SFT Step 600
+
+Use this to test or merge the earlier Hub commit for the longer SFT run:
+
+- adapter: `lamm-mit/gemma4-e4b-sft-graph-10k-L`
+- revision: `1bc18496096922b7a70b38d442ae8808fc6de7f3`
+- merged target suffix: `_step_600`
+
+Smoke-test the adapter at that exact commit:
+
+```bash
+export MODEL_ID="google/gemma-4-E4B-it"
+export SFT_ADAPTER_HUB="lamm-mit/gemma4-e4b-sft-graph-10k-L"
+export SFT_ADAPTER_REVISION="1bc18496096922b7a70b38d442ae8808fc6de7f3"
+
+python src/test_model.py \
+  --model "$SFT_ADAPTER_HUB" \
+  --revision "$SFT_ADAPTER_REVISION" \
+  --tokenizer_model "$MODEL_ID" \
+  --prompt "Explain how spider silk achieves high toughness using graph-based reasoning." \
+  --max_tokens 4096 \
+  --temperature 0.2 \
+  --chat_template_enable_thinking false
+```
+
+Merge that adapter revision into a full model and push it to Hub:
+
+```bash
+export SFT_STEP600_MERGED_OUT="./gemma4-e4b-sft-graph-10k-L_step_600"
+export SFT_STEP600_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L_step_600"
+
+python - <<'PY'
+import os
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+
+base = os.environ["MODEL_ID"]
+adapter = os.environ["SFT_ADAPTER_HUB"]
+revision = os.environ["SFT_ADAPTER_REVISION"]
+out = os.environ["SFT_STEP600_MERGED_OUT"]
+hub = os.environ["SFT_STEP600_MERGED_HUB"]
+token = os.environ["HF_TOKEN"]
+
+dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+print("Loading base:", base)
+model = AutoModelForCausalLM.from_pretrained(
+    base,
+    dtype=dtype,
+    device_map="auto",
+    trust_remote_code=True,
+)
+
+print("Loading SFT adapter:", adapter, "revision:", revision)
+model = PeftModel.from_pretrained(model, adapter, revision=revision)
+model = model.merge_and_unload()
+
+# Keep the clean base processor/tokenizer. Loading from the adapter can preserve
+# stale Gemma tokenizer metadata.
+processor = AutoProcessor.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
+tok = AutoTokenizer.from_pretrained(base, trust_remote_code=True, extra_special_tokens={})
+
+print("Saving merged SFT step 600:", out)
+model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
+tok.save_pretrained(out)
+
+print("Pushing merged SFT step 600:", hub)
+model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
+tok.push_to_hub(hub, private=True, token=token)
+PY
+```
+
+Test the merged `_step_600` model:
+
+```bash
+python src/test_model.py \
+  --model "$SFT_STEP600_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
+  --prompt "Explain how spider silk achieves high toughness using graph-based reasoning." \
+  --max_tokens 4096 \
+  --temperature 0.2 \
+  --chat_template_enable_thinking false
+```
 
 ## Merge SFT Adapter for GRPO
 
