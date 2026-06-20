@@ -1039,6 +1039,155 @@ Expected outputs:
 - optional `result_profile.stl`, `result_flat.stl`, or multimaterial STL files depending on `--mesh-mode`.
 - optional STL render directory with `turntable.gif`, `preview.png`, `frames/frame_*.png`, `render_manifest.json`, and `README.md`.
 
+### 22. Chladni Plate Resonance Examples
+
+Use this when you want visually compelling physics artifacts: nodal-line
+patterns, sound-wave resonance demonstrations, text-free high-resolution PNGs,
+and GIF animations of vibrating plates.
+
+Classic square Chladni figure:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to render a classic square Chladni plate resonance. Use preset classic-square, palette blue-sand, size 1080, 48 frames, and 18 fps. Keep all rendered images and GIF frames text-free. Save chladni_pattern.png, chladni_preview.png, chladni_animation.gif, frames, field_data.npz, parameters.json, caption.txt, and README. Verify files with find and report exact artifact paths plus preset, shape, modes, palette, frames, and fps from parameters.json."
+```
+
+Circular bronze resonance:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to create a circular bronze Chladni plate animation. Use preset bronze-drum, palette copper-glass, size 1080, 60 frames, fps 20, and node-width 0.052. Keep visuals text-free. Save the high-resolution PNG, animated GIF, frame sequence, field data, parameters JSON, caption, and README. Verify outputs with find and report exact artifact paths."
+```
+
+High-order neon square plate:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to make a high-order square resonance pattern for a social post. Use preset cathedral-window, palette neon-noir, size 1200, 60 frames, fps 20, node-width 0.045, and grain 0.18. Keep the image and GIF text-free. Save all standard artifacts and report exact paths."
+```
+
+Custom long rectangular plate:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to render a custom long rectangular Chladni plate. Use preset custom, shape rectangle, aspect 1.7, boundary free, modes '2,5:1.0:0;6,3:0.72:0.5;9,2:0.30:1.1', palette ice-fire, size 900, 48 frames, and 18 fps. Keep visuals text-free. Save standard artifacts, verify them with find, and report exact paths plus the parsed modes from parameters.json."
+```
+
+Radial bloom circular plate:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to create a circular radial-bloom Chladni plate visualization. Use preset radial-bloom, palette emerald-gold, size 1200, 60 frames, fps 20, node-width 0.048, grain 0.22, and drive 0.9. Keep all rendered images text-free. Save chladni_pattern.png, chladni_preview.png, chladni_animation.gif, frames, field_data.npz, parameters.json, caption.txt, and README. Verify outputs with find and report exact artifact paths plus preset, shape, modes, palette, frames, and fps from parameters.json."
+```
+
+Slide-ready monochrome glass plate:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to make a clean monochrome Chladni figure suitable for a serious presentation slide. Use preset quiet-glass, palette monochrome, size 1400, 36 frames, fps 12, node-width 0.040, grain 0.08, and plate-alpha 0.92. Keep visuals text-free. Save all standard artifacts, verify with find, and report exact paths."
+```
+
+Sharp high-resolution still plus short GIF:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to create a sharp high-resolution Chladni still and a short companion GIF. Use preset cathedral-window, palette blue-sand, size 1500, 24 frames, fps 12, node-width 0.036, grain 0.12, and drive 0.75. Keep visuals text-free. Save the standard artifacts, verify them with find, and report the exact PNG, GIF, field data, parameters, caption, and README paths."
+```
+
+Custom circular mixed-mode cymatics pattern:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-plates \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-plates to render a custom circular cymatics-style Chladni plate. Use preset custom, shape circle, boundary free, modes '9,2:1.0:0;5,4:0.48:0.8;14,1:0.28:1.6;2,5:0.18:2.2', palette neon-noir, size 1080, 72 frames, fps 24, node-width 0.044, grain 0.16, and drive 1.1. Keep visuals text-free. Save all standard artifacts, verify them with find, and report exact paths plus parsed modes from parameters.json."
+```
+
+### 23. Chladni Physics Simulation Examples
+
+Use this when you want a more physically meaningful Chladni demonstration:
+material constants, plate dimensions, drive frequency, drive point, damping,
+modal response, and sand-particle migration toward nodal lines. This skill is
+limited to rectangular/square plates so the modal solver stays reliable.
+
+What the generated artifacts show:
+
+- `chladni_sand_pattern.png`: final simulated sand accumulation on low-vibration nodal lines.
+- `sand_settling.gif`: particles migrating away from high-acceleration antinodes toward nodal regions.
+- `plate_vibration.gif`: the oscillating driven plate displacement field over a cycle.
+- `vibration_amplitude.png`: time-averaged vibration strength; low valleys are where sand collects.
+- `modal_frequencies.csv`: the included plate modes, frequencies, drive coupling, and response amplitudes.
+
+How the simulation works: the script expands the rectangular plate displacement
+in simply supported Kirchhoff-Love modes
+`sin(m*pi*x/L) * sin(n*pi*y/W)`, computes modal frequencies from material
+properties and thickness, evaluates the damped harmonic response near the
+selected drive frequency, then transports sand particles down the gradient of
+the time-averaged acceleration-energy field. Each run README explains these
+steps and the model limitations in detail.
+
+Steel square plate with sand migration:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-physics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-physics. Call the shell tool now; do not print a plan or JSON command block. Run the bundled simulator for preset steel-square-43 with palette blue-sand, size 1080, frames 48, fps 18, particles 9000, sand-steps 1800, max-m 12, and max-n 12. Keep all rendered PNGs and GIF frames text-free. Verify with find, read summary.json, and report drive frequency, target mode, max displacement, max acceleration, final particle node fraction, and exact artifact paths."
+```
+
+Glass plate for presentation:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-physics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-physics. Call the shell tool now; do not print a plan or JSON command block. Run the bundled simulator for preset glass-square-65 with palette monochrome, size 1200, frames 48, fps 16, particles 10000, sand-steps 2200, grid 220, max-m 12, and max-n 12. Keep visuals text-free. Verify with find, read summary.json, and report exact paths plus drive frequency, target mode, max displacement, max acceleration, and final particle node fraction."
+```
+
+Long aluminum rectangular plate:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-physics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-physics. Call the shell tool now; do not print a plan or JSON command block. Run the bundled simulator for preset aluminum-rectangle-27 with palette ice-fire, size 900, frames 48, fps 18, particles 8000, sand-steps 1800, grid 180, max-m 12, and max-n 12. Keep all visuals text-free. Verify outputs with find, read summary.json, and report exact paths."
+```
+
+Custom physically specified steel plate:
+
+```bash
+./mistralrs_skill_cli.py ../skills/chladni-physics \
+  --max-tool-rounds 8 \
+  --response-timeout 1200 \
+  --require-tool \
+  --query "Use chladni-physics. Call the shell tool now; do not print a plan or JSON command block. Run the bundled simulator with preset custom, material steel, length 0.32, width 0.24, thickness 0.0011, target-mode 5,4, drive-ratio 1.002, drive-x 0.36, drive-y 0.31, damping 0.006, force 0.30, palette neon, size 960, frames 60, fps 20, particles 10000, sand-steps 2400, max-m 14, and max-n 14. Keep rendered images and GIFs text-free. Verify outputs with find, read summary.json, and report exact paths and key physical results."
+```
+
 ## Troubleshooting
 
 `POST /v1/skills` returns 404:

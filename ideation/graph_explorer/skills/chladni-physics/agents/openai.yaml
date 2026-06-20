@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chladni Physics"
+  short_description: "Simulate driven thin plates and sand migration."
+  default_prompt: "Use $chladni-physics to run a driven thin-plate Chladni simulation with sand-particle settling and GIF outputs."

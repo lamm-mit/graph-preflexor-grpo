@@ -1,0 +1,4 @@
+interface:
+  display_name: "Chladni Plates"
+  short_description: "Render resonance patterns and GIFs for vibrating plates."
+  default_prompt: "Use $chladni-plates to render a high-resolution Chladni plate pattern and animated resonance GIF."
