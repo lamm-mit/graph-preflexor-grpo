@@ -1240,6 +1240,133 @@ function SearchPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   );
 }
 
+function SvgGraphFallback({ message }: { message?: string }) {
+  const graph = useExplorerStore((state) => state.graph);
+  const visual = useExplorerStore((state) => state.visual);
+  const selectedNodes = useExplorerStore((state) => state.selectedNodes);
+  const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
+  const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
+  const darkCanvas = visual.canvasTheme === "dark";
+  const selected = useMemo(() => new Set(selectedNodes), [selectedNodes]);
+  const highlightedNodes = useMemo(() => pathNodeSet(highlightedPaths), [highlightedPaths]);
+  const highlightedEdges = useMemo(() => pathEdgeSet(highlightedPaths), [highlightedPaths]);
+  const colorRange = useMemo(() => (graph ? metricRange(graph.nodes, visual.colorBy) : { min: 0, max: 1 }), [graph, visual.colorBy]);
+
+  const fallbackGraph = useMemo(() => {
+    if (!graph) {
+      return {
+        bounds: "-160 -110 320 220",
+        edges: [] as GraphPayload["edges"],
+        nodes: [] as Array<{ node: GraphNode; x: number; y: number }>,
+        hiddenEdges: 0,
+      };
+    }
+    const nodes = graph.nodes.map((node) => {
+      const pos = layoutNode(node, graph, visual);
+      return { node, x: pos.x, y: pos.y };
+    });
+    const xs = nodes.map((item) => item.x);
+    const ys = nodes.map((item) => item.y);
+    const minX = Math.min(...xs, -160);
+    const maxX = Math.max(...xs, 160);
+    const minY = Math.min(...ys, -110);
+    const maxY = Math.max(...ys, 110);
+    const pad = 36;
+    const visibleNodes = new Set(nodes.map((item) => item.node.id));
+    const highlighted = graph.edges.filter((edge) => highlightedEdges.has(edgeKey(edge.source, edge.target)));
+    const regular = graph.edges
+      .filter((edge) => visibleNodes.has(edge.source) && visibleNodes.has(edge.target) && !highlightedEdges.has(edgeKey(edge.source, edge.target)))
+      .slice(0, graph.edges.length > 12000 ? 7000 : 12000);
+    return {
+      bounds: `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`,
+      edges: [...regular, ...highlighted],
+      nodes,
+      hiddenEdges: Math.max(0, graph.edges.length - regular.length - highlighted.length),
+    };
+  }, [graph, highlightedEdges, visual]);
+
+  const pointById = useMemo(() => {
+    const out = new Map<string, { x: number; y: number }>();
+    for (const item of fallbackGraph.nodes) out.set(item.node.id, { x: item.x, y: item.y });
+    return out;
+  }, [fallbackGraph.nodes]);
+
+  const selectedLabel = useMemo(() => {
+    if (!graph || !selectedNodes.length) return "Fallback map";
+    const names = selectedNodes.slice(0, 2).map((id) => graph.nodes.find((node) => node.id === id)?.label || id);
+    return `Selected: ${names.join(", ")}${selectedNodes.length > 2 ? ` +${selectedNodes.length - 2}` : ""}`;
+  }, [graph, selectedNodes]);
+
+  if (!graph) return null;
+
+  return (
+    <section className={cx("graph-shell", darkCanvas ? "graph-shell-dark" : "graph-shell-light")}>
+      <div className="graph-top-dock">
+        <div className="graph-overlay">
+          {contextSummary(graph, selectedNodes)}
+          {fallbackGraph.hiddenEdges ? ` | ${formatNumber(fallbackGraph.hiddenEdges)} edges hidden in fallback` : ""}
+        </div>
+        <div className="graph-overlay">{selectedLabel}</div>
+      </div>
+      <svg className="graph-svg-fallback" role="img" viewBox={fallbackGraph.bounds}>
+        <g className="graph-svg-edges">
+          {fallbackGraph.edges.map((edge) => {
+            const source = pointById.get(edge.source);
+            const target = pointById.get(edge.target);
+            if (!source || !target) return null;
+            const isHighlighted = highlightedEdges.has(edgeKey(edge.source, edge.target));
+            return (
+              <line
+                className={cx("graph-svg-edge", isHighlighted && "graph-svg-edge-highlighted")}
+                key={edge.id}
+                stroke={isHighlighted ? "#d88418" : edgeColor(edge, darkCanvas ? 0.32 : 0.2)}
+                strokeWidth={(isHighlighted ? 2.2 : 0.75) * visual.edgeWidth}
+                x1={source.x}
+                x2={target.x}
+                y1={source.y}
+                y2={target.y}
+              />
+            );
+          })}
+        </g>
+        <g className="graph-svg-nodes">
+          {fallbackGraph.nodes.map(({ node, x, y }) => {
+            const isSelected = selected.has(node.id);
+            const isHighlighted = highlightedNodes.has(node.id);
+            const nodeColor =
+              visual.colorBy === "component" || visual.colorBy === "community"
+                ? paletteCategoryColor(nodeMetric(node, visual.colorBy), visual)
+                : colorScale(nodeMetric(node, visual.colorBy), colorRange, visual.colorPalette);
+            return (
+              <circle
+                aria-label={node.label}
+                className={cx("graph-svg-node", isSelected && "graph-svg-node-selected", isHighlighted && "graph-svg-node-highlighted")}
+                cx={x}
+                cy={y}
+                fill={isSelected ? (darkCanvas ? "#ffffff" : "#173d35") : isHighlighted ? "#f4b24f" : nodeColor}
+                key={node.id}
+                onClick={(event) => setSelectedNode(node.id, event.shiftKey)}
+                r={Math.max(2.1, Math.min(9.5, nodeSize(node, graph, visual) * (isSelected || isHighlighted ? 1.12 : 0.72)))}
+                stroke={isSelected ? "#35a778" : isHighlighted ? "#fff0a8" : darkCanvas ? "rgba(255,255,255,0.44)" : "rgba(40,36,30,0.36)"}
+                strokeWidth={isSelected || isHighlighted ? 1.4 : 0.55}
+              />
+            );
+          })}
+        </g>
+      </svg>
+      {message ? (
+        <div className="graph-render-error">
+          <strong>Using fallback map.</strong>
+          <span>WebGL renderer unavailable: {message}</span>
+        </div>
+      ) : null}
+      <div className="graph-bottom-dock">
+        <GraphIterationStepper />
+      </div>
+    </section>
+  );
+}
+
 function SigmaGraphCanvas() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<Sigma | null>(null);
@@ -1253,6 +1380,7 @@ function SigmaGraphCanvas() {
   const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
   const [hoverNode, setHoverNode] = useState<GraphNode | null>(null);
+  const [renderError, setRenderError] = useState("");
 
   useEffect(() => {
     selectedNodesRef.current = selectedNodes;
@@ -1261,6 +1389,7 @@ function SigmaGraphCanvas() {
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !graph) return undefined;
+    setRenderError("");
     rendererRef.current?.kill();
     const updateAppendSelection = (event: KeyboardEvent | PointerEvent | MouseEvent) => {
       appendSelectionRef.current = event.shiftKey;
@@ -1311,20 +1440,31 @@ function SigmaGraphCanvas() {
       }
     }
 
-    const renderer = new Sigma(sigmaGraph, container, {
-      renderLabels: false,
-      renderEdgeLabels: false,
-      defaultEdgeType: visual.edgeStyle === "directed" ? "arrow" : "line",
-      defaultEdgeColor: darkCanvas ? "rgba(180,196,215,0.18)" : "rgba(94,112,132,0.12)",
-      edgeProgramClasses: {
-        line: EdgeLineProgram,
-        arrow: EdgeArrowProgram,
-      },
-      allowInvalidContainer: true,
-      labelRenderedSizeThreshold: 12,
-      minCameraRatio: 0.05,
-      maxCameraRatio: 12,
-    });
+    let renderer: Sigma;
+    try {
+      renderer = new Sigma(sigmaGraph, container, {
+        renderLabels: false,
+        renderEdgeLabels: false,
+        defaultEdgeType: visual.edgeStyle === "directed" ? "arrow" : "line",
+        defaultEdgeColor: darkCanvas ? "rgba(180,196,215,0.18)" : "rgba(94,112,132,0.12)",
+        edgeProgramClasses: {
+          line: EdgeLineProgram,
+          arrow: EdgeArrowProgram,
+        },
+        allowInvalidContainer: true,
+        labelRenderedSizeThreshold: 12,
+        minCameraRatio: 0.05,
+        maxCameraRatio: 12,
+      });
+    } catch (error) {
+      sigmaGraphRef.current = null;
+      rendererRef.current = null;
+      window.removeEventListener("keydown", updateAppendSelection);
+      window.removeEventListener("keyup", updateAppendSelection);
+      container.removeEventListener("pointerdown", updateAppendSelection, true);
+      setRenderError(error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
     const mouseCaptor = renderer.getMouseCaptor();
     const stopDragging = () => {
       draggedNodeRef.current = null;
@@ -1411,6 +1551,8 @@ function SigmaGraphCanvas() {
     return `Selected: ${names.join(", ")}${selectedNodes.length > 2 ? ` +${selectedNodes.length - 2}` : ""}`;
   }, [graph, selectedNodes]);
 
+  if (renderError) return <SvgGraphFallback message={renderError} />;
+
   return (
     <section className={cx("graph-shell", visual.canvasTheme === "dark" ? "graph-shell-dark" : "graph-shell-light")}>
       <div className="graph-top-dock">
@@ -1444,10 +1586,12 @@ function ThreeGraphCanvas() {
   const selectedNodes = useExplorerStore((state) => state.selectedNodes);
   const highlightedPaths = useExplorerStore((state) => state.highlightedPaths);
   const setSelectedNode = useExplorerStore((state) => state.setSelectedNode);
+  const [renderError, setRenderError] = useState("");
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !graph) return undefined;
+    setRenderError("");
 
     const darkCanvas = visual.canvasTheme === "dark";
     const background = darkCanvas ? "#020407" : "#f8f7f2";
@@ -1460,7 +1604,13 @@ function ThreeGraphCanvas() {
     const camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 2200);
     camera.position.set(0, -18, 230);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true });
+    } catch (error) {
+      setRenderError(error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(width, height);
     container.appendChild(renderer.domElement);
@@ -1646,6 +1796,8 @@ function ThreeGraphCanvas() {
     const names = selectedNodes.slice(0, 2).map((id) => graph.nodes.find((node) => node.id === id)?.label || id);
     return `Selected: ${names.join(", ")}${selectedNodes.length > 2 ? ` +${selectedNodes.length - 2}` : ""}`;
   }, [graph, selectedNodes]);
+
+  if (renderError) return <SvgGraphFallback message={renderError} />;
 
   return (
     <section className={cx("graph-shell", visual.canvasTheme === "dark" ? "graph-shell-dark" : "graph-shell-light")}>
@@ -5093,7 +5245,12 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById("root")!;
+const rootWindow = window as Window & { __graphPreflexorRoot?: ReturnType<typeof createRoot> };
+const appRoot = rootWindow.__graphPreflexorRoot || createRoot(rootElement);
+rootWindow.__graphPreflexorRoot = appRoot;
+
+appRoot.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <App />

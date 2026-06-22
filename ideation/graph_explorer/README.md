@@ -996,3 +996,26 @@ Report does not render or download:
 - Confirm the selected `out` directory contains `report.md`.
 - PDF download only appears when `profile_graph.py` generated a PDF and the
   file exists.
+
+
+python src/merge_lora_adapter.py \
+  --base_model "$SFT_MERGED_HUB" \
+  --adapter "$GRPO_HUB" \
+  --adapter_commit "<step_50_commit_sha>" \
+  --tokenizer_model "$MODEL_ID" \
+  --processor_model "$MODEL_ID" \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --hub_model_id "$HF_NAMESPACE/Graph-Preflexor-4b_06222026" \
+  --shard_size 20GB \
+  --hf_token "$HF_TOKEN"
+
+
+  python src/merge_lora_adapter.py \
+  --base_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600 \
+  --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
+  --shard_size 99GB \
+  --hf_token "$HF_TOKEN"

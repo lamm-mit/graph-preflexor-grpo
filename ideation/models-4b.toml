@@ -17,7 +17,8 @@ shell_timeout = 360
 # Generator — Graph-PRefLexOR 
 [[models]]
 kind = "auto"
-model_id = "lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600" #"lamm-mit/Graph-Preflexor-1.7b_08012026"
+model_id = "lamm-mit/Graph-Preflexor-4b_06222026" #"lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_latest" #"lamm-mit/Graph-Preflexor-1.7b_08012026"
+#model_id = "Graph-Preflexor-4b_06222026" #"lamm-mit/Graph-Preflexor-1.7b_08012026"
 [models.quantization]
 in_situ_quant = "8" #"Q8_0" #"HQQ8"
  

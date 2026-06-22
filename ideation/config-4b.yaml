@@ -2,7 +2,7 @@ server:
   base_url: http://localhost:1234/v1
   api_key: x
 generator:
-  model: lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600
+  model: lamm-mit/Graph-Preflexor-4b_06222026
   #base_url: http://localhost:1234/v1
   base_url: http://localhost:1234/v1
   backend: responses

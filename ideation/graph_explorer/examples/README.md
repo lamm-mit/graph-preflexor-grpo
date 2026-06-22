@@ -803,7 +803,14 @@ Expected outputs:
   --max-tool-rounds 8 \
   --response-timeout 3600 \
   --require-tool \
-  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode I, orientation 90, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 30000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
+  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode I, orientation 90, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 50000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
+```
+```bash
+./mistralrs_skill_cli.py ../skills/fracture-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 3600 \
+  --require-tool \
+  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode I, orientation 0, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 50000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
 ```
 
 Mode II:
@@ -814,7 +821,14 @@ Mode II:
   --require-tool \
   --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode II, orientation 90, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 80000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
 ```
-
+Mode II:
+```bash
+./mistralrs_skill_cli.py ../skills/fracture-mechanics \
+  --max-tool-rounds 8 \
+  --response-timeout 3600 \
+  --require-tool \
+  --query "Use fracture-mechanics to simulate a pre-cracked 2D lattice titled 'Brittle Mode I Fracture'. Use potential morse, mode II, orientation 0, nx 200, ny 100, max-atoms 50000, crack-length 0.34, temperature 0.003, strain-rate 0.0005, damping 0.30, dt 0.005, steps 80000, frames 48, dpi 120, movie-fps 16, bond-cutoff 1.35, break-stretch 1.65, color-by stress, and morse-a 7.0. Use fixed slab axes, fixed stress-strain axes, and fixed color scale across frames to avoid movie flicker. Save fracture_movie.gif, fracture_movie.html, stress_strain.png, final_lattice.png, stress_strain.csv, summary.json, parameters.json, and README. Verify files with find and report peak stress, peak strain, and dynamically broken bonds from summary.json."
+```
 
 Direct local full simulation:
 
@@ -979,6 +993,18 @@ Bridge with pin/roller supports and middle-20-percent top load:
   --query "Use hierarchical-topopt to optimize a bridge-like 2D structure. Use nelx 120, nely 40, volfrac 0.45, penal 4.0, rmin 4.2, density filter, and 250 iterations. Define custom boundary conditions with a pin support at the lower-left corner, a roller support at the lower-right corner, and a downward distributed total load across the middle 20 percent of the top edge. Write boundary_conditions.json using edge_fraction start 0.4 end 0.6 for the top-edge load, preview it as bc_preview.png, then run the optimization with mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. Save density images/data, optimization history, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, result_profile.stl, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
 ```
 
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 12 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a bridge-like 2D structure. Use nelx 40, nely 120, volfrac 0.45, penal 4.0, rmin 4.2, density filter, and 250 iterations. Define custom boundary conditions with a pin support at the lower-left corner, a roller support at the lower-right corner, and a downward distributed total load across the middle 20 percent of the top edge. Write boundary_conditions.json using edge_fraction start 0.4 end 0.6 for the top-edge load, preview it as bc_preview.png, then run the optimization with mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. Save density images/data, optimization history, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, result_profile.stl, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 12 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a bridge-like 2D structure. Use nelx 120, nely 120, volfrac 0.15, penal 4.0, rmin 4.2, density filter, and 250 iterations. Define custom boundary conditions with a pin support at the lower-left corner, a roller support at the lower-right corner, and a downward distributed total load across the middle 20 percent of the top edge. Write boundary_conditions.json using edge_fraction start 0.4 end 0.6 for the top-edge load, preview it as bc_preview.png, then run the optimization with mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. Save density images/data, optimization history, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, result_profile.stl, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
 Shear strip:
 
 ```bash
@@ -987,7 +1013,12 @@ Shear strip:
   --response-timeout 1800 \
   --query "Use hierarchical-topopt to optimize a compact shear strip. Use nelx 90, nely 30, volfrac 0.55, penal 3.5, rmin 3.5, sensitivity filter, maxiter 180, and bc-preset shear-strip. Use mesh-mode density-only for a fast run. Save density.png, density_resized.png, density.npy, density.csv, optimization_history.csv, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, convergence.png, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
 ```
-
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 20 \
+  --response-timeout 3600 \
+  --query "Use hierarchical-topopt to optimize a compact shear strip. Use nelx 300, nely 150, volfrac 0.35, penal 3.5, rmin 3.5, sensitivity filter, maxiter 200, and bc-preset shear-strip. Use mesh-mode density-only for a fast run. Save density.png, density_resized.png, density.npy, density.csv, optimization_history.csv, boundary_conditions.json, boundary_conditions_resolved.json, bc_preview.png, convergence.png, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
 Fixed-fixed beam with centered top patch load and symmetric profile STL:
 
 ```bash
@@ -996,7 +1027,12 @@ Fixed-fixed beam with centered top patch load and symmetric profile STL:
   --response-timeout 2400 \
   --query "Use hierarchical-topopt to optimize a fixed-fixed beam-like plate with a localized downward top load. Use nelx 110, nely 32, volfrac 0.48, penal 4.0, rmin 4.0, density filter, and maxiter 220. Use the fixed-fixed-top-mid-20-down preset if available; otherwise write boundary_conditions.json with fixed left and right edges and an edge_fraction top load from start 0.4 to end 0.6 with distribution total. Run with mesh-mode profile-stl, dens-cut 0.32, max-height 8, and profile-origin center. Save all density plots/data, boundary-condition files, convergence plot, STL, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
 ```
-
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 12 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a fixed-fixed beam-like plate with a localized downward top load. Use nelx 400, nely 400, volfrac 0.1, penal 4.0, rmin 4.0, density filter, and maxiter 400. Use the fixed-fixed-top-mid-20-down preset if available; otherwise write boundary_conditions.json with fixed left and right edges and an edge_fraction top load from start 0.4 to end 0.6 with distribution total. Run with mesh-mode profile-stl, dens-cut 0.32, max-height 8, and profile-origin center. Save all density plots/data, boundary-condition files, convergence plot, STL, summary.json, parameters.json, and README. Verify files with find and report compliance, final volume fraction, fixed DOFs, loaded DOFs, total force, and exact artifact paths."
+```
 Topology optimization plus polished STL turntable render:
 
 ```bash
@@ -1005,7 +1041,12 @@ Topology optimization plus polished STL turntable render:
   --response-timeout 2400 \
   --query "Use hierarchical-topopt to optimize a bridge-like 2D structure with nelx 120, nely 40, volfrac 0.46, penal 4.0, rmin 4.2, density filter, maxiter 230, and bc-preset bridge-top-mid-20-down. Use mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. After result_profile.stl is created, use the STL turntable renderer to create a dark-background titanium render titled 'Optimized Bridge Geometry' with 48 frames, 18 fps, and dpi 140. Save density.png, bc_preview.png, convergence.png, result_profile.stl, summary.json, parameters.json, README, and the render artifacts turntable.gif, preview.png, frames, render_manifest.json, and render README. Verify everything with find and report exact artifact paths."
 ```
-
+```bash
+./mistralrs_skill_cli.py ../skills/hierarchical-topopt \
+  --max-tool-rounds 14 \
+  --response-timeout 2400 \
+  --query "Use hierarchical-topopt to optimize a bridge-like 2D structure with nelx 400, nely 200, volfrac 0.46, penal 4.0, rmin 4.2, density filter, maxiter 230, and bc-preset bridge-top-mid-20-down. Use mesh-mode profile-stl, dens-cut 0.30, max-height 10, and profile-origin center. After result_profile.stl is created, use the STL turntable renderer to create a dark-background titanium render titled 'Optimized Bridge Geometry' with 48 frames, 18 fps, and dpi 140. Save density.png, bc_preview.png, convergence.png, result_profile.stl, summary.json, parameters.json, README, and the render artifacts turntable.gif, preview.png, frames, render_manifest.json, and render README. Verify everything with find and report exact artifact paths."
+```
 Standalone STL turntable helper, useful for an existing STL without running the
 topology optimizer:
 

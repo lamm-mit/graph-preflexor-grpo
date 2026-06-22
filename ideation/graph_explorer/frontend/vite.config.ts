@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: Number(process.env.GRAPH_EXPLORER_VITE_PORT || 5177),
+    strictPort: true,
     proxy: {
       "/api": {
         target: `http://127.0.0.1:${apiPort}`,
