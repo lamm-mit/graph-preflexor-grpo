@@ -376,7 +376,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--dtype", default="auto", help="auto, bfloat16, float16, float32, or none.")
     parser.add_argument("--device_map", default="auto", help="Passed to from_pretrained. Use 'none' to omit.")
-    parser.add_argument("--max_shard_size", default="4GB")
+    parser.add_argument(
+        "--max_shard_size",
+        "--shard_size",
+        dest="max_shard_size",
+        default="4GB",
+        help="Maximum shard size for save_pretrained, e.g. 4GB, 8GB, or 20GB. Default: 4GB.",
+    )
     parser.add_argument("--no_safe_serialization", dest="safe_serialization", action="store_false")
     parser.set_defaults(safe_serialization=True)
     parser.add_argument("--no_trust_remote_code", dest="trust_remote_code", action="store_false")
