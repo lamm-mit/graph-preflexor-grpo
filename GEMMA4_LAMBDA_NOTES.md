@@ -407,7 +407,7 @@ for commit in commits[:20]:
 PY
 ```
 
-For Gemma 4 exports used by mistral.rs, add `--mistralrs_compat_save`. This clones the merged `state_dict` before saving so aliased/tied Gemma tensors are materialized in the safetensors output. It is off by default because it uses more host RAM and can make the saved model larger.
+For Gemma 4 exports used by mistral.rs, add `--mistralrs_compat_save` and set `--raw_tensor_source google/gemma-4-E4B-it`. This clones the merged `state_dict` before saving and copies any missing raw Gemma tensors from the original Google checkpoint so aliased/tied keys are materialized in the safetensors output. It is off by default because it uses more host RAM and can make the saved model larger.
 
 Merge the latest pushed GRPO adapter for mistral.rs:
 
@@ -417,10 +417,11 @@ python src/merge_lora_adapter.py \
   --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
   --tokenizer_model google/gemma-4-E4B-it \
   --processor_model google/gemma-4-E4B-it \
-  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_latest \
-  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --output_dir ./Graph-Preflexor-4b_06222026 \
+  --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --mistralrs_compat_save \
-  --shard_size 4GB \
+  --raw_tensor_source google/gemma-4-E4B-it \
+  --shard_size 50GB \
   --hf_token "$HF_TOKEN"
 ```
 
@@ -433,10 +434,11 @@ python src/merge_lora_adapter.py \
   --adapter_commit "<step_50_commit_sha>" \
   --tokenizer_model google/gemma-4-E4B-it \
   --processor_model google/gemma-4-E4B-it \
-  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
-  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --output_dir ./Graph-Preflexor-4b_06222026 \
+  --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --mistralrs_compat_save \
-  --shard_size 4GB \
+  --raw_tensor_source google/gemma-4-E4B-it \
+  --shard_size 50GB \
   --hf_token "$HF_TOKEN"
 ```
 

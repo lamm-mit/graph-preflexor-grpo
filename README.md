@@ -1241,7 +1241,7 @@ python src/test_model.py \
   --chat_template_enable_thinking false
 ```
 
-Merge a Gemma 4 GRPO adapter into a full model for mistral.rs. The `--mistralrs_compat_save` flag is intentionally off by default; use it when the runtime expects Gemma 4 aliased/tied tensor keys to be materialized in the saved safetensors.
+Merge a Gemma 4 GRPO adapter into a full model for mistral.rs. The `--mistralrs_compat_save` flag is intentionally off by default; use it with `--raw_tensor_source google/gemma-4-E4B-it` when the runtime expects Gemma 4 aliased/tied tensor keys to be materialized in the saved safetensors.
 
 Latest pushed adapter state:
 
@@ -1251,10 +1251,11 @@ python src/merge_lora_adapter.py \
   --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
   --tokenizer_model google/gemma-4-E4B-it \
   --processor_model google/gemma-4-E4B-it \
-  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_latest \
-  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --output_dir ./Graph-Preflexor-4b_06222026 \
+  --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --mistralrs_compat_save \
-  --shard_size 4GB \
+  --raw_tensor_source google/gemma-4-E4B-it \
+  --shard_size 50GB \
   --hf_token "$HF_TOKEN"
 ```
 
@@ -1267,10 +1268,11 @@ python src/merge_lora_adapter.py \
   --adapter_commit "<step_50_commit_sha>" \
   --tokenizer_model google/gemma-4-E4B-it \
   --processor_model google/gemma-4-E4B-it \
-  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
-  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --output_dir ./Graph-Preflexor-4b_06222026 \
+  --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --mistralrs_compat_save \
-  --shard_size 4GB \
+  --raw_tensor_source google/gemma-4-E4B-it \
+  --shard_size 50GB \
   --hf_token "$HF_TOKEN"
 ```
 

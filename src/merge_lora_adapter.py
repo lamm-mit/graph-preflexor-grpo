@@ -218,6 +218,73 @@ def load_adapter(model, args: argparse.Namespace, token: Optional[str]):
     return PeftModel.from_pretrained(model, args.adapter, **kwargs)
 
 
+def resolve_safetensor_files(source: str, revision: Optional[str], token: Optional[str]) -> list[Path]:
+    from huggingface_hub import snapshot_download
+
+    source_path = Path(source)
+    if source_path.exists():
+        root = source_path
+    else:
+        root = Path(
+            snapshot_download(
+                repo_id=source,
+                revision=revision,
+                token=token,
+                allow_patterns=["*.safetensors", "*.safetensors.index.json"],
+            )
+        )
+
+    files = sorted(path for path in root.glob("*.safetensors") if path.is_file())
+    if not files:
+        raise FileNotFoundError(f"No .safetensors files found in raw tensor source: {source}")
+    return files
+
+
+def add_missing_raw_tensors_from_source(
+    state_dict: dict[str, Any],
+    *,
+    source: str,
+    revision: Optional[str],
+    token: Optional[str],
+    max_missing_tensors: int,
+) -> int:
+    from safetensors import safe_open
+
+    files = resolve_safetensor_files(source, revision, token)
+    state_keys = set(state_dict)
+    source_entries: list[tuple[Path, str]] = []
+
+    for path in files:
+        with safe_open(path, framework="pt", device="cpu") as handle:
+            for key in handle.keys():
+                if key not in state_keys:
+                    source_entries.append((path, key))
+
+    if not source_entries:
+        print(f"No missing raw tensors to copy from {source}")
+        return 0
+
+    if len(source_entries) > max_missing_tensors:
+        raise ValueError(
+            f"Refusing to copy {len(source_entries)} missing tensors from {source}; "
+            f"this is larger than --max_missing_raw_tensors={max_missing_tensors}. "
+            "Check that --raw_tensor_source points to the matching original full model, "
+            "or increase --max_missing_raw_tensors intentionally."
+        )
+
+    print(f"Copying {len(source_entries)} missing raw tensors from {source}")
+    by_path: dict[Path, list[str]] = {}
+    for path, key in source_entries:
+        by_path.setdefault(path, []).append(key)
+
+    for path, keys in by_path.items():
+        with safe_open(path, framework="pt", device="cpu") as handle:
+            for key in keys:
+                state_dict[key] = handle.get_tensor(key).clone()
+
+    return len(source_entries)
+
+
 def merge_adapter(args: argparse.Namespace):
     import torch
     from huggingface_hub import create_repo, upload_folder
@@ -303,6 +370,14 @@ def merge_adapter(args: argparse.Namespace):
         print("Materializing aliased/tied tensors with a cloned CPU state_dict before save.")
         print("This can use substantial host RAM and may produce larger safetensors files.")
         state_dict = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        raw_tensor_source = args.raw_tensor_source or args.processor_model or args.tokenizer_model or base_model
+        add_missing_raw_tensors_from_source(
+            state_dict,
+            source=raw_tensor_source,
+            revision=args.raw_tensor_revision,
+            token=token,
+            max_missing_tensors=args.max_missing_raw_tensors,
+        )
         save_kwargs["state_dict"] = state_dict
 
     print(f"Saving merged model to {out}")
@@ -397,10 +472,27 @@ def parse_args() -> argparse.Namespace:
         dest="mistralrs_compat_save",
         action="store_true",
         help=(
-            "Clone the merged model state_dict to CPU before save_pretrained. "
-            "Use for Gemma 4 exports when a runtime such as mistral.rs expects "
-            "materialized alias/tied tensor keys. Default: off."
+            "Clone the merged model state_dict to CPU before save_pretrained and copy "
+            "missing raw tensors from --raw_tensor_source. Use for Gemma 4 exports when "
+            "a runtime such as mistral.rs expects materialized alias/tied tensor keys. "
+            "Default: off."
         ),
+    )
+    parser.add_argument(
+        "--raw_tensor_source",
+        default=None,
+        help=(
+            "Full-model repo/path to copy missing raw safetensors keys from when "
+            "--mistralrs_compat_save is enabled. Defaults to processor_model, then "
+            "tokenizer_model, then base_model."
+        ),
+    )
+    parser.add_argument("--raw_tensor_revision", default=None, help="Optional revision for --raw_tensor_source.")
+    parser.add_argument(
+        "--max_missing_raw_tensors",
+        type=int,
+        default=512,
+        help="Safety cap for missing raw tensors copied during --mistralrs_compat_save. Default: 512.",
     )
     parser.add_argument("--no_safe_serialization", dest="safe_serialization", action="store_false")
     parser.set_defaults(safe_serialization=True)
