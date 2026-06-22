@@ -60,6 +60,26 @@ def _is_configured_role(role_cfg):
     return bool((role_cfg or {}).get("model"))
 
 
+def _reasoning_effort(role_cfg, default="high"):
+    """Return Responses API reasoning effort for a role.
+
+    Defaults preserve historical behavior. Set `reasoning_effort: null`,
+    `false`, `off`, or `omit` in config to omit the reasoning field entirely.
+    Set `reasoning_effort: none` to explicitly send {"effort": "none"} to
+    servers that require a concrete value to disable native reasoning.
+    This is useful for graph-native models trained with their own <think> tags.
+    """
+    role_cfg = role_cfg or {}
+    if "reasoning_effort" not in role_cfg:
+        return default
+    value = role_cfg.get("reasoning_effort")
+    if value is None or value is False:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"", "off", "false", "null", "omit"}:
+        return None
+    return value
+
+
 class Clients:
     def __init__(self, cfg):
         s = cfg.get("server") or {}
@@ -87,14 +107,16 @@ class Clients:
         return client.responses.create(**kwargs)
 
     def generate(self, question, previous_id=None):
-        r = self._responses(self._gen, self.gen_cfg, question, previous_id, effort="high")
+        effort = _reasoning_effort(self.gen_cfg, default="high")
+        r = self._responses(self._gen, self.gen_cfg, question, previous_id, effort=effort)
         return {"id": r.id, "answer": getattr(r, "output_text", "") or "",
                 "full": _full_text(r), "usage": _usage(r)}
 
     def baseline(self, question, previous_id=None):
         if not self._base:
             raise RuntimeError("no baseline endpoint configured (cfg['baseline'])")
-        r = self._responses(self._base, self.base_cfg, question, previous_id, effort="high")
+        effort = _reasoning_effort(self.base_cfg, default="high")
+        r = self._responses(self._base, self.base_cfg, question, previous_id, effort=effort)
         return {"id": r.id, "answer": getattr(r, "output_text", "") or "",
                 "full": _full_text(r), "usage": _usage(r)}
 

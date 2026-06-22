@@ -79,6 +79,11 @@ python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
     --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
     --out runs/exp_leap
 ```
+```
+python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_leap_4b  --config config-4b.yaml
+```
 
 ```bash
 python plot_ideation.py --runs runs/exp_leap \
@@ -712,6 +717,23 @@ mistralrs from-config -f models.toml          # generator + questioner on :1234
 curl -s http://localhost:1234/v1/models        # verify both loaded
 python /path/to/mistral.rs/examples/server/responses.py   # verify /v1/responses works
 ```
+
+For graph-native Gemma runs trained with custom `<think>/<graph_json>` tags, disable the
+server/model native reasoning channel in `config.yaml`:
+
+```yaml
+generator:
+  model: lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600
+  base_url: http://localhost:1234/v1
+  backend: responses
+  temperature: 0.1
+  max_tokens: 16000
+  reasoning_effort: none
+```
+
+Omitting `reasoning_effort` preserves the historical default, `high`, for older runs. Use
+`reasoning_effort: null` only when you want to omit the Responses API `reasoning` field entirely;
+`none` sends `{"reasoning": {"effort": "none"}}`.
 
 ```bash
 export CUDA_DEVICE_ORDER=PCI_BUS_ID

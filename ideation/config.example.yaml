@@ -12,6 +12,11 @@ generator:                                # Graph-PRefLexOR
   backend: "responses"
   temperature: 0.1
   max_tokens: 8000
+  # Default is "high" for compatibility with earlier runs. For graph-native
+  # Gemma models trained with custom <think>/<graph_json> tags, set this to
+  # "none" to explicitly disable the model/server's native thought channel.
+  # Use null only when you want to omit the reasoning field entirely.
+  reasoning_effort: "high"
 
 questioner:
   model: "google/gemma-4-E4B-it"
