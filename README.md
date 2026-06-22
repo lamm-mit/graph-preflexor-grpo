@@ -1241,6 +1241,39 @@ python src/test_model.py \
   --chat_template_enable_thinking false
 ```
 
+Merge a Gemma 4 GRPO adapter into a full model for mistral.rs. The `--mistralrs_compat_save` flag is intentionally off by default; use it when the runtime expects Gemma 4 aliased/tied tensor keys to be materialized in the saved safetensors.
+
+Latest pushed adapter state:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600 \
+  --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --mistralrs_compat_save \
+  --shard_size 4GB \
+  --hf_token "$HF_TOKEN"
+```
+
+Specific adapter commit, for example step 50:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600 \
+  --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
+  --adapter_commit "<step_50_commit_sha>" \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --mistralrs_compat_save \
+  --shard_size 4GB \
+  --hf_token "$HF_TOKEN"
+```
+
 If colocated vLLM runs out of memory on E4B, reduce generation pressure:
 
 ```bash

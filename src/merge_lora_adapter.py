@@ -294,12 +294,20 @@ def merge_adapter(args: argparse.Namespace):
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    save_kwargs: dict[str, Any] = {
+        "safe_serialization": args.safe_serialization,
+        "max_shard_size": args.max_shard_size,
+    }
+    state_dict = None
+    if args.mistralrs_compat_save:
+        print("Materializing aliased/tied tensors with a cloned CPU state_dict before save.")
+        print("This can use substantial host RAM and may produce larger safetensors files.")
+        state_dict = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        save_kwargs["state_dict"] = state_dict
+
     print(f"Saving merged model to {out}")
-    model.save_pretrained(
-        out,
-        safe_serialization=args.safe_serialization,
-        max_shard_size=args.max_shard_size,
-    )
+    model.save_pretrained(out, **save_kwargs)
+    del state_dict
     if tokenizer is not None:
         tokenizer.save_pretrained(out)
     if processor is not None:
@@ -382,6 +390,17 @@ def parse_args() -> argparse.Namespace:
         dest="max_shard_size",
         default="4GB",
         help="Maximum shard size for save_pretrained, e.g. 4GB, 8GB, or 20GB. Default: 4GB.",
+    )
+    parser.add_argument(
+        "--mistralrs_compat_save",
+        "--materialize_tied_weights",
+        dest="mistralrs_compat_save",
+        action="store_true",
+        help=(
+            "Clone the merged model state_dict to CPU before save_pretrained. "
+            "Use for Gemma 4 exports when a runtime such as mistral.rs expects "
+            "materialized alias/tied tensor keys. Default: off."
+        ),
     )
     parser.add_argument("--no_safe_serialization", dest="safe_serialization", action="store_false")
     parser.set_defaults(safe_serialization=True)

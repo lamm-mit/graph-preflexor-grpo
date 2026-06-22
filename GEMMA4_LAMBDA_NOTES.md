@@ -250,6 +250,222 @@ python src/test_model.py \
 
 If explicit format works but plain prompt does not, the adapter learned the structure but still needs instruction conditioning.
 
+## Current End-to-End SFT to GRPO Workflow
+
+This is the current preferred Gemma 4 E4B path:
+
+1. SFT trains a LoRA adapter from `google/gemma-4-E4B-it`.
+2. Merge the SFT adapter into a full model.
+3. GRPO starts from the merged SFT model and trains a new LoRA adapter.
+4. Merge the GRPO adapter into the merged SFT base.
+
+### 1. Run SFT
+
+```bash
+tmux new -s gemma4-sft
+
+export HF_NAMESPACE="lamm-mit"
+export MODEL_ID="google/gemma-4-E4B-it"
+export DATASET_SFT="lamm-mit/graph_reasoning_10K"
+export SFT_OUT="./gemma4-e4b-sft-graph-10k-L"
+export SFT_HUB="$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L"
+export WANDB_PROJECT="graph-preflexor"
+export WANDB_NAME="gemma4-e4b-sft-L-graph_reasoning_10K"
+export WANDB_TAGS="sft,gemma4-e4b,graph_reasoning_10K-L"
+export WANDB_RUN_GROUP="gemma4-e4b-graph-10k-L"
+
+python src/run_orpo_graph.py \
+  --base_model "$MODEL_ID" \
+  --dataset "$DATASET_SFT" \
+  --output_dir "$SFT_OUT" \
+  --mode sft \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --lr 1e-5 \
+  --epochs 3 \
+  --batch_size 2 \
+  --grad_accum 8 \
+  --max_length 3000 \
+  --save_steps 100 \
+  --eval_steps 100 \
+  --logging_steps 10 \
+  --push_to_hub \
+  --hub_model_id "$SFT_HUB" \
+  --hf_token "$HF_TOKEN"
+```
+
+### 2. Merge SFT Adapter
+
+Use the latest SFT adapter:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model "$MODEL_ID" \
+  --adapter "$SFT_HUB" \
+  --tokenizer_model "$MODEL_ID" \
+  --processor_model "$MODEL_ID" \
+  --output_dir ./gemma4-e4b-sft-graph-10k-L-merged \
+  --hub_model_id "$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L-merged" \
+  --hf_token "$HF_TOKEN"
+```
+
+Use a specific SFT adapter commit, such as the step-600 adapter:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model "$MODEL_ID" \
+  --adapter lamm-mit/gemma4-e4b-sft-graph-10k-L \
+  --adapter_commit 1bc18496096922b7a70b38d442ae8808fc6de7f3 \
+  --tokenizer_model "$MODEL_ID" \
+  --processor_model "$MODEL_ID" \
+  --output_dir ./gemma4-e4b-sft-graph-10k-L_step_600 \
+  --hub_model_id "$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L_step_600" \
+  --hf_token "$HF_TOKEN"
+```
+
+Quick SFT merged-model test:
+
+```bash
+python src/test_model.py \
+  --model "$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L_step_600" \
+  --tokenizer_model "$MODEL_ID" \
+  --prompt "Explain why materials are often weak using the Graph-PRefLexOR reasoning structure." \
+  --max_tokens 2048 \
+  --temperature 0.4 \
+  --chat_template_enable_thinking false
+```
+
+### 3. Run GRPO From Merged SFT
+
+Current run:
+
+```bash
+tmux new -s gemma4-grpo
+
+export HF_NAMESPACE="lamm-mit"
+export MODEL_ID="google/gemma-4-E4B-it"
+export DATASET_GRPO="lamm-mit/graph_reasoning_10K"
+export SFT_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L_step_600"
+export GRPO_OUT="./gemma4-e4b-grpo-from-sftL-step600"
+export GRPO_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-from-sftL-step600"
+export WANDB_PROJECT="graph-preflexor"
+export WANDB_NAME="gemma4-e4b-grpo-from-sftL-step600"
+export WANDB_TAGS="grpo,gemma4-e4b,graph_reasoning_10K,sftL_step600"
+export WANDB_RUN_GROUP="gemma4-e4b-from-sftL-step600"
+
+python src/run_grpo_graph.py \
+  --base_model_dir "$SFT_MERGED_HUB" \
+  --tokenizer_model "$MODEL_ID" \
+  --dataset "$DATASET_GRPO" \
+  --output_dir "$GRPO_OUT" \
+  --judge_model grok-4-1-fast-non-reasoning \
+  --judge_api_key "$XAI_API_KEY" \
+  --judge_base_url https://api.x.ai/v1 \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 8 \
+  --learning_rate 5e-6 \
+  --epochs 1 \
+  --max_completion_length 4000 \
+  --temperature 0.4 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --save_steps 50 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --push_to_hub \
+  --hub_model_id "$GRPO_HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards
+```
+
+### 4. Merge GRPO Adapter
+
+If the trainer pushed the adapter files directly to the Hub repo root at each save, use a Hub commit SHA rather than a checkpoint subfolder. For step 50, find the commit first:
+
+```bash
+python - <<'PY'
+import os
+from huggingface_hub import HfApi
+
+repo = "lamm-mit/gemma4-e4b-grpo-from-sftL-step600"
+commits = HfApi(token=os.environ.get("HF_TOKEN")).list_repo_commits(repo)
+for commit in commits[:20]:
+    print(commit.commit_id, commit.created_at, commit.title)
+PY
+```
+
+For Gemma 4 exports used by mistral.rs, add `--mistralrs_compat_save`. This clones the merged `state_dict` before saving so aliased/tied Gemma tensors are materialized in the safetensors output. It is off by default because it uses more host RAM and can make the saved model larger.
+
+Merge the latest pushed GRPO adapter for mistral.rs:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600 \
+  --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_latest \
+  --mistralrs_compat_save \
+  --shard_size 4GB \
+  --hf_token "$HF_TOKEN"
+```
+
+Merge a specific GRPO commit, e.g. step 50, for mistral.rs:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600 \
+  --adapter lamm-mit/gemma4-e4b-grpo-from-sftL-step600 \
+  --adapter_commit "<step_50_commit_sha>" \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --hub_model_id lamm-mit/gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --mistralrs_compat_save \
+  --shard_size 4GB \
+  --hf_token "$HF_TOKEN"
+```
+
+If the adapter is local and saved as actual checkpoint directories, use `--checkpoint 50`:
+
+```bash
+python src/merge_lora_adapter.py \
+  --base_model "$SFT_MERGED_HUB" \
+  --adapter "$GRPO_OUT" \
+  --checkpoint 50 \
+  --tokenizer_model "$MODEL_ID" \
+  --processor_model "$MODEL_ID" \
+  --output_dir ./gemma4-e4b-grpo-from-sftL-step600-merged_step50 \
+  --hub_model_id "$HF_NAMESPACE/gemma4-e4b-grpo-from-sftL-step600-merged_step50" \
+  --hf_token "$HF_TOKEN"
+```
+
+### 5. Final Merged-Model Test
+
+```bash
+python src/test_model.py \
+  --model "$HF_NAMESPACE/gemma4-e4b-grpo-from-sftL-step600-merged_step50" \
+  --tokenizer_model "$MODEL_ID" \
+  --prompt "Why are materials often weak? Use graph-native reasoning." \
+  --max_tokens 2048 \
+  --temperature 0.4 \
+  --chat_template_enable_thinking false
+```
+
 ## Load and Merge Longer SFT Step 600
 
 Use this to test or merge the earlier Hub commit for the longer SFT run:
@@ -280,6 +496,7 @@ Merge that adapter revision into a full model and push it to Hub:
 ```bash
 export SFT_STEP600_MERGED_OUT="./gemma4-e4b-sft-graph-10k-L_step_600"
 export SFT_STEP600_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-sft-graph-10k-L_step_600"
+
 
 python - <<'PY'
 import os
@@ -697,6 +914,76 @@ tok.push_to_hub(hub, private=True, token=token)
 PY
 ```
 
+### Merge GRPO Adapter From Hub
+
+Use this if the GRPO adapter is on Hugging Face rather than available in the local `$GRPO_OUT` directory. Leave `GRPO_ADAPTER_REVISION` empty to use the latest Hub state, or set it to a commit SHA, branch, or tag. Set `GRPO_ADAPTER_SUBFOLDER` only if the adapter files were uploaded inside a Hub subfolder such as `checkpoint-600`.
+
+```bash
+export GRPO_ADAPTER_HUB="$GRPO_HUB"
+export GRPO_ADAPTER_REVISION=""
+# export GRPO_ADAPTER_REVISION="1bc18496096922b7a70b38d442ae8808fc6de7f3"
+# export GRPO_ADAPTER_SUBFOLDER="checkpoint-600"
+
+export GRPO_FINAL_MERGED_OUT="./gemma4-e4b-grpo-graph-10k-merged"
+export GRPO_FINAL_MERGED_HUB="$HF_NAMESPACE/gemma4-e4b-grpo-graph-10k-merged_1200"
+
+export GRPO_FINAL_MERGED_HUB="$HF_NAMESPACE/Graph-Preflexor-4b_06212026"
+
+python - <<'PY'
+import os
+
+import torch
+from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+
+base = os.environ["SFT_MERGED_HUB"]
+adapter = os.environ["GRPO_ADAPTER_HUB"]
+revision = os.environ.get("GRPO_ADAPTER_REVISION") or None
+subfolder = os.environ.get("GRPO_ADAPTER_SUBFOLDER") or None
+out = os.environ["GRPO_FINAL_MERGED_OUT"]
+hub = os.environ["GRPO_FINAL_MERGED_HUB"]
+token = os.environ["HF_TOKEN"]
+processor_source = os.environ["MODEL_ID"]
+
+dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+print("Loading SFT merged base:", base)
+model = AutoModelForCausalLM.from_pretrained(
+    base,
+    dtype=dtype,
+    device_map="auto",
+    trust_remote_code=True,
+)
+
+adapter_kwargs = {}
+if revision:
+    adapter_kwargs["revision"] = revision
+if subfolder:
+    adapter_kwargs["subfolder"] = subfolder
+
+print("Loading GRPO adapter from Hub:", adapter)
+if revision:
+    print("  revision:", revision)
+if subfolder:
+    print("  subfolder:", subfolder)
+model = PeftModel.from_pretrained(model, adapter, **adapter_kwargs)
+model = model.merge_and_unload()
+
+processor = AutoProcessor.from_pretrained(processor_source, trust_remote_code=True, extra_special_tokens={})
+tok = AutoTokenizer.from_pretrained(processor_source, trust_remote_code=True, extra_special_tokens={})
+
+print("Saving merged GRPO:", out)
+model.save_pretrained(out, safe_serialization=True, max_shard_size="4GB")
+processor.save_pretrained(out)
+tok.save_pretrained(out)
+
+print("Pushing merged GRPO:", hub)
+model.push_to_hub(hub, private=True, token=token)
+processor.push_to_hub(hub, private=True, token=token)
+tok.push_to_hub(hub, private=True, token=token)
+PY
+```
+
 ## Final Test
 
 ```bash
@@ -708,6 +995,26 @@ python src/test_model.py \
   --temperature 1.0 \
   --chat_template_enable_thinking false
 ```
+```bash
+python src/test_model.py \
+  --model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600-native  \
+  --tokenizer_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600-native \
+  --test \
+  --max_tokens 512 \
+  --temperature 1.0 \
+  --chat_template_enable_thinking false
+```
+
+```bash
+python src/test_model.py \
+  --model ./gemma4-e4b-sft-graph-10k-L_step_600-native  \
+  --tokenizer_model lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600-native \
+  --test \
+  --max_tokens 512 \
+  --temperature 1.0 \
+  --chat_template_enable_thinking false
+```
+
 
 ## Notes From Unsloth Gemma 4 Guide
 
