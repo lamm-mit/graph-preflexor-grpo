@@ -1,0 +1,29 @@
+# mistral.rs multi-model server for the ideation loop (Mac / Metal).
+#   mistralrs from-config -f models.toml
+command = "serve"
+default_model_id ="google/gemma-4-E4B-it"# "lamm-mit/gemma4-e4b-grpo-graph-10k-merged_1200" #"lamm-mit/Graph-Preflexor-3b_08012026"   # generator = default
+
+[server]
+host = "0.0.0.0"
+port = 1234
+
+[runtime]
+# Required for OpenAI-compatible Skills and Responses tools[*].type="shell".
+# Start with: mistralrs from-config -f models.toml
+# Agent mode is the mistral.rs shortcut for search + code execution + shell.
+agent = true
+shell_timeout = 360
+
+# Generator — Graph-PRefLexOR 
+[[models]]
+kind = "auto"
+model_id = "lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600" #"lamm-mit/Graph-Preflexor-1.7b_08012026"
+[models.quantization]
+in_situ_quant = "8" #"Q8_0" #"HQQ8"
+ 
+# Questioner + graph explorer chat — Gemma on the same mistral.rs endpoint.
+[[models]]
+kind = "auto"
+model_id = "google/gemma-4-E4B-it"
+[models.quantization]
+in_situ_quant = "8"

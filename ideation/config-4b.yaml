@@ -1,0 +1,53 @@
+server:
+  base_url: http://localhost:1234/v1
+  api_key: x
+generator:
+  model: lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600
+  #base_url: http://localhost:1234/v1
+  base_url: http://localhost:1234/v1
+  backend: responses
+  temperature: 0.1
+  max_tokens: 16000
+  provider: openai
+  reasoning_effort: none
+questioner:
+  model: google/gemma-4-E4B-it
+  base_url: http://localhost:1234/v1
+  api_key: x
+  temperature: 0.9
+  max_tokens: 20000
+  provider: openai
+  api_key_env: x
+graph_qa:
+  model: google/gemma-4-E4B-it
+  base_url: http://localhost:1234/v1
+  api_key: x
+  temperature: 0.3
+  max_tokens: 20000
+  provider: openai
+  api_key_env: x
+embed_model: google/embeddinggemma-300m
+dedup_threshold: 0.85
+link_sim: 0.55
+strategy: frontier
+context_mode: fresh
+fanout: 3
+budget:
+  generator_calls: 40
+  max_tokens: 600000
+  max_iters: 60
+novelty_stop:
+  window: 4
+  min_new_nodes: 0
+chat:
+  provider: openai
+  model: gpt-5.5
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  temperature: 0.3
+  max_tokens: 20000
+  reasoning_effort: medium
+judge:
+  provider: openai
+baseline:
+  provider: openai
