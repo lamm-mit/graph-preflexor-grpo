@@ -1276,6 +1276,58 @@ python src/merge_lora_adapter.py \
   --hf_token "$HF_TOKEN"
 ```
 
+Verify the uploaded model has the raw Gemma keys expected by mistral.rs:
+
+```bash
+python - <<'PY'
+import os
+from pathlib import Path
+from huggingface_hub import snapshot_download
+from safetensors import safe_open
+
+repo = "lamm-mit/Graph-Preflexor-4b_06222026"
+snap = Path(snapshot_download(repo, force_download=True, token=os.environ.get("HF_TOKEN")))
+print("snapshot:", snap)
+
+for key in [
+    "model.language_model.layers.24.self_attn.k_proj.weight",
+    "model.language_model.layers.24.self_attn.v_proj.weight",
+    "model.language_model.layers.24.self_attn.k_norm.weight",
+]:
+    hits = []
+    for path in snap.glob("*.safetensors"):
+        with safe_open(path, framework="pt", device="cpu") as handle:
+            if key in handle.keys():
+                hits.append(path.name)
+    print(key, hits)
+PY
+```
+
+Run the merged model directly with mistral.rs:
+
+```bash
+mistralrs serve \
+  --port 1234 \
+  --isq Q8_0 \
+  --model-id lamm-mit/Graph-Preflexor-4b_06222026
+```
+
+Test the Responses endpoint and pretty-print the JSON:
+
+```bash
+curl -s http://localhost:1234/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "lamm-mit/Graph-Preflexor-4b_06222026",
+    "input": "Why are materials often weak?",
+    "temperature": 0.4,
+    "max_output_tokens": 512,
+    "reasoning": {
+      "effort": "none"
+    }
+  }' | jq .
+```
+
 If colocated vLLM runs out of memory on E4B, reduce generation pressure:
 
 ```bash
