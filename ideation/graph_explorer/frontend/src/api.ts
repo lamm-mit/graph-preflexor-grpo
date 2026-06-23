@@ -17,6 +17,9 @@ import type {
   RunDashboard,
   RunSummary,
   SearchResult,
+  SkillChatContext,
+  SkillDetailPayload,
+  SkillRegistryPayload,
   SynthesisJobStatus,
 } from "./types";
 
@@ -45,6 +48,8 @@ export const api = {
   runDashboard: (run: string) => request<RunDashboard>("/api/run_dashboard", { run }),
   runGraphs: (run: string) => request<{ run: string; graphs: GraphFileSummary[] }>("/api/run_graphs", { run }),
   graphmlFiles: () => request<{ graphs: GraphFileSummary[] }>("/api/graphml_files", {}),
+  skills: (query = "") => request<SkillRegistryPayload>("/api/skills", query ? { query } : {}),
+  skillDetail: (id: string, max_chars = 30000) => request<SkillDetailPayload>("/api/skill", { id, max_chars }),
   suggestRunOut: (body: { topic: string; strategy?: string; model_config?: ModelRole }) =>
     request<{ out: string; slug: string; source: "model" | "fallback"; reason?: string; model_text?: string }>("/api/suggest_run_out", body),
   clearGraph: () => request<{ ok: boolean }>("/api/clear_graph", {}),
@@ -64,6 +69,7 @@ export const api = {
     max_edges: number;
     context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
+    skill_context?: SkillChatContext | null;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
     previous_response_id?: string;
@@ -77,6 +83,7 @@ export const api = {
     max_edges: number;
     context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
+    skill_context?: SkillChatContext | null;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
     previous_response_id?: string;

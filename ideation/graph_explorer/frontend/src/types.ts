@@ -443,6 +443,13 @@ export type GraphAskContext = {
     truncated: boolean;
     included?: string[];
   };
+  skill_context?: {
+    skills: SkillSummary[];
+    chars: number;
+    total_requested: number;
+    truncated: boolean;
+    include_instructions: boolean;
+  };
 };
 
 export type ChatMessage = {
@@ -466,4 +473,37 @@ export type VisualState = {
   edgeOpacity: number;
   edgeWidth: number;
   edgeStyle: "straight" | "directed";
+};
+
+export type SkillSummary = {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  relative_path: string;
+  resource_dirs: string[];
+  tags: string[];
+  safety: "context" | "tool-capable" | "external-capable" | string;
+  updated_at: number;
+};
+
+export type SkillRegistryPayload = {
+  root: string;
+  count: number;
+  categories: Record<string, number>;
+  skills: SkillSummary[];
+};
+
+export type SkillDetailPayload = {
+  skill: SkillSummary;
+  skill_md: string;
+  body: string;
+  truncated: boolean;
+  files: Array<{ path: string; size: number; kind: string }>;
+};
+
+export type SkillChatContext = {
+  ids: string[];
+  include_instructions?: boolean;
+  max_chars?: number;
 };

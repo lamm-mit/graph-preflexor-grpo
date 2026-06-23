@@ -15,6 +15,7 @@ import {
   Download,
   FileText,
   FolderOpen,
+  Library,
   Info,
   Loader2,
   Network,
@@ -34,6 +35,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { cx, Drawer, HelpTip, IconButton, SidebarHeader } from "./components/common";
+import { commandHelpText, filterChatCommands, type ChatCommandId } from "./features/chat-commands";
 import { ChatRunWizard, type RunWizardState } from "./features/chat-run-wizard";
 import { analysisRequestOptions, MarkdownReport, ReportStudio, readReportStudioStorage } from "./features/reporting";
 import { RunDashboardPanel } from "./features/run-dashboard";
@@ -71,6 +73,8 @@ import type {
   RunAnalysisJobStatus,
   RunDashboard,
   SearchResult,
+  SkillDetailPayload,
+  SkillSummary,
 } from "./types";
 import "./styles.css";
 
@@ -2440,6 +2444,190 @@ function ReportPreviewModal({
   );
 }
 
+function skillSafetyLabel(skill: SkillSummary) {
+  if (skill.safety === "external-capable") return "May use external/network workflows";
+  if (skill.safety === "tool-capable") return "Includes scripts or tool workflows";
+  return "Context instructions only";
+}
+
+function SkillPickerModal({
+  attachedIds,
+  initialQuery = "",
+  onAttach,
+  onClose,
+}: {
+  attachedIds: string[];
+  initialQuery?: string;
+  onAttach: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState(initialQuery);
+  const [selectedIds, setSelectedIds] = useState<string[]>(attachedIds);
+  const [previewId, setPreviewId] = useState(attachedIds[0] || "");
+  const skillsQuery = useQuery({
+    queryKey: ["skills", query],
+    queryFn: () => api.skills(query),
+    refetchInterval: false,
+  });
+  const previewQuery = useQuery({
+    queryKey: ["skill-detail", previewId],
+    queryFn: () => api.skillDetail(previewId),
+    enabled: Boolean(previewId),
+    refetchInterval: false,
+  });
+  const skills = skillsQuery.data?.skills || [];
+  const selectedSkills = skills.filter((skill) => selectedIds.includes(skill.id));
+
+  function toggleSkill(skill: SkillSummary) {
+    setSelectedIds((ids) => {
+      if (ids.includes(skill.id)) return ids.filter((id) => id !== skill.id);
+      return [...ids, skill.id].slice(-3);
+    });
+    setPreviewId(skill.id);
+  }
+
+  return (
+    <div className="model-modal-backdrop skill-picker-backdrop" role="presentation">
+      <div aria-label="Skill picker" aria-modal="true" className="serve-modal skill-picker-modal" role="dialog">
+        <div className="serve-modal-head report-preview-head">
+          <div>
+            <span>Local skills</span>
+            <h3>Attach skill context</h3>
+            <p>Browse local skills, preview their instructions, and attach selected skills to the next chat turn.</p>
+          </div>
+          <button aria-label="Close skill picker" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+        <div className="skill-picker-toolbar">
+          <label>
+            Search skills
+            <input
+              autoFocus
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="graph analysis, writing, visualization..."
+              value={query}
+            />
+          </label>
+          <div className="skill-picker-actions">
+            <button onClick={() => void skillsQuery.refetch()} type="button">Refresh</button>
+            <button
+              onClick={() => {
+                onAttach(selectedIds);
+                onClose();
+              }}
+              type="button"
+            >
+              Attach {selectedIds.length || "none"}
+            </button>
+          </div>
+        </div>
+        <div className="report-preview-context">
+          Attached skills are sent as prompt context only. They do not install packages, run scripts, access the network,
+          or edit files without a separate explicit action.
+        </div>
+        <div className="skill-picker-grid">
+          <div className="skill-list">
+            {skillsQuery.isLoading ? <div className="status-box">Loading local skills...</div> : null}
+            {skillsQuery.error ? <div className="status-box">{String(skillsQuery.error)}</div> : null}
+            {!skillsQuery.isLoading && !skills.length ? <div className="status-box">No matching local skills found.</div> : null}
+            {skills.map((skill) => {
+              const active = selectedIds.includes(skill.id);
+              return (
+                <div
+                  className={cx("skill-card", active && "active", previewId === skill.id && "previewing")}
+                  key={skill.id}
+                  onClick={() => setPreviewId(skill.id)}
+                  onDoubleClick={() => toggleSkill(skill)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") setPreviewId(skill.id);
+                    if (event.key === " ") {
+                      event.preventDefault();
+                      toggleSkill(skill);
+                    }
+                  }}
+                >
+                  <span className="skill-card-head">
+                    <strong>{skill.title}</strong>
+                    <span>{skill.safety}</span>
+                  </span>
+                  <span>{skill.description}</span>
+                  <span className="skill-tags">
+                    {skill.tags.slice(0, 5).map((tag) => (
+                      <em key={tag}>{tag}</em>
+                    ))}
+                  </span>
+                  <span className="skill-card-actions">
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSkill(skill);
+                      }}
+                      type="button"
+                    >
+                      {active ? "Detach" : "Attach"}
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="skill-preview">
+            {previewQuery.isLoading ? <div className="status-box">Loading skill preview...</div> : null}
+            {previewQuery.error ? <div className="status-box">{String(previewQuery.error)}</div> : null}
+            {previewQuery.data ? <SkillPreview detail={previewQuery.data} /> : !previewId ? <div className="status-box">Select a skill to preview it.</div> : null}
+          </div>
+        </div>
+        <div className="skill-picker-footer">
+          <div>
+            <strong>Attached</strong>
+            <span>{selectedSkills.length ? selectedSkills.map((skill) => skill.title).join(", ") : "No skills selected"}</span>
+          </div>
+          <button
+            onClick={() => {
+              setSelectedIds([]);
+              onAttach([]);
+            }}
+            type="button"
+          >
+            Clear skills
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkillPreview({ detail }: { detail: SkillDetailPayload }) {
+  const filesByKind = detail.files.reduce<Record<string, number>>((acc, file) => {
+    acc[file.kind] = (acc[file.kind] || 0) + 1;
+    return acc;
+  }, {});
+  return (
+    <>
+      <div className="skill-preview-head">
+        <div>
+          <strong>{detail.skill.title}</strong>
+          <span>{detail.skill.relative_path}</span>
+        </div>
+        <span>{skillSafetyLabel(detail.skill)}</span>
+      </div>
+      <p>{detail.skill.description}</p>
+      <div className="skill-resource-row">
+        {Object.entries(filesByKind).map(([kind, count]) => (
+          <span key={kind}>{kind}: {count}</span>
+        ))}
+      </div>
+      <pre className="skill-md-preview">
+        {detail.skill_md}
+        {detail.truncated ? "\n\n... truncated ..." : ""}
+      </pre>
+    </>
+  );
+}
+
 function ChatContextInfoModal({
   body,
   selectedLabels,
@@ -2490,6 +2678,10 @@ function ChatContextInfoModal({
                   ])
                 : "none"}
             </strong>
+          </div>
+          <div>
+            <span>Skills</span>
+            <strong>{body.skill_context?.ids?.length ? `${body.skill_context.ids.length} attached` : "none"}</strong>
           </div>
         </div>
         {selectedLabels.length ? (
@@ -2559,6 +2751,9 @@ function ChatPanel({
   const [reportContextParts, setReportContextParts] = useState<ReportContextPart[]>(["report"]);
   const [reportMenuOpen, setReportMenuOpen] = useState(false);
   const [reportPreviewOpen, setReportPreviewOpen] = useState(false);
+  const [attachedSkillIds, setAttachedSkillIds] = useState<string[]>([]);
+  const [skillPickerOpen, setSkillPickerOpen] = useState(false);
+  const [skillPickerQuery, setSkillPickerQuery] = useState("");
   const [insightsModalRun, setInsightsModalRun] = useState("");
   const [contextInfoOpen, setContextInfoOpen] = useState(false);
   const [chatExportOpen, setChatExportOpen] = useState(false);
@@ -2580,6 +2775,15 @@ function ChatPanel({
   const activeChatRole = chatModelRole(roles);
   const chatRoleName = activeChatRole?.role || "chat";
   const selectedReport = sessionReports.find((report) => report.out === selectedReportOut);
+  const skillsQuery = useQuery({
+    queryKey: ["skills", "chat-attached"],
+    queryFn: () => api.skills(),
+    refetchInterval: false,
+  });
+  const attachedSkills = useMemo(
+    () => (skillsQuery.data?.skills || []).filter((skill) => attachedSkillIds.includes(skill.id)),
+    [attachedSkillIds, skillsQuery.data?.skills],
+  );
   const includeReportContext = reportContextParts.includes("report");
   const includeProfileContext = reportContextParts.includes("profile");
   const reportContextSelection =
@@ -2591,20 +2795,19 @@ function ChatPanel({
           include_profile: includeProfileContext,
         }
       : null;
+  const skillContextSelection = attachedSkillIds.length
+    ? {
+        ids: attachedSkillIds,
+        include_instructions: true,
+        max_chars: 18000,
+      }
+    : null;
   const selectedLabels = selectedNodes.map((id) => nodeLabel(graph, id));
   const commandQuery = question.startsWith("/") ? question.slice(1).trim().toLowerCase() : "";
-  const commandItems = [
-    { command: "/clear", label: "Clear chat", detail: "Reset this chat thread.", action: () => resetChat() },
-    { command: "/followups", label: "Generate follow-ups", detail: "Ask the active graph model for next query ideas.", action: () => void suggestFollowups() },
-    { command: "/insights", label: "Summarize insights", detail: "Mine or summarize the active run's structural insights.", action: () => setQuestion("/insights ") },
-    { command: "/run <topic>", label: "New exploration run", detail: "Start a guided exploration run from chat.", action: () => setQuestion("/run ") },
-    { command: "/synthesize <task>", label: "Run synthesis", detail: "Generate a synthesis answer from the active run and post it here.", action: () => setQuestion("/synthesize ") },
-    { command: "/none", label: "No retrieval", detail: "Use only selected nodes; with no selection this is regular chat.", action: () => setAgentMode("none") },
-    { command: "/rag", label: "Graph-RAG retrieval", detail: "Retrieve broader semantic neighborhoods and path connectors.", action: () => setAgentMode("graph_rag") },
-    { command: "/focus", label: "Focused selection", detail: "Use selected nodes, an optional focus query, and compact neighborhoods.", action: () => setAgentMode("focused") },
-    { command: "/nodes 160", label: "Context nodes", detail: "Set the graph context size to 160 nodes.", action: () => setContextNodes(160) },
-    { command: "/help", label: "Show help", detail: "Insert a compact command reference.", action: () => addCommandHelp() },
-  ].filter((item) => !commandQuery || item.command.toLowerCase().includes(commandQuery) || item.label.toLowerCase().includes(commandQuery));
+  const commandItems = filterChatCommands(commandQuery).map((item) => ({
+    ...item,
+    action: () => executeCommandSpec(item.id),
+  }));
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
@@ -2680,6 +2883,7 @@ function ChatPanel({
       max_edges: agentMode === "graph_rag" ? 520 : 160,
       context_mode: agentMode,
       report_context: reportContextSelection,
+      skill_context: skillContextSelection,
       model_config: role,
       history: recentHistory(),
       previous_response_id: previousResponseId(messages, role) || undefined,
@@ -2699,9 +2903,55 @@ function ChatPanel({
     addChatMessage({
       role: "system",
       meta: "commands",
-      content:
-        "/clear resets the chat.\n/none disables graph retrieval and uses only selected nodes.\n/rag switches to Graph-RAG retrieval.\n/focus switches to focused selection context.\n/nodes 160 changes context size.\n/followups asks the chat model for next query ideas.\n/run starts a guided exploration-run setup; use /run <topic> to prefill the topic.\n/insights summarizes mined insights for the active run; add --refresh to recompute first.\n/synthesize <task> generates a synthesis answer from the active run and posts it here.\n/synthesize --style hypotheses --mine \"Rank three falsifiable hypotheses\" changes style and refreshes mined insights if needed.\n/synthesize --hf meta-llama/Llama-3.2-3B-Instruct \"...\" uses the Hugging Face backend.\nUse Settings to change the default chat/synthesis model role.",
+      content: `${commandHelpText()}\n\nUse Settings to change the default chat/synthesis model role. Skills attached with /skills are sent as context only for the next chat turns until cleared.`,
     });
+  }
+
+  function executeCommandSpec(id: ChatCommandId) {
+    if (id === "clear") {
+      resetChat();
+      return;
+    }
+    if (id === "followups") {
+      void suggestFollowups();
+      return;
+    }
+    if (id === "insights") {
+      setQuestion("/insights ");
+      return;
+    }
+    if (id === "run") {
+      setQuestion("/run ");
+      return;
+    }
+    if (id === "synthesize") {
+      setQuestion("/synthesize ");
+      return;
+    }
+    if (id === "skills") {
+      setSkillPickerQuery("");
+      setSkillPickerOpen(true);
+      setQuestion("");
+      return;
+    }
+    if (id === "none") {
+      setAgentMode("none");
+      return;
+    }
+    if (id === "rag") {
+      setAgentMode("graph_rag");
+      return;
+    }
+    if (id === "focus") {
+      setAgentMode("focused");
+      return;
+    }
+    if (id === "nodes") {
+      setContextNodes(160);
+      setQuestion("/nodes 160");
+      return;
+    }
+    addCommandHelp();
   }
 
   function latestUserText() {
@@ -3109,6 +3359,19 @@ function ChatPanel({
       void startRunWizard(restText);
       return true;
     }
+    if (command === "skills") {
+      setQuestion("");
+      setSkillPickerQuery(restText.trim());
+      setSkillPickerOpen(true);
+      if (restText.trim()) {
+        addChatMessage({
+          role: "system",
+          content: `Opened local skills filtered by "${restText.trim()}". Select a skill to attach it as context before sending your next message.`,
+          meta: "skills",
+        });
+      }
+      return true;
+    }
     if (command === "rag") {
       setAgentMode("graph_rag");
       addChatMessage({ role: "system", content: "Switched to Graph-RAG agent mode.", meta: "command" });
@@ -3166,7 +3429,7 @@ function ChatPanel({
       }
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
-        meta: `${chatContextLabel((res.context.mode || agentMode) as ChatContextMode)} ${res.context.node_count}n/${res.context.edge_count}e${chatStateMeta(res)}${res.context.report_context ? ` | ${reportPartsLabel(reportPartsFromIncluded(res.context.report_context.included))} ${res.context.report_context.title}` : ""}`,
+        meta: `${chatContextLabel((res.context.mode || agentMode) as ChatContextMode)} ${res.context.node_count}n/${res.context.edge_count}e${chatStateMeta(res)}${res.context.report_context ? ` | ${reportPartsLabel(reportPartsFromIncluded(res.context.report_context.included))} ${res.context.report_context.title}` : ""}${res.context.skill_context?.skills?.length ? ` | skills: ${res.context.skill_context.skills.map((skill) => skill.title).join(", ")}` : ""}`,
         ...responseStateMeta(role, res.response_id),
       });
       setQuestion("");
@@ -3461,6 +3724,59 @@ function ChatPanel({
             onOpenReports={onOpenReports}
             contextParts={reportContextParts}
             report={selectedReport}
+          />
+        ) : null}
+        <div className="skill-context-bar">
+          <button
+            className="skill-context-chip"
+            onClick={() => {
+              setSkillPickerQuery("");
+              setSkillPickerOpen(true);
+            }}
+            title="Browse local skills and attach one as extra procedural context for the Graph Assistant."
+            type="button"
+          >
+            <Library size={13} />
+            <span>
+              {attachedSkills.length
+                ? `Skills: ${attachedSkills.map((skill) => skill.title).join(", ")}`
+                : "No skill attached"}
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setSkillPickerQuery("");
+              setSkillPickerOpen(true);
+            }}
+            title="Open the local skill picker."
+            type="button"
+          >
+            {attachedSkills.length ? "Change" : "Attach skill"}
+          </button>
+          {attachedSkillIds.length ? (
+            <button onClick={() => setAttachedSkillIds([])} title="Clear attached skill context." type="button">
+              Clear
+            </button>
+          ) : null}
+        </div>
+        {skillPickerOpen ? (
+          <SkillPickerModal
+            attachedIds={attachedSkillIds}
+            initialQuery={skillPickerQuery}
+            onAttach={(ids) => {
+              setAttachedSkillIds(ids);
+              if (ids.length) {
+                const selected = (skillsQuery.data?.skills || []).filter((skill) => ids.includes(skill.id));
+                addChatMessage({
+                  role: "system",
+                  meta: "skills",
+                  content: `Attached skill context: ${selected.length ? selected.map((skill) => skill.title).join(", ") : ids.join(", ")}. It will be sent as prompt context on chat turns until cleared.`,
+                });
+              } else {
+                addChatMessage({ role: "system", meta: "skills", content: "Cleared attached skill context." });
+              }
+            }}
+            onClose={() => setSkillPickerOpen(false)}
           />
         ) : null}
         {lastRagNodes.length ? (
