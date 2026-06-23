@@ -461,6 +461,78 @@ export type ChatMessage = {
   response_model?: string;
   response_backend?: string;
   response_base_url?: string;
+  images?: ChatImage[];
+  files?: ChatFile[];
+  created_at?: number;
+};
+
+export type ChatImage = {
+  id: string;
+  file: string;
+  url: string;
+  mime: string;
+  format: string;
+  prompt: string;
+  revised_prompt?: string;
+  tool_call_id?: string;
+  size?: number;
+  requested_size?: string;
+  quality?: string;
+};
+
+export type ChatFile = {
+  id: string;
+  file: string;
+  filename: string;
+  url?: string;
+  mime: string;
+  size: number;
+  error?: string;
+  source?: {
+    type?: string;
+    container_id?: string;
+    file_id?: string;
+  };
+};
+
+export type ChatSessionSummary = {
+  id: string;
+  title: string;
+  run: string;
+  run_name: string;
+  created_at: number;
+  updated_at: number;
+  message_count: number;
+  image_count: number;
+  file_count?: number;
+  last_message: string;
+  archived?: boolean;
+};
+
+export type ChatSessionPayload = {
+  run: string;
+  run_name: string;
+  root: string;
+  session: ChatSessionSummary;
+  messages: ChatMessage[];
+  state: Record<string, unknown>;
+};
+
+export type ChatSessionsPayload = {
+  run: string;
+  run_name: string;
+  root: string;
+  sessions: ChatSessionSummary[];
+};
+
+export type ImageGenerationResponse = {
+  answer: string;
+  response_id?: string;
+  images: ChatImage[];
+  chat_id: string;
+  run: string;
+  model: string;
+  tool: Record<string, unknown>;
 };
 
 export type VisualState = {

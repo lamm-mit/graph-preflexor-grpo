@@ -8,6 +8,7 @@ queries, optionally starts ideate.py jobs, and calls a user-selected LLM backend
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import hashlib
 import json
@@ -26,7 +27,7 @@ import traceback
 import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 import urllib.error
 import urllib.request
 
@@ -548,6 +549,282 @@ def _safe_workspace_path(raw, *, default_base=IDEATION_DIR, require_safe_root=Tr
 
 def _resolve_profile_out(out_value):
     return _safe_workspace_path(out_value, default_base=IDEATION_DIR, require_safe_root=True)
+
+
+def _now_ms():
+    return int(time.time() * 1000)
+
+
+def _chat_slug(value, fallback="chat"):
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip()).strip(".-")
+    return slug[:80] or fallback
+
+
+def _chat_scope_dir(run_value=""):
+    raw = str(run_value or "").strip()
+    if not raw or raw == "__workspace__":
+        root = IDEATION_DIR / ".graph_explorer"
+        return root, "__workspace__", "Workspace"
+    run_dir = _resolve_run_path(raw)
+    if not run_dir.exists():
+        run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir / ".graph_explorer", _relative_to_ideation(run_dir), run_dir.name
+
+
+def _chat_sessions_root(run_value=""):
+    scope, run_key, run_name = _chat_scope_dir(run_value)
+    root = scope / "chats"
+    root.mkdir(parents=True, exist_ok=True)
+    return root, run_key, run_name
+
+
+def _chat_session_dir(run_value, chat_id, *, create=False):
+    root, _run_key, _run_name = _chat_sessions_root(run_value)
+    safe_id = _chat_slug(chat_id, "")
+    if not safe_id:
+        raise ValueError("chat id is required")
+    path = (root / safe_id).resolve()
+    if root.resolve() not in path.parents:
+        raise ValueError("chat path escaped chat root")
+    if create:
+        (path / "attachments").mkdir(parents=True, exist_ok=True)
+        (path / "images").mkdir(parents=True, exist_ok=True)
+        (path / "exports").mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _json_read(path, default):
+    try:
+        if Path(path).exists():
+            return json.loads(Path(path).read_text(errors="replace"))
+    except Exception:
+        return default
+    return default
+
+
+def _json_write(path, payload):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(_clean(payload), ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _chat_read_messages(session_dir):
+    path = Path(session_dir) / "messages.jsonl"
+    if not path.exists():
+        return []
+    messages = []
+    for line in path.read_text(errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+            if isinstance(item, dict) and item.get("id") and item.get("role"):
+                messages.append(item)
+        except Exception:
+            continue
+    return messages
+
+
+def _chat_write_messages(session_dir, messages):
+    path = Path(session_dir) / "messages.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for message in messages or []:
+            if isinstance(message, dict):
+                f.write(json.dumps(_clean(message), ensure_ascii=False) + "\n")
+    tmp.replace(path)
+
+
+def _chat_session_summary(session_dir, run_key="", run_name=""):
+    session_dir = Path(session_dir)
+    meta = _json_read(session_dir / "session.json", {})
+    messages = _chat_read_messages(session_dir)
+    first_user = next((m for m in messages if m.get("role") == "user" and str(m.get("content") or "").strip()), None)
+    latest = messages[-1] if messages else {}
+    updated_at = max(
+        float(meta.get("updated_at") or 0),
+        session_dir.stat().st_mtime if session_dir.exists() else 0,
+        (session_dir / "messages.jsonl").stat().st_mtime if (session_dir / "messages.jsonl").exists() else 0,
+    )
+    title = str(meta.get("title") or "").strip()
+    if not title and first_user:
+        title = str(first_user.get("content") or "").strip().replace("\n", " ")[:72]
+    return {
+        "id": session_dir.name,
+        "title": title or "New chat",
+        "run": run_key,
+        "run_name": run_name,
+        "created_at": float(meta.get("created_at") or updated_at or time.time()),
+        "updated_at": updated_at or time.time(),
+        "message_count": len(messages),
+        "image_count": sum(len(m.get("images") or []) for m in messages if isinstance(m, dict)),
+        "file_count": sum(len(m.get("files") or []) for m in messages if isinstance(m, dict)),
+        "last_message": str(latest.get("content") or "").strip().replace("\n", " ")[:180],
+        "archived": bool(meta.get("archived")),
+    }
+
+
+def _chat_sessions_payload(body):
+    run = body.get("run") if isinstance(body, dict) else body
+    root, run_key, run_name = _chat_sessions_root(run)
+    sessions = []
+    for item in sorted(root.iterdir() if root.exists() else [], key=lambda p: p.name):
+        if item.is_dir() and (item / "session.json").exists():
+            summary = _chat_session_summary(item, run_key, run_name)
+            if not summary.get("archived"):
+                sessions.append(summary)
+    sessions.sort(key=lambda item: item.get("updated_at") or 0, reverse=True)
+    return {"run": run_key, "run_name": run_name, "root": str(root), "sessions": sessions}
+
+
+def _chat_create_session(body):
+    run = str(body.get("run") or "").strip()
+    root, run_key, run_name = _chat_sessions_root(run)
+    title = str(body.get("title") or "").strip() or "New chat"
+    chat_id = _chat_slug(body.get("id") or f"chat_{time.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}")
+    session_dir = _chat_session_dir(run, chat_id, create=True)
+    now = time.time()
+    meta = {
+        "id": chat_id,
+        "title": title[:120],
+        "run": run_key,
+        "run_name": run_name,
+        "created_at": now,
+        "updated_at": now,
+        "archived": False,
+        "version": 1,
+    }
+    _json_write(session_dir / "session.json", meta)
+    _json_write(session_dir / "state.json", body.get("state") or {})
+    if not (session_dir / "messages.jsonl").exists():
+        _chat_write_messages(session_dir, body.get("messages") or [])
+    return _chat_load_session({"run": run, "id": chat_id})
+
+
+def _chat_load_session(body):
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("id") or body.get("chat_id") or "").strip()
+    session_dir = _chat_session_dir(run, chat_id)
+    if not session_dir.exists():
+        raise ValueError("Unknown chat session id.")
+    root, run_key, run_name = _chat_sessions_root(run)
+    summary = _chat_session_summary(session_dir, run_key, run_name)
+    return {
+        "run": run_key,
+        "run_name": run_name,
+        "root": str(root),
+        "session": summary,
+        "messages": _chat_read_messages(session_dir),
+        "state": _json_read(session_dir / "state.json", {}),
+    }
+
+
+def _chat_save_session(body):
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("id") or body.get("chat_id") or "").strip()
+    session_dir = _chat_session_dir(run, chat_id, create=True)
+    existing = _json_read(session_dir / "session.json", {})
+    now = time.time()
+    title = str(body.get("title") or existing.get("title") or "New chat").strip()[:120]
+    root, run_key, run_name = _chat_sessions_root(run)
+    meta = {
+        **existing,
+        "id": chat_id,
+        "title": title,
+        "run": run_key,
+        "run_name": run_name,
+        "created_at": float(existing.get("created_at") or now),
+        "updated_at": now,
+        "archived": bool(existing.get("archived", False)),
+        "version": 1,
+    }
+    _json_write(session_dir / "session.json", meta)
+    _json_write(session_dir / "state.json", body.get("state") or {})
+    _chat_write_messages(session_dir, body.get("messages") or [])
+    return _chat_load_session({"run": run, "id": chat_id})
+
+
+def _chat_rename_session(body):
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("id") or body.get("chat_id") or "").strip()
+    session_dir = _chat_session_dir(run, chat_id)
+    if not session_dir.exists():
+        raise ValueError("Unknown chat session id.")
+    meta = _json_read(session_dir / "session.json", {})
+    meta["title"] = str(body.get("title") or "New chat").strip()[:120]
+    meta["updated_at"] = time.time()
+    _json_write(session_dir / "session.json", meta)
+    return _chat_load_session({"run": run, "id": chat_id})
+
+
+def _resolve_chat_asset(run_value, chat_id, file_value):
+    session_dir = _chat_session_dir(run_value, chat_id)
+    raw = str(file_value or "").strip()
+    if not raw:
+        raise ValueError("chat asset file is required")
+    path = (session_dir / raw).resolve()
+    if session_dir.resolve() not in path.parents:
+        raise ValueError("chat asset path escaped chat session")
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(raw)
+    return path
+
+
+def _save_chat_image(run, chat_id, image_b64, output_format="png", prompt="", tool_call_id=""):
+    session_dir = _chat_session_dir(run, chat_id, create=True)
+    fmt = str(output_format or "png").lower().replace("jpg", "jpeg")
+    if fmt not in {"png", "jpeg", "webp"}:
+        fmt = "png"
+    ext = "jpg" if fmt == "jpeg" else fmt
+    image_id = f"img_{_now_ms()}_{uuid.uuid4().hex[:8]}"
+    rel = Path("images") / f"{image_id}.{ext}"
+    path = session_dir / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(base64.b64decode(image_b64))
+    mime = "image/jpeg" if fmt == "jpeg" else f"image/{fmt}"
+    return {
+        "id": image_id,
+        "file": str(rel),
+        "mime": mime,
+        "format": fmt,
+        "prompt": prompt,
+        "tool_call_id": tool_call_id,
+        "size": path.stat().st_size,
+    }
+
+
+def _save_chat_file(run, chat_id, filename, data, *, mime="", source=None):
+    session_dir = _chat_session_dir(run, chat_id, create=True)
+    clean_name = Path(str(filename or "")).name
+    clean_name = re.sub(r"[^A-Za-z0-9_. -]+", "-", clean_name).strip(" .-")
+    if not clean_name:
+        clean_name = "response-file"
+    stem = Path(clean_name).stem or "response-file"
+    suffix = Path(clean_name).suffix[:16]
+    file_id = f"file_{_now_ms()}_{uuid.uuid4().hex[:8]}"
+    rel = Path("attachments") / f"{file_id}_{stem[:72]}{suffix}"
+    path = session_dir / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    guessed_mime = mime or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    return {
+        "id": file_id,
+        "file": str(rel),
+        "filename": clean_name,
+        "mime": guessed_mime,
+        "size": path.stat().st_size,
+        "source": source or {},
+    }
+
+
+def _chat_asset_url(run, chat_id, rel_file):
+    return (
+        f"/api/chat_asset?run={quote(run or '__workspace__')}"
+        f"&chat_id={quote(chat_id)}&file={quote(str(rel_file))}"
+    )
 
 
 def _skill_slug(value):
@@ -2858,10 +3135,42 @@ def _response_text(response):
     return "\n".join(chunks).strip()
 
 
+def _object_get(value, key, default=None):
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _container_file_citations_from_output(output_items):
+    citations = []
+    seen = set()
+    for item in output_items or []:
+        for content in _object_get(item, "content", []) or []:
+            for annotation in _object_get(content, "annotations", []) or []:
+                ann_type = _object_get(annotation, "type", "")
+                if ann_type != "container_file_citation":
+                    continue
+                container_id = str(_object_get(annotation, "container_id", "") or "")
+                file_id = str(_object_get(annotation, "file_id", "") or "")
+                filename = str(_object_get(annotation, "filename", "") or file_id or "response-file")
+                key = (container_id, file_id, filename)
+                if not container_id or not file_id or key in seen:
+                    continue
+                seen.add(key)
+                citations.append({
+                    "type": ann_type,
+                    "container_id": container_id,
+                    "file_id": file_id,
+                    "filename": filename,
+                })
+    return citations
+
+
 def _response_result(response):
     return {
         "text": _response_text(response),
         "response_id": str(getattr(response, "id", "") or ""),
+        "container_files": _container_file_citations_from_output(getattr(response, "output", []) or []),
     }
 
 
@@ -2869,6 +3178,7 @@ def _response_result_from_payload(payload):
     return {
         "text": _completion_text_from_payload(payload),
         "response_id": str((payload or {}).get("id") or ""),
+        "container_files": _container_file_citations_from_output((payload or {}).get("output") or []),
     }
 
 
@@ -2918,6 +3228,11 @@ def _responses_payload(cfg, messages, previous_response_id=None):
         payload["previous_response_id"] = previous_response_id
     if cfg.get("reasoning_effort"):
         payload["reasoning"] = {"effort": cfg["reasoning_effort"]}
+    if cfg.get("enable_code_interpreter"):
+        payload["tools"] = [{
+            "type": "code_interpreter",
+            "container": {"type": "auto", "memory_limit": str(cfg.get("code_interpreter_memory") or "1g")},
+        }]
     return {k: v for k, v in payload.items() if v not in (None, "")}
 
 
@@ -2958,6 +3273,8 @@ def _call_responses_http(cfg, messages, previous_response_id=None, previous_erro
                 payload["input"] = _messages_to_prompt(fallback_messages or messages)
             elif "reasoning" in payload and "reasoning" in msg:
                 payload.pop("reasoning", None)
+            elif "tools" in payload and ("tool" in msg or _is_unsupported_param_error(msg)):
+                payload.pop("tools", None)
             elif "max_output_tokens" in payload and _is_unsupported_param_error(msg):
                 payload["max_tokens"] = payload.pop("max_output_tokens")
             elif "max_output_tokens" in payload and _is_token_limit_error(msg):
@@ -2996,6 +3313,8 @@ def _call_responses(client, cfg, messages, previous_response_id=None, return_met
                 kwargs["input"] = _messages_to_prompt(fallback_messages or messages)
             elif "reasoning" in kwargs and "reasoning" in msg:
                 kwargs.pop("reasoning", None)
+            elif "tools" in kwargs and ("tool" in msg or _is_unsupported_param_error(msg)):
+                kwargs.pop("tools", None)
             elif "max_output_tokens" in kwargs and _is_unsupported_param_error(msg):
                 kwargs["max_tokens"] = kwargs.pop("max_output_tokens")
             elif "max_output_tokens" in kwargs and _is_token_limit_error(msg):
@@ -3206,13 +3525,76 @@ def _call_hf(cfg, messages):
     return tok.decode(gen[0][input_len:], skip_special_tokens=True).strip()
 
 
+def _download_container_file(cfg, citation):
+    container_id = str(citation.get("container_id") or "").strip()
+    file_id = str(citation.get("file_id") or "").strip()
+    if not container_id or not file_id:
+        raise ValueError("container file citation is missing container_id or file_id")
+    base_url = (cfg.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+    api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
+    api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
+    url = f"{base_url}/containers/{quote(container_id, safe='')}/files/{quote(file_id, safe='')}/content"
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    timeout = _safe_float(cfg.get("timeout"), LLM_HTTP_TIMEOUT_SECONDS)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = resp.read()
+        mime = resp.headers.get_content_type() if resp.headers else ""
+    return data, mime
+
+
+def _persist_response_container_files(cfg, run, chat_id, citations):
+    if not chat_id or not citations:
+        return []
+    files = []
+    for citation in citations:
+        try:
+            data, mime = _download_container_file(cfg, citation)
+            saved = _save_chat_file(
+                run,
+                chat_id,
+                citation.get("filename") or citation.get("file_id") or "response-file",
+                data,
+                mime=mime,
+                source={
+                    "type": "container_file_citation",
+                    "container_id": citation.get("container_id", ""),
+                    "file_id": citation.get("file_id", ""),
+                },
+            )
+            saved["url"] = _chat_asset_url(run, chat_id, saved["file"])
+            files.append(saved)
+        except Exception as exc:
+            files.append({
+                "id": f"file_error_{uuid.uuid4().hex[:8]}",
+                "file": "",
+                "filename": citation.get("filename") or citation.get("file_id") or "response-file",
+                "mime": "",
+                "size": 0,
+                "error": str(exc),
+                "source": {
+                    "type": "container_file_citation",
+                    "container_id": citation.get("container_id", ""),
+                    "file_id": citation.get("file_id", ""),
+                },
+            })
+    return files
+
+
 def _prepare_chat_request(body):
     question = str(body.get("question") or "").strip()
     if not question:
         raise ValueError("Question is required.")
-    cfg = body.get("model_config") or {}
+    cfg = dict(body.get("model_config") or {})
     if not cfg.get("model"):
         raise ValueError("Model is required.")
+    if body.get("enable_code_interpreter"):
+        cfg["enable_code_interpreter"] = True
+        if body.get("code_interpreter_memory"):
+            cfg["code_interpreter_memory"] = str(body.get("code_interpreter_memory"))
     context_mode = _normalize_context_mode(body.get("context_mode") or "none")
     selected_nodes = [str(x) for x in (body.get("selected_nodes") or []) if str(x)]
     if context_mode == "none" and not selected_nodes:
@@ -3254,6 +3636,12 @@ def _prepare_chat_request(body):
     assistant_instruction = f"{GRAPH_PREFLEXOR_ASSISTANT_PROMPT}\n\n{mode_instructions}"
     report_text = f"# Attached user-selected report context\n{report_context['text']}\n\n" if report_context else ""
     skill_text = f"{skill_context['text']}\n\n" if skill_context else ""
+    if skill_context and cfg.get("enable_code_interpreter"):
+        assistant_instruction += (
+            "\n\nA Responses Code Interpreter file workspace is available for this turn. "
+            "When a skill task asks for a downloadable artifact, create it with the python tool "
+            "and cite the generated file in your response."
+        )
     if context.get("text"):
         user = (
             f"# User question\n{question}\n\n"
@@ -3324,9 +3712,12 @@ def _answer_question(body):
     cfg = prepared["cfg"]
     provider = prepared["provider"]
     backend = prepared["backend"]
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("chat_id") or body.get("id") or "").strip()
     if provider == "hf":
         answer = _call_hf(cfg, prepared["messages"])
         response_id = ""
+        files = []
     else:
         result = _call_openai_compatible(
             cfg,
@@ -3337,6 +3728,13 @@ def _answer_question(body):
         )
         answer = str(result.get("text") or "") if isinstance(result, dict) else str(result or "")
         response_id = str(result.get("response_id") or "") if isinstance(result, dict) else ""
+        container_files = (result.get("container_files") or []) if isinstance(result, dict) else []
+        files = _persist_response_container_files(
+            cfg,
+            run or "__workspace__",
+            chat_id,
+            container_files,
+        )
     context = prepared["context"]
     report_context = prepared["report_context"]
     skill_context = prepared["skill_context"]
@@ -3355,9 +3753,168 @@ def _answer_question(body):
         "answer": answer,
         "context": public_context,
         "response_id": response_id,
+        "files": files,
         "stateful": backend in {"responses", "chat", "hf"} and (bool(response_id) or bool(prepared["history_turns"]) or backend == "chat"),
         "state_mode": state_mode,
         "backend": backend,
+    }
+
+
+def _image_tool_config(body):
+    tool = {"type": "image_generation"}
+    action = str(body.get("action") or "auto").strip().lower()
+    if action in {"auto", "generate", "edit"}:
+        tool["action"] = action
+    size = str(body.get("size") or "auto").strip()
+    if size:
+        tool["size"] = size
+    quality = str(body.get("quality") or "auto").strip().lower()
+    if quality:
+        tool["quality"] = quality
+    output_format = str(body.get("output_format") or "png").strip().lower()
+    if output_format in {"png", "jpeg", "webp"}:
+        tool["output_format"] = output_format
+    background = str(body.get("background") or "").strip().lower()
+    if background in {"auto", "opaque", "transparent"}:
+        tool["background"] = background
+    partial_images = _safe_int(body.get("partial_images"), 0)
+    if partial_images:
+        tool["partial_images"] = max(0, min(3, partial_images))
+    return {k: v for k, v in tool.items() if v not in (None, "")}
+
+
+def _image_output_items(response):
+    outputs = getattr(response, "output", []) or []
+    items = []
+    for output in outputs:
+        if isinstance(output, dict):
+            output_type = output.get("type")
+            result = output.get("result")
+            call_id = output.get("id") or output.get("call_id") or ""
+            revised_prompt = output.get("revised_prompt") or output.get("prompt") or ""
+        else:
+            output_type = getattr(output, "type", "")
+            result = getattr(output, "result", None)
+            call_id = getattr(output, "id", "") or getattr(output, "call_id", "") or ""
+            revised_prompt = getattr(output, "revised_prompt", "") or getattr(output, "prompt", "") or ""
+        if output_type == "image_generation_call" and result:
+            items.append({"result": result, "call_id": str(call_id), "revised_prompt": str(revised_prompt or "")})
+    return items
+
+
+def _generate_chat_image(body):
+    prompt = str(body.get("prompt") or body.get("question") or "").strip()
+    if not prompt:
+        raise ValueError("Image prompt is required.")
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("chat_id") or body.get("id") or "").strip()
+    if not chat_id:
+        created = _chat_create_session({"run": run, "title": "Image chat"})
+        chat_id = created["session"]["id"]
+    cfg = _coerce_role(body.get("model_config") or {})
+    if not cfg.get("model"):
+        raise ValueError("Model is required for image generation.")
+    backend = _normalize_generation_backend(cfg.get("backend"), cfg.get("provider") or "openai")
+    if backend != "responses":
+        raise ValueError("Image generation requires a Responses API model role.")
+    if str(cfg.get("provider") or "openai").lower() == "hf":
+        raise ValueError("Image generation is available through OpenAI Responses-compatible model roles, not local HF.")
+
+    from openai import OpenAI
+
+    api_key_env = cfg.get("api_key_env") or "OPENAI_API_KEY"
+    api_key = cfg.get("api_key") or os.environ.get(api_key_env) or "x"
+    client = OpenAI(
+        base_url=cfg.get("base_url") or None,
+        api_key=api_key,
+        timeout=_safe_float(cfg.get("timeout"), LLM_HTTP_TIMEOUT_SECONDS),
+    )
+    instruction_role = _assistant_instruction_role(cfg)
+    graph_hint = ""
+    if STATE.get("graph_name") or STATE.get("topic"):
+        graph_hint = (
+            f"\nActive graph: {STATE.get('graph_name') or '(loaded graph)'}\n"
+            f"Topic: {STATE.get('topic') or '(not recorded)'}\n"
+        )
+    input_items = [
+        {
+            "role": instruction_role,
+            "content": (
+                "You are Graph-PRefLexOR Assistant using the image_generation tool. "
+                "Create clear, polished scientific or conceptual visuals when requested. "
+                "If the prompt references graph context, treat it as exploratory context and avoid unsupported factual claims."
+                + graph_hint
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+    kwargs = {
+        "model": cfg["model"],
+        "input": input_items,
+        "tools": [_image_tool_config(body)],
+        "store": True,
+    }
+    previous_response_id = str(body.get("previous_response_id") or "").strip()
+    if previous_response_id:
+        kwargs["previous_response_id"] = previous_response_id
+    if cfg.get("reasoning_effort"):
+        kwargs["reasoning"] = {"effort": cfg["reasoning_effort"]}
+
+    last = None
+    for _ in range(5):
+        try:
+            response = client.responses.create(**kwargs)
+            break
+        except Exception as exc:
+            last = exc
+            msg = str(exc).lower()
+            tool = dict(kwargs["tools"][0])
+            if "previous_response_id" in kwargs and _is_previous_response_error(msg):
+                kwargs.pop("previous_response_id", None)
+            elif "reasoning" in kwargs and "reasoning" in msg:
+                kwargs.pop("reasoning", None)
+            elif "store" in kwargs and "store" in msg:
+                kwargs.pop("store", None)
+            elif "partial_images" in tool and "partial" in msg:
+                tool.pop("partial_images", None)
+                kwargs["tools"] = [tool]
+            elif "background" in tool and "background" in msg:
+                tool.pop("background", None)
+                kwargs["tools"] = [tool]
+            elif "output_format" in tool and ("output_format" in msg or "format" in msg):
+                tool.pop("output_format", None)
+                kwargs["tools"] = [tool]
+            elif "size" in tool and "size" in msg:
+                tool["size"] = "auto"
+                kwargs["tools"] = [tool]
+            elif "quality" in tool and "quality" in msg:
+                tool["quality"] = "auto"
+                kwargs["tools"] = [tool]
+            else:
+                raise
+    else:
+        raise last or RuntimeError("Image generation failed.")
+
+    output_format = str(kwargs["tools"][0].get("output_format") or body.get("output_format") or "png")
+    images = []
+    for item in _image_output_items(response):
+        saved = _save_chat_image(run, chat_id, item["result"], output_format=output_format, prompt=prompt, tool_call_id=item["call_id"])
+        saved["revised_prompt"] = item.get("revised_prompt", "")
+        saved["url"] = _chat_asset_url(run or "__workspace__", chat_id, saved["file"])
+        saved["quality"] = kwargs["tools"][0].get("quality", "")
+        saved["requested_size"] = kwargs["tools"][0].get("size", "")
+        images.append(saved)
+    answer = _response_text(response)
+    if not images:
+        answer = answer or "The model did not return an image. Try a more explicit image prompt or check whether this model supports the image_generation tool."
+    return {
+        "answer": answer,
+        "response_id": str(getattr(response, "id", "") or ""),
+        "images": images,
+        "chat_id": chat_id,
+        "run": run or "__workspace__",
+        "model": cfg["model"],
+        "tool": kwargs["tools"][0],
     }
 
 
@@ -3399,6 +3956,7 @@ def _chat_context_preview(body):
             "context_mode": _normalize_context_mode(body.get("context_mode") or "none"),
             "report_context": body.get("report_context") or None,
             "skill_context": body.get("skill_context") or None,
+            "enable_code_interpreter": bool(body.get("enable_code_interpreter")),
             "model_config": sanitized_cfg,
             "history_turns": prepared["history_turns"],
             "previous_response_id": prepared["previous_response_id"] or "",
@@ -4348,6 +4906,12 @@ class Handler(SimpleHTTPRequestHandler):
                 self._file(_resolve_report_asset((qs.get("out") or [""])[0], (qs.get("file") or [""])[0]))
             elif parsed.path == "/api/run_asset":
                 self._file(_resolve_run_asset((qs.get("run") or [""])[0], (qs.get("file") or [""])[0]))
+            elif parsed.path == "/api/chat_asset":
+                self._file(_resolve_chat_asset(
+                    (qs.get("run") or [""])[0],
+                    (qs.get("chat_id") or [""])[0],
+                    (qs.get("file") or [""])[0],
+                ))
             elif parsed.path == "/api/config":
                 self._json(_config_payload())
             elif parsed.path == "/api/skills":
@@ -4413,6 +4977,18 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_start_ideate_job(body))
             elif parsed.path == "/api/clear_graph":
                 self._json(_clear_graph())
+            elif parsed.path == "/api/chat_sessions":
+                self._json(_chat_sessions_payload(body))
+            elif parsed.path == "/api/chat_session_create":
+                self._json(_chat_create_session(body))
+            elif parsed.path == "/api/chat_session_load":
+                self._json(_chat_load_session(body))
+            elif parsed.path == "/api/chat_session_save":
+                self._json(_chat_save_session(body))
+            elif parsed.path == "/api/chat_session_rename":
+                self._json(_chat_rename_session(body))
+            elif parsed.path == "/api/generate_image":
+                self._json(_generate_chat_image(body))
             elif parsed.path == "/api/stop_job":
                 self._json(_stop_job(body))
             elif parsed.path == "/api/profile_graph":

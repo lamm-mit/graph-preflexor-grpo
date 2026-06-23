@@ -13,6 +13,7 @@ __pycache__/
 /ideation/hf_runs/
 /ideation/figures/
 /ideation/.cache/
+/ideation/.graph_explorer/
 *.cache
 /.beam_mechanics_cache/
 /.simple_beam_cache/

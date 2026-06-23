@@ -117,7 +117,7 @@ export const useExplorerStore = create<ExplorerState>((set) => ({
   setChatRole: (chatRole) => set({ chatRole }),
   addChatMessage: (message) => {
     const id = crypto.randomUUID();
-    set((state) => ({ chatMessages: [...state.chatMessages, { ...message, id }] }));
+    set((state) => ({ chatMessages: [...state.chatMessages, { ...message, id, created_at: message.created_at || Date.now() / 1000 }] }));
     return id;
   },
   updateChatMessage: (id, message) =>

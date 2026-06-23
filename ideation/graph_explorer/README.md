@@ -153,11 +153,23 @@ The frontend holds UI state in Zustand:
 
 Browser-local persistence is used for selected UI state:
 
-- Chat history: `graph-preflexor-explorer.chat.v1`, last 80 messages.
 - Run monitor state: `graph-preflexor-explorer.run-monitor.v1`.
 - Report Studio state: `graph-preflexor-explorer.report-studio.v1`.
 - Left/right panel widths.
 - Optional tools in the left rail.
+
+Durable Graph Assistant sessions are stored by the Python backend, not capped in
+browser storage:
+
+- Run-scoped chats: `<run>/.graph_explorer/chats/<chat_id>/`.
+- Workspace chats before a run is loaded: `ideation/.graph_explorer/chats/`.
+- Each chat has `session.json`, `state.json`, `messages.jsonl`,
+  `attachments/`, `images/`, and `exports/`.
+- `messages.jsonl` stores the complete transcript for that chat session. Model
+  context assembly is separate from storage: Responses roles use
+  `previous_response_id`; fallback backends replay bounded recent history.
+- Generated chat images are saved under the chat `images/` directory and served
+  through `/api/chat_asset`.
 
 Default Graph Assistant output budget is `20000` requested tokens. This is a
 request cap, not a hard guarantee: providers and local servers still enforce
@@ -183,8 +195,10 @@ flowchart LR
   Vite -->|serves React| ReactApp["React app"]
   PythonStatic -->|serves dist and /api| ReactApp
   ReactApp --> Store["Zustand store<br/>graph, selection, visual, roles, chat"]
-  ReactApp --> BrowserState["localStorage<br/>chat, panels, run monitor, reports"]
+  ReactApp --> BrowserState["localStorage<br/>panels, run monitor, reports"]
+  ReactApp --> ChatSessions["run-scoped chat sessions<br/>.graph_explorer/chats"]
   PythonAPI --> State["server STATE<br/>graph, jobs, profiles, embeddings"]
+  PythonAPI --> ChatSessions
   PythonStatic --> State
 ```
 
@@ -239,7 +253,11 @@ flowchart TD
   ResponsesState --> AssistantReply["assistant response plus response_id"]
   ResponsesNew --> AssistantReply
   ReplayHistory --> AssistantReply
-  AssistantReply --> PersistChat["persist last 80 messages in localStorage"]
+  AssistantReply --> PersistChat["save complete chat session<br/>messages.jsonl plus state.json"]
+  UserPrompt --> ImageCommand{"slash command /image?"}
+  ImageCommand -->|yes| ImageTool["Responses image_generation tool"]
+  ImageTool --> SaveImage["save image asset under chat images/"]
+  SaveImage --> RenderImage["render image card and preview modal in chat"]
 ```
 
 Long-running jobs:
@@ -504,6 +522,21 @@ sent and the server-side request body includes:
 
 ## Chat State Semantics
 
+Session storage:
+
+- The chat selector in the right panel lists durable sessions for the active
+  run, or workspace sessions if no run is loaded.
+- Creating or switching sessions calls `/api/chat_session_create` or
+  `/api/chat_session_load`.
+- The frontend autosaves the active session with `/api/chat_session_save`.
+- A reset clears the active session transcript and the cleared state is saved.
+- Image generation results are normal assistant messages with `images` metadata;
+  binary files are stored under the active chat session and linked by relative
+  `/api/chat_asset` URLs.
+- Responses tool-generated files are normal assistant messages with `files`
+  metadata; binary files are stored under the active chat session
+  `attachments/` directory and linked by relative `/api/chat_asset` URLs.
+
 Default backend mode is Responses:
 
 ```yaml
@@ -539,6 +572,32 @@ Public response metadata includes:
 - `state_mode`: `responses_previous_response_id`, `history_replay`, or
   `ready_for_multiturn`
 - `backend`
+
+Image generation:
+
+- `/image <prompt>` calls `/api/generate_image`, which uses
+  `client.responses.create(..., tools=[{"type": "image_generation"}])`.
+- Supported command options are `--size`, `--quality`, `--format`,
+  `--transparent`, `--opaque`, `--generate`, `--edit`, and `--partial`.
+- The backend saves returned `image_generation_call.result` bytes to the active
+  chat session and returns image metadata for rendering.
+- The command requires a model role configured with `backend: responses`. If a
+  local OpenAI-compatible server does not support the image tool, the chat
+  reports that provider error directly.
+
+Skill and file outputs:
+
+- Attaching one or more skills enables a Responses Code Interpreter file
+  workspace for that chat turn when the selected backend supports tools.
+- Code Interpreter-generated files appear in the Response message
+  `annotations` field as `container_file_citation` objects with
+  `container_id`, `file_id`, and `filename`.
+- The backend immediately downloads those files from
+  `/containers/{container_id}/files/{file_id}/content`, saves them in
+  `<run>/.graph_explorer/chats/<chat_id>/attachments/`, and returns compact
+  file metadata to the frontend.
+- The chat renders generated files as download cards. If a provider rejects
+  tools, the backend retries without the tool so the text chat still works.
 
 ## Model Roles And Config
 
@@ -815,6 +874,7 @@ GET endpoints:
 | `/api/profile_job?id=...` | Profile job status and progress. |
 | `/api/embedding_status` | Current semantic-index status. |
 | `/api/report_asset?out=...&file=...` | Download/render a report asset. |
+| `/api/chat_asset?run=...&chat_id=...&file=...` | Download/render a persisted chat asset such as a generated image. |
 | `/api/config` | Current model role config from `ideation/config.yaml`. |
 
 POST endpoints:
@@ -831,8 +891,14 @@ POST endpoints:
 | `/api/path` | Return shortest/simple paths between source and target. |
 | `/api/multipath` | Return pairwise, ordered, or stochastic bridge/path subgraphs. |
 | `/api/bridge_suggestions` | Generate bridge exploration ideas from selected nodes. |
-| `/api/ask` | Ask the Graph Assistant. |
+| `/api/ask` | Ask the Graph Assistant; can return persisted `files` metadata for Responses tool-generated artifacts. |
 | `/api/chat_context_preview` | Show exact context and messages for a chat turn. |
+| `/api/chat_sessions` | List durable chat sessions for a run or workspace. |
+| `/api/chat_session_create` | Create a durable chat session. |
+| `/api/chat_session_load` | Load one durable chat session with messages and UI state. |
+| `/api/chat_session_save` | Save one complete chat transcript and UI state. |
+| `/api/chat_session_rename` | Rename a durable chat session. |
+| `/api/generate_image` | Run the Responses `image_generation` tool and persist returned images. |
 | `/api/graph_rag_context` | Build graph retrieval context without an LLM call. |
 | `/api/ideate` | Start an `ideate.py` run. |
 | `/api/clear_graph` | Clear active graph state. |
@@ -868,7 +934,9 @@ questions from this README and the referenced source files:
 - How is the exact LLM context previewed before a chat request?
 - How does Responses multi-turn state use `previous_response_id`?
 - What is the fallback for backends that require history replay?
+- How are durable chat sessions, image assets, and export state scoped to a run?
 - How are report attachments transmitted to the assistant?
+- How does `/image` call the Responses image generation tool and persist assets?
 - Which model roles map to `config.yaml`?
 - How should local multi-model mistral.rs serving be configured?
 - How are `ideate.py` and `profile_graph.py` jobs launched, polled, stopped,
@@ -889,6 +957,9 @@ Preserve these behavior contracts unless the user asks for a breaking change:
 - Responses backend is the default for all chat/instruct models.
 - Chat must remain multi-turn through Responses `previous_response_id` or
   history replay fallback.
+- Chat transcripts must be persisted complete in the active run's
+  `.graph_explorer/chats/<chat_id>/messages.jsonl`; do not restore a global
+  localStorage message cap.
 - Report attachments are user-selected context for a turn, not hidden global
   context.
 - Iteration stepping belongs in the graph artifact window.
@@ -950,8 +1021,8 @@ Captured 2026-06-14 while hardening the explorer:
   IO, then reacquire only to publish status.
 - Replace the manual API `if/elif` router with small route handlers plus typed
   request coercion to avoid fragile parsing and improve error messages.
-- Scope persisted chat state by graph/run/session instead of using one global
-  browser storage key.
+- Add search, archive/delete, and cross-run import tools for persisted chat
+  sessions once the number of sessions grows.
 - Replace the hand-rolled Markdown report/chat renderer with a maintained
   Markdown/GFM/LaTeX renderer before reports become a primary surface.
 - Add focused tests for GraphML candidate selection, embedding cache

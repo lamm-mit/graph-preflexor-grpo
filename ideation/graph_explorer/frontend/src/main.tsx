@@ -60,6 +60,9 @@ import { useExplorerStore } from "./store";
 import type {
   BridgeIdea,
   ChatMessage,
+  ChatImage,
+  ChatFile,
+  ChatSessionSummary,
   EmbeddingStatus,
   GraphFileSummary,
   GraphAskContextNode,
@@ -398,6 +401,60 @@ function parseInsightsCommand(input: string) {
   };
 }
 
+function parseImageCommand(input: string) {
+  const args = splitCommandArgs(input);
+  const prompt: string[] = [];
+  const opts: {
+    prompt: string;
+    action: "auto" | "generate" | "edit";
+    size: string;
+    quality: string;
+    output_format: string;
+    background?: string;
+    partial_images?: number;
+  } = {
+    prompt: "",
+    action: "auto",
+    size: "auto",
+    quality: "auto",
+    output_format: "png",
+  };
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    const next = args[i + 1];
+    if (arg === "--size" && next) {
+      opts.size = next;
+      i += 1;
+    } else if (arg === "--quality" && next) {
+      opts.quality = next;
+      i += 1;
+    } else if ((arg === "--format" || arg === "--output-format") && next) {
+      opts.output_format = next;
+      i += 1;
+    } else if (arg === "--background" && next) {
+      opts.background = next;
+      i += 1;
+    } else if (arg === "--transparent") {
+      opts.background = "transparent";
+    } else if (arg === "--opaque") {
+      opts.background = "opaque";
+    } else if (arg === "--edit") {
+      opts.action = "edit";
+    } else if (arg === "--generate") {
+      opts.action = "generate";
+    } else if (arg === "--auto") {
+      opts.action = "auto";
+    } else if ((arg === "--partial" || arg === "--partials") && next) {
+      opts.partial_images = Number(next);
+      i += 1;
+    } else {
+      prompt.push(arg);
+    }
+  }
+  opts.prompt = prompt.join(" ").trim();
+  return opts;
+}
+
 function isLocalModelProbeIssue(probe: ModelProbe) {
   return Boolean(
     probe.local &&
@@ -501,6 +558,14 @@ function safeFilePart(value: string) {
     .slice(0, 42);
 }
 
+function formatFileSize(bytes?: number) {
+  const value = Number(bytes || 0);
+  if (!value) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  return `${(value / 1024 ** index).toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -544,6 +609,20 @@ function chatMessagesAsMarkdown({
     lines.push("");
     lines.push(message.content.trim() || "(empty)");
     lines.push("");
+    if (message.images?.length) {
+      message.images.forEach((image, imageIndex) => {
+        lines.push(`![Generated image ${imageIndex + 1}](${image.url})`);
+        if (image.revised_prompt) lines.push(`_Revised prompt:_ ${image.revised_prompt}`);
+        lines.push("");
+      });
+    }
+    if (message.files?.length) {
+      lines.push("Files:");
+      message.files.forEach((file) => {
+        lines.push(`- [${file.filename}](${file.url || file.file})${file.error ? ` - ${file.error}` : ` (${formatFileSize(file.size)})`}`);
+      });
+      lines.push("");
+    }
   });
   return lines.join("\n");
 }
@@ -573,6 +652,30 @@ function openChatPdfWindow({
             ${message.meta ? `<span>${escapeHtml(message.meta)}</span>` : ""}
           </header>
           <pre>${escapeHtml(message.content.trim() || "(empty)")}</pre>
+          ${(message.images || [])
+            .map(
+              (image) => `
+                <figure>
+                  <img src="${escapeHtml(image.url)}" alt="${escapeHtml(image.revised_prompt || image.prompt || "Generated image")}" />
+                  <figcaption>${escapeHtml(image.revised_prompt || image.prompt || "")}</figcaption>
+                </figure>
+              `,
+            )
+            .join("")}
+          ${(message.files || []).length ? `
+            <div class="files">
+              ${(message.files || [])
+                .map(
+                  (file) => `
+                    <a href="${escapeHtml(file.url || file.file)}" download>
+                      <strong>${escapeHtml(file.filename)}</strong>
+                      <span>${escapeHtml(file.error || `${file.mime || "file"} | ${formatFileSize(file.size)}`)}</span>
+                    </a>
+                  `,
+                )
+                .join("")}
+            </div>
+          ` : ""}
         </article>
       `,
     )
@@ -625,6 +728,35 @@ function openChatPdfWindow({
             white-space: pre-wrap;
             overflow-wrap: anywhere;
             font: inherit;
+          }
+          figure { margin: 10px 0 0; }
+          figure img {
+            max-width: 100%;
+            border: 1px solid #ddd7cb;
+            border-radius: 8px;
+          }
+          figcaption {
+            margin-top: 4px;
+            color: #7b7468;
+            font-size: 10.5px;
+          }
+          .files {
+            display: grid;
+            gap: 6px;
+            margin-top: 10px;
+          }
+          .files a {
+            display: grid;
+            gap: 2px;
+            border: 1px solid #ddd7cb;
+            border-radius: 7px;
+            padding: 7px 8px;
+            color: #2d2a25;
+            text-decoration: none;
+          }
+          .files span {
+            color: #7b7468;
+            font-size: 10px;
           }
         </style>
       </head>
@@ -2628,6 +2760,90 @@ function SkillPreview({ detail }: { detail: SkillDetailPayload }) {
   );
 }
 
+function ChatImageGrid({ images, onPreview }: { images: ChatImage[]; onPreview: (image: ChatImage) => void }) {
+  if (!images.length) return null;
+  return (
+    <div className={cx("chat-image-grid", images.length > 1 && "multi")}>
+      {images.map((image) => (
+        <figure className="chat-image-card" key={image.id}>
+          <button onClick={() => onPreview(image)} title="Open generated image preview." type="button">
+            <img alt={image.revised_prompt || image.prompt || "Generated image"} src={image.url} />
+          </button>
+          <figcaption>
+            <span>{image.requested_size || "auto"} | {image.quality || "auto"} | {image.format || "png"}</span>
+            <a download href={image.url}>Download</a>
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  );
+}
+
+function ChatFileGrid({ files }: { files: ChatFile[] }) {
+  if (!files.length) return null;
+  return (
+    <div className="chat-file-grid">
+      {files.map((file) => {
+        const isImage = file.mime?.startsWith("image/") && file.url && !file.error;
+        return (
+          <div className={cx("chat-file-card", file.error && "error")} key={file.id}>
+            {isImage ? <img alt={file.filename} src={file.url} /> : <FileText size={16} />}
+            <div>
+              <strong>{file.filename}</strong>
+              <span>{file.error || `${file.mime || "file"} | ${formatFileSize(file.size)}`}</span>
+              {file.source?.file_id ? <small>{file.source.file_id}</small> : null}
+            </div>
+            {file.url && !file.error ? (
+              <a download href={file.url} title={`Download ${file.filename}`}>
+                <Download size={13} />
+              </a>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ImagePreviewModal({ image, onClose }: { image: ChatImage; onClose: () => void }) {
+  return (
+    <div className="model-modal-backdrop image-preview-backdrop" role="presentation">
+      <div aria-label="Generated image preview" aria-modal="true" className="serve-modal image-preview-modal" role="dialog">
+        <div className="serve-modal-head report-preview-head">
+          <div>
+            <span>Generated image</span>
+            <h3>{image.format?.toUpperCase() || "Image"}</h3>
+            <p>{image.revised_prompt || image.prompt || image.file}</p>
+          </div>
+          <button aria-label="Close image preview" onClick={onClose} type="button">
+            <X size={15} />
+          </button>
+        </div>
+        <div className="image-preview-body">
+          <img alt={image.revised_prompt || image.prompt || "Generated image"} src={image.url} />
+        </div>
+        <div className="image-preview-meta">
+          <div>
+            <strong>Prompt</strong>
+            <p>{image.prompt || "(not recorded)"}</p>
+          </div>
+          {image.revised_prompt ? (
+            <div>
+              <strong>Revised prompt</strong>
+              <p>{image.revised_prompt}</p>
+            </div>
+          ) : null}
+          <div className="image-preview-actions">
+            <a download href={image.url}>
+              <Download size={13} /> Download
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatContextInfoModal({
   body,
   selectedLabels,
@@ -2682,6 +2898,10 @@ function ChatContextInfoModal({
           <div>
             <span>Skills</span>
             <strong>{body.skill_context?.ids?.length ? `${body.skill_context.ids.length} attached` : "none"}</strong>
+          </div>
+          <div>
+            <span>Tools</span>
+            <strong>{body.enable_code_interpreter ? "file workspace" : "none"}</strong>
           </div>
         </div>
         {selectedLabels.length ? (
@@ -2757,6 +2977,12 @@ function ChatPanel({
   const [insightsModalRun, setInsightsModalRun] = useState("");
   const [contextInfoOpen, setContextInfoOpen] = useState(false);
   const [chatExportOpen, setChatExportOpen] = useState(false);
+  const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
+  const [activeChatSessionId, setActiveChatSessionId] = useState("");
+  const [chatSessionTitle, setChatSessionTitle] = useState("New chat");
+  const [chatSessionStatus, setChatSessionStatus] = useState("");
+  const [chatSessionReady, setChatSessionReady] = useState(false);
+  const [imagePreview, setImagePreview] = useState<ChatImage | null>(null);
   const [reportMaxChars, setReportMaxChars] = useState(14000);
   const [lastRagNodes, setLastRagNodes] = useState<GraphAskContextNode[]>([]);
   const [followups, setFollowups] = useState<string[]>([
@@ -2769,9 +2995,11 @@ function ChatPanel({
   const [ideaBusy, setIdeaBusy] = useState(false);
   const [runWizard, setRunWizard] = useState<RunWizardState | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const chatHydratedRef = useRef(false);
+  const chatSaveTimerRef = useRef<number | null>(null);
+  const chatLoadingRef = useRef(false);
   const contextLabel = contextSummary(graph, selectedNodes);
   const activeRun = inferRunFromGraphPath(graph?.path || "");
+  const chatRunKey = activeRun || "__workspace__";
   const activeChatRole = chatModelRole(roles);
   const chatRoleName = activeChatRole?.role || "chat";
   const selectedReport = sessionReports.find((report) => report.out === selectedReportOut);
@@ -2814,20 +3042,74 @@ function ChatPanel({
   }, [messages]);
 
   useEffect(() => {
-    if (chatHydratedRef.current || typeof window === "undefined") return;
-    chatHydratedRef.current = true;
-    try {
-      const saved = JSON.parse(window.localStorage.getItem("graph-preflexor-explorer.chat.v1") || "[]");
-      if (Array.isArray(saved) && saved.length && !messages.length) setChatMessages(saved.slice(-80));
-    } catch {
-      // Ignore corrupt local storage and start a new chat.
+    let cancelled = false;
+    async function loadRunChatSessions() {
+      chatLoadingRef.current = true;
+      setChatSessionReady(false);
+      setChatSessionStatus("Loading chat sessions...");
+      try {
+        let listed = await api.chatSessions(chatRunKey);
+        let session = listed.sessions[0];
+        let loaded;
+        if (!session) {
+          loaded = await api.createChatSession({
+            run: chatRunKey,
+            title: activeRun ? "Run chat" : "Workspace chat",
+            state: {},
+            messages: [],
+          });
+          listed = await api.chatSessions(chatRunKey);
+          session = loaded.session;
+        } else {
+          loaded = await api.loadChatSession(chatRunKey, session.id);
+        }
+        if (cancelled) return;
+        setChatSessions(listed.sessions);
+        setActiveChatSessionId(session.id);
+        setChatSessionTitle(session.title || "New chat");
+        setChatMessages(loaded.messages || []);
+        applyChatSessionState(loaded.state || {});
+        setChatSessionStatus(`${activeRun ? "Run" : "Workspace"} chat loaded.`);
+        setChatSessionReady(true);
+      } catch (error) {
+        if (!cancelled) {
+          setChatSessionStatus(error instanceof Error ? error.message : String(error));
+          setChatSessionReady(false);
+        }
+      } finally {
+        chatLoadingRef.current = false;
+      }
     }
-  }, [messages.length, setChatMessages]);
+    void loadRunChatSessions();
+    return () => {
+      cancelled = true;
+      if (chatSaveTimerRef.current) window.clearTimeout(chatSaveTimerRef.current);
+    };
+  }, [activeRun, chatRunKey, setChatMessages]);
 
   useEffect(() => {
-    if (!chatHydratedRef.current || typeof window === "undefined") return;
-    window.localStorage.setItem("graph-preflexor-explorer.chat.v1", JSON.stringify(messages.slice(-80)));
-  }, [messages]);
+    if (!chatSessionReady || !activeChatSessionId || chatLoadingRef.current) return;
+    if (chatSaveTimerRef.current) window.clearTimeout(chatSaveTimerRef.current);
+    chatSaveTimerRef.current = window.setTimeout(() => {
+      void saveActiveChatSession();
+    }, 450);
+    return () => {
+      if (chatSaveTimerRef.current) window.clearTimeout(chatSaveTimerRef.current);
+    };
+  }, [
+    activeChatSessionId,
+    agentMode,
+    attachedSkillIds,
+    chatRunKey,
+    chatSessionReady,
+    chatSessionTitle,
+    contextNodes,
+    contextQuery,
+    messages,
+    reportContextParts,
+    reportMaxChars,
+    selectedReportOut,
+  ]);
 
   useEffect(() => {
     if (selectedReportOut && !sessionReports.some((report) => report.out === selectedReportOut)) {
@@ -2835,6 +3117,125 @@ function ChatPanel({
       setReportPreviewOpen(false);
     }
   }, [selectedReportOut, sessionReports]);
+
+  function chatSessionState() {
+    return {
+      agentMode,
+      contextQuery,
+      contextNodes,
+      selectedReportOut,
+      reportContextParts,
+      reportMaxChars,
+      attachedSkillIds,
+      graphPath: graph?.path || "",
+      graphName: graph?.name || "",
+    };
+  }
+
+  function applyChatSessionState(raw: Record<string, unknown>) {
+    const state = raw || {};
+    if (state.agentMode === "none" || state.agentMode === "focused" || state.agentMode === "graph_rag") {
+      setAgentMode(state.agentMode);
+    } else {
+      setAgentMode("none");
+    }
+    setContextQuery(typeof state.contextQuery === "string" ? state.contextQuery : "");
+    setContextNodes(typeof state.contextNodes === "number" ? clampNumber(state.contextNodes, 20, 900) : 220);
+    setSelectedReportOut(typeof state.selectedReportOut === "string" ? state.selectedReportOut : "");
+    setReportContextParts(
+      Array.isArray(state.reportContextParts) && state.reportContextParts.some((item) => item === "report" || item === "profile")
+        ? (state.reportContextParts.filter((item) => item === "report" || item === "profile") as ReportContextPart[])
+        : ["report"],
+    );
+    setReportMaxChars(typeof state.reportMaxChars === "number" ? clampNumber(state.reportMaxChars, 1000, 50000) : 14000);
+    setAttachedSkillIds(Array.isArray(state.attachedSkillIds) ? state.attachedSkillIds.filter((item): item is string => typeof item === "string") : []);
+  }
+
+  async function refreshChatSessions(selectedId = activeChatSessionId) {
+    const listed = await api.chatSessions(chatRunKey);
+    setChatSessions(listed.sessions);
+    if (selectedId) {
+      const session = listed.sessions.find((item) => item.id === selectedId);
+      if (session) setChatSessionTitle(session.title);
+    }
+    return listed.sessions;
+  }
+
+  async function saveActiveChatSession() {
+    if (!activeChatSessionId) return;
+    try {
+      const saved = await api.saveChatSession({
+        run: chatRunKey,
+        id: activeChatSessionId,
+        title: chatSessionTitle,
+        messages,
+        state: chatSessionState(),
+      });
+      setChatSessionTitle(saved.session.title);
+      setChatSessionStatus(`Saved ${saved.session.message_count} messages to ${saved.run}.`);
+      void refreshChatSessions(saved.session.id);
+    } catch (error) {
+      setChatSessionStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function loadChatSession(id: string) {
+    if (!id || id === activeChatSessionId) return;
+    chatLoadingRef.current = true;
+    setChatSessionReady(false);
+    setChatSessionStatus("Switching chat...");
+    try {
+      const loaded = await api.loadChatSession(chatRunKey, id);
+      setActiveChatSessionId(loaded.session.id);
+      setChatSessionTitle(loaded.session.title || "New chat");
+      setChatMessages(loaded.messages || []);
+      applyChatSessionState(loaded.state || {});
+      setChatSessionStatus(`Loaded ${loaded.session.message_count} messages.`);
+      setChatSessionReady(true);
+    } catch (error) {
+      setChatSessionStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      chatLoadingRef.current = false;
+    }
+  }
+
+  async function createChatSession() {
+    chatLoadingRef.current = true;
+    setChatSessionReady(false);
+    try {
+      const created = await api.createChatSession({
+        run: chatRunKey,
+        title: activeRun ? "Run chat" : "Workspace chat",
+        state: chatSessionState(),
+        messages: [],
+      });
+      const listed = await api.chatSessions(chatRunKey);
+      setChatSessions(listed.sessions);
+      setActiveChatSessionId(created.session.id);
+      setChatSessionTitle(created.session.title);
+      setChatMessages([]);
+      setChatSessionStatus("Started a new chat session.");
+      setChatSessionReady(true);
+    } catch (error) {
+      setChatSessionStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      chatLoadingRef.current = false;
+    }
+  }
+
+  async function renameChatSession() {
+    if (!activeChatSessionId) return;
+    const title = window.prompt("Rename chat session", chatSessionTitle);
+    if (!title?.trim()) return;
+    try {
+      const renamed = await api.renameChatSession(chatRunKey, activeChatSessionId, title.trim());
+      setChatSessionTitle(renamed.session.title);
+      setChatSessionStatus("Renamed chat session.");
+      void refreshChatSessions(renamed.session.id);
+    } catch (error) {
+      setChatSessionStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   function downloadChatMarkdown() {
     const markdown = chatMessagesAsMarkdown({
@@ -2875,6 +3276,8 @@ function ChatPanel({
 
   function buildChatBody(role: ModelRole, text = question || "(next user message)") {
     return {
+      run: chatRunKey,
+      chat_id: activeChatSessionId,
       question: text,
       selected_nodes: graph ? selectedNodes : [],
       query: contextQuery,
@@ -2884,6 +3287,8 @@ function ChatPanel({
       context_mode: agentMode,
       report_context: reportContextSelection,
       skill_context: skillContextSelection,
+      enable_code_interpreter: Boolean(skillContextSelection),
+      code_interpreter_memory: "1g",
       model_config: role,
       history: recentHistory(),
       previous_response_id: previousResponseId(messages, role) || undefined,
@@ -2926,6 +3331,10 @@ function ChatPanel({
     }
     if (id === "synthesize") {
       setQuestion("/synthesize ");
+      return;
+    }
+    if (id === "image") {
+      setQuestion("/image ");
       return;
     }
     if (id === "skills") {
@@ -3327,6 +3736,61 @@ function ChatPanel({
     }
   }
 
+  async function startImageGeneration(rawArgs: string) {
+    const options = parseImageCommand(rawArgs);
+    const prompt = options.prompt;
+    if (!prompt) {
+      addChatMessage({
+        role: "assistant",
+        content: "Use `/image <prompt>` to generate an image. Options: `--size 1024x1024`, `--quality high`, `--format webp`, `--transparent`, `--edit`.",
+        meta: "image",
+      });
+      return;
+    }
+    const role = activeChatRole;
+    if (!role?.model) {
+      addChatMessage({ role: "assistant", content: "Configure a Responses-capable chat model under Model Settings before generating images.", meta: "image" });
+      return;
+    }
+    if (normalizedBackend(role) !== "responses") {
+      addChatMessage({ role: "assistant", content: "Image generation requires API mode: Responses. Change the chat model role under Model Settings.", meta: "image" });
+      return;
+    }
+    if (!activeChatSessionId) {
+      addChatMessage({ role: "assistant", content: "Chat session is still loading. Try the image request again in a moment.", meta: "image" });
+      return;
+    }
+    const priorResponseId = previousResponseId(messages, role);
+    addChatMessage({ role: "user", content: `/image ${prompt}`, meta: "image prompt" });
+    const pending = addChatMessage({ role: "assistant", content: "Generating image...", meta: "image generation" });
+    setBusy(true);
+    try {
+      const res = await api.generateImage({
+        run: chatRunKey,
+        chat_id: activeChatSessionId,
+        prompt,
+        model_config: role,
+        previous_response_id: priorResponseId || undefined,
+        action: options.action,
+        size: options.size,
+        quality: options.quality,
+        output_format: options.output_format,
+        background: options.background,
+        partial_images: options.partial_images,
+      });
+      updateChatMessage(pending, {
+        content: res.answer || (res.images.length ? "Generated image." : "No image was returned."),
+        meta: `image generation | ${res.images.length} image${res.images.length === 1 ? "" : "s"}`,
+        images: res.images,
+        ...responseStateMeta(role, res.response_id),
+      });
+    } catch (error) {
+      updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "image error" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function executeCommand(raw: string) {
     const value = raw.trim();
     if (!value.startsWith("/")) return false;
@@ -3347,6 +3811,11 @@ function ChatPanel({
     if (command === "synthesize") {
       setQuestion("");
       void startSynthesis(restText);
+      return true;
+    }
+    if (command === "image") {
+      setQuestion("");
+      void startImageGeneration(restText);
       return true;
     }
     if (command === "insights") {
@@ -3430,6 +3899,7 @@ function ChatPanel({
       updateChatMessage(pending, {
         content: res.answer || "(empty response)",
         meta: `${chatContextLabel((res.context.mode || agentMode) as ChatContextMode)} ${res.context.node_count}n/${res.context.edge_count}e${chatStateMeta(res)}${res.context.report_context ? ` | ${reportPartsLabel(reportPartsFromIncluded(res.context.report_context.included))} ${res.context.report_context.title}` : ""}${res.context.skill_context?.skills?.length ? ` | skills: ${res.context.skill_context.skills.map((skill) => skill.title).join(", ")}` : ""}`,
+        files: res.files || [],
         ...responseStateMeta(role, res.response_id),
       });
       setQuestion("");
@@ -3480,6 +3950,27 @@ function ChatPanel({
         <div className="chat-title-block">
           <h2><Sparkles size={15} /> Graph Assistant</h2>
           <span className="chat-context-line">{contextLabel} | {chatContextLabel(agentMode)} | chat model: {activeChatRole?.model || "not configured"}</span>
+          <div className="chat-session-bar">
+            <select
+              disabled={!chatSessionReady || !chatSessions.length}
+              onChange={(event) => void loadChatSession(event.target.value)}
+              title="Switch between durable chat sessions stored with this run."
+              value={activeChatSessionId}
+            >
+              {chatSessions.map((session) => (
+                <option key={session.id} value={session.id}>
+                  {session.title} ({session.message_count})
+                </option>
+              ))}
+            </select>
+            <button onClick={() => void createChatSession()} title="Start a new chat session for this run." type="button">
+              <Plus size={12} /> New
+            </button>
+            <button disabled={!activeChatSessionId} onClick={() => void renameChatSession()} title="Rename this chat session." type="button">
+              Rename
+            </button>
+            <span>{chatSessionStatus || (chatSessionReady ? "Chat saved in run folder." : "Loading chat...")}</span>
+          </div>
         </div>
         <div className="chat-actions">
           <div className="chat-export-shell">
@@ -3515,7 +4006,7 @@ function ChatPanel({
             <Info size={14} />
           </button>
           <span className="model-badge" title="Change this under Model Settings.">chat</span>
-          <IconButton description="Clear the current browser-side chat thread." icon={<RotateCcw size={14} />} label="Reset" onClick={resetChat} />
+          <IconButton description="Clear the current durable chat session." icon={<RotateCcw size={14} />} label="Reset" onClick={resetChat} />
         </div>
       </div>
       {contextInfoOpen && activeChatRole?.model ? (
@@ -3528,6 +4019,7 @@ function ChatPanel({
           run={insightsModalRun}
         />
       ) : null}
+      {imagePreview ? <ImagePreviewModal image={imagePreview} onClose={() => setImagePreview(null)} /> : null}
       <div className="chat-log">
         {messages.length ? (
           messages.map((message) => {
@@ -3542,6 +4034,8 @@ function ChatPanel({
                   </div>
                   <div className="chat-bubble">
                     <MarkdownMessage content={message.content} />
+                    {message.images?.length ? <ChatImageGrid images={message.images} onPreview={setImagePreview} /> : null}
+                    {message.files?.length ? <ChatFileGrid files={message.files} /> : null}
                   </div>
                   {message.role === "assistant" && insightRun ? (
                     <div className="chat-message-actions">
@@ -3806,7 +4300,12 @@ function ChatPanel({
                 key={item.command}
                 onClick={() => {
                   item.action();
-                  if (!item.command.startsWith("/synthesize") && !item.command.startsWith("/insights") && !item.command.startsWith("/run")) setQuestion("");
+                  if (
+                    !item.command.startsWith("/synthesize") &&
+                    !item.command.startsWith("/insights") &&
+                    !item.command.startsWith("/run") &&
+                    !item.command.startsWith("/image")
+                  ) setQuestion("");
                 }}
                 type="button"
               >

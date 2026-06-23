@@ -1,10 +1,14 @@
 import type {
   BridgeIdea,
+  ChatMessage,
+  ChatSessionPayload,
+  ChatSessionsPayload,
   ConfigPayload,
   EmbeddingStatus,
   GraphAskContext,
   GraphFileSummary,
   GraphPayload,
+  ImageGenerationResponse,
   JobStatus,
   ModelProbe,
   ModelRole,
@@ -50,6 +54,21 @@ export const api = {
   graphmlFiles: () => request<{ graphs: GraphFileSummary[] }>("/api/graphml_files", {}),
   skills: (query = "") => request<SkillRegistryPayload>("/api/skills", query ? { query } : {}),
   skillDetail: (id: string, max_chars = 30000) => request<SkillDetailPayload>("/api/skill", { id, max_chars }),
+  chatSessions: (run: string) => request<ChatSessionsPayload>("/api/chat_sessions", { run }),
+  createChatSession: (body: { run: string; title?: string; state?: Record<string, unknown>; messages?: ChatMessage[] }) =>
+    request<ChatSessionPayload>("/api/chat_session_create", body),
+  loadChatSession: (run: string, id: string) => request<ChatSessionPayload>("/api/chat_session_load", { run, id }),
+  saveChatSession: (body: {
+    run: string;
+    id: string;
+    title?: string;
+    messages: ChatMessage[];
+    state?: Record<string, unknown>;
+  }) => request<ChatSessionPayload>("/api/chat_session_save", body),
+  renameChatSession: (run: string, id: string, title: string) =>
+    request<ChatSessionPayload>("/api/chat_session_rename", { run, id, title }),
+  chatAssetUrl: (run: string, chat_id: string, file: string) =>
+    `/api/chat_asset?run=${encodeURIComponent(run || "__workspace__")}&chat_id=${encodeURIComponent(chat_id)}&file=${encodeURIComponent(file)}`,
   suggestRunOut: (body: { topic: string; strategy?: string; model_config?: ModelRole }) =>
     request<{ out: string; slug: string; source: "model" | "fallback"; reason?: string; model_text?: string }>("/api/suggest_run_out", body),
   clearGraph: () => request<{ ok: boolean }>("/api/clear_graph", {}),
@@ -61,6 +80,8 @@ export const api = {
   startEmbeddings: (body?: { model?: string; force?: boolean; batch_size?: number }) =>
     request<EmbeddingStatus>("/api/embedding_index", body || { model: "auto" }),
   ask: (body: {
+    run?: string;
+    chat_id?: string;
     question: string;
     selected_nodes: string[];
     query: string;
@@ -70,11 +91,15 @@ export const api = {
     context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
     skill_context?: SkillChatContext | null;
+    enable_code_interpreter?: boolean;
+    code_interpreter_memory?: string;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
     previous_response_id?: string;
-  }) => request<{ answer: string; context: GraphAskContext; response_id?: string; stateful?: boolean; state_mode?: string; backend?: string }>("/api/ask", body),
+  }) => request<{ answer: string; context: GraphAskContext; response_id?: string; files?: ChatMessage["files"]; stateful?: boolean; state_mode?: string; backend?: string }>("/api/ask", body),
   chatContextPreview: (body: {
+    run?: string;
+    chat_id?: string;
     question: string;
     selected_nodes: string[];
     query: string;
@@ -84,6 +109,8 @@ export const api = {
     context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
     skill_context?: SkillChatContext | null;
+    enable_code_interpreter?: boolean;
+    code_interpreter_memory?: string;
     model_config: ModelRole & { api_key?: string };
     history?: Array<{ role: "user" | "assistant"; content: string }>;
     previous_response_id?: string;
@@ -107,6 +134,19 @@ export const api = {
     max_nodes: number;
     max_edges: number;
   }) => request<{ context: GraphAskContext }>("/api/graph_rag_context", body),
+  generateImage: (body: {
+    run: string;
+    chat_id: string;
+    prompt: string;
+    model_config: ModelRole & { api_key?: string };
+    previous_response_id?: string;
+    action?: "auto" | "generate" | "edit";
+    size?: string;
+    quality?: "auto" | "low" | "medium" | "high" | string;
+    output_format?: "png" | "jpeg" | "webp" | string;
+    background?: "auto" | "opaque" | "transparent" | string;
+    partial_images?: number;
+  }) => request<ImageGenerationResponse>("/api/generate_image", body),
   neighborhood: (body: { nodes: string[]; depth: number; limit: number }) =>
     request<GraphPayload & { focus_nodes?: string[] }>("/api/neighborhood", body),
   path: (body: { source: string; target: string; k: number; cutoff: number }) =>

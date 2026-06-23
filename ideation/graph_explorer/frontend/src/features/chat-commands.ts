@@ -4,6 +4,7 @@ export type ChatCommandId =
   | "insights"
   | "run"
   | "synthesize"
+  | "image"
   | "skills"
   | "none"
   | "rag"
@@ -25,6 +26,7 @@ export const CHAT_COMMANDS: ChatCommandSpec[] = [
   { id: "insights", command: "/insights", label: "Summarize insights", detail: "Mine or summarize the active run's structural insights.", insert: "/insights " },
   { id: "run", command: "/run <topic>", label: "New exploration run", detail: "Start a guided exploration run from chat.", insert: "/run " },
   { id: "synthesize", command: "/synthesize <task>", label: "Run synthesis", detail: "Generate a synthesis answer from the active run and post it here.", insert: "/synthesize " },
+  { id: "image", command: "/image <prompt>", label: "Generate image", detail: "Use Responses image_generation; supports --size, --quality, --format, --transparent, and --edit.", insert: "/image " },
   { id: "skills", command: "/skills", label: "Browse skills", detail: "Search local skills, preview instructions, and attach one to the next chat turn.", insert: "/skills " },
   { id: "none", command: "/none", label: "No retrieval", detail: "Use only selected nodes; with no selection this is regular chat." },
   { id: "rag", command: "/rag", label: "Graph-RAG retrieval", detail: "Retrieve broader semantic neighborhoods and path connectors." },
