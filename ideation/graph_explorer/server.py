@@ -589,6 +589,7 @@ def _chat_session_dir(run_value, chat_id, *, create=False):
     if create:
         (path / "attachments").mkdir(parents=True, exist_ok=True)
         (path / "images").mkdir(parents=True, exist_ok=True)
+        (path / "uploads").mkdir(parents=True, exist_ok=True)
         (path / "exports").mkdir(parents=True, exist_ok=True)
     return path
 
@@ -818,6 +819,146 @@ def _save_chat_file(run, chat_id, filename, data, *, mime="", source=None):
         "size": path.stat().st_size,
         "source": source or {},
     }
+
+
+def _chat_uploads_path(session_dir):
+    return Path(session_dir) / "uploads.json"
+
+
+def _chat_read_uploads(session_dir):
+    data = _json_read(_chat_uploads_path(session_dir), [])
+    return data if isinstance(data, list) else []
+
+
+def _chat_write_uploads(session_dir, uploads):
+    _json_write(_chat_uploads_path(session_dir), uploads)
+
+
+def _decode_file_data(data):
+    raw = str(data or "")
+    if "," in raw and raw.split(",", 1)[0].lower().startswith("data:"):
+        raw = raw.split(",", 1)[1]
+    return base64.b64decode(raw)
+
+
+def _save_chat_upload(run, chat_id, filename, data, *, mime="", source=None):
+    session_dir = _chat_session_dir(run, chat_id, create=True)
+    clean_name = Path(str(filename or "")).name
+    clean_name = re.sub(r"[^A-Za-z0-9_. -]+", "-", clean_name).strip(" .-")
+    if not clean_name:
+        clean_name = "upload.dat"
+    stem = Path(clean_name).stem or "upload"
+    suffix = Path(clean_name).suffix[:16]
+    upload_id = f"upload_{_now_ms()}_{uuid.uuid4().hex[:8]}"
+    rel = Path("uploads") / f"{upload_id}_{stem[:72]}{suffix}"
+    path = session_dir / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    guessed_mime = mime or mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+    item = {
+        "id": upload_id,
+        "kind": "upload",
+        "file": str(rel),
+        "filename": clean_name,
+        "url": _chat_asset_url(run, chat_id, rel),
+        "mime": guessed_mime,
+        "size": path.stat().st_size,
+        "created_at": time.time(),
+        "source": source or {},
+    }
+    uploads = [u for u in _chat_read_uploads(session_dir) if u.get("id") != upload_id]
+    uploads.append(item)
+    _chat_write_uploads(session_dir, uploads)
+    return item
+
+
+def _chat_generated_files_from_messages(messages):
+    files = []
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        for item in message.get("files") or []:
+            if isinstance(item, dict):
+                next_item = dict(item)
+                next_item.setdefault("kind", "generated")
+                files.append(next_item)
+    return files
+
+
+def _chat_files_payload(body):
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("chat_id") or body.get("id") or "").strip()
+    session_dir = _chat_session_dir(run, chat_id)
+    if not session_dir.exists():
+        raise ValueError("Unknown chat session id.")
+    uploads = _chat_read_uploads(session_dir)
+    generated = _chat_generated_files_from_messages(_chat_read_messages(session_dir))
+    return {
+        "run": run or "__workspace__",
+        "chat_id": chat_id,
+        "uploads": uploads,
+        "generated": generated,
+        "files": uploads + generated,
+    }
+
+
+def _chat_upload_payload(body):
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("chat_id") or body.get("id") or "").strip()
+    if not chat_id:
+        created = _chat_create_session({"run": run, "title": "File chat"})
+        chat_id = created["session"]["id"]
+    data = _decode_file_data(body.get("data") or body.get("file_data") or "")
+    max_bytes = 50 * 1024 * 1024
+    if not data:
+        raise ValueError("file data is required")
+    if len(data) > max_bytes:
+        raise ValueError("file exceeds the 50 MB per-request limit")
+    item = _save_chat_upload(
+        run or "__workspace__",
+        chat_id,
+        body.get("filename") or body.get("name") or "upload.dat",
+        data,
+        mime=body.get("mime") or body.get("type") or "",
+        source=body.get("source") if isinstance(body.get("source"), dict) else {"type": "user_upload"},
+    )
+    return {"run": run or "__workspace__", "chat_id": chat_id, "file": item}
+
+
+def _chat_attach_graph_payload(body):
+    run = str(body.get("run") or "").strip()
+    chat_id = str(body.get("chat_id") or body.get("id") or "").strip()
+    if not chat_id:
+        created = _chat_create_session({"run": run, "title": "Graph chat"})
+        chat_id = created["session"]["id"]
+    mode = str(body.get("mode") or body.get("source") or "current").strip().lower()
+    if mode == "path":
+        raw_path = body.get("path") or ""
+        path = _safe_workspace_path(raw_path, default_base=IDEATION_DIR, require_safe_root=True)
+    else:
+        with LOCK:
+            raw_path = STATE.get("graph_path") or ""
+        if not raw_path:
+            raise ValueError("No active GraphML artifact is available. Load a run GraphML or upload one first.")
+        path = _safe_workspace_path(raw_path, default_base=IDEATION_DIR, require_safe_root=True)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(str(path))
+    if path.suffix.lower() not in {".graphml", ".xml"}:
+        raise ValueError("Selected graph artifact must be a GraphML/XML file.")
+    data = path.read_bytes()
+    item = _save_chat_upload(
+        run or "__workspace__",
+        chat_id,
+        path.name,
+        data,
+        mime=mimetypes.guess_type(str(path))[0] or "text/xml",
+        source={
+            "type": "graphml",
+            "mode": mode,
+            "path": _relative_to_ideation(path),
+        },
+    )
+    return {"run": run or "__workspace__", "chat_id": chat_id, "file": item}
 
 
 def _chat_asset_url(run, chat_id, rel_file):
@@ -3054,16 +3195,28 @@ def _messages_to_prompt(messages):
     parts = []
     for message in messages:
         role = str(message.get("role") or "user").strip().lower()
-        content = str(message.get("content") or "").strip()
-        if not content:
+        content = message.get("content")
+        if isinstance(content, list):
+            chunks = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") in {"input_text", "text"}:
+                    chunks.append(str(part.get("text") or ""))
+                elif part.get("type") == "input_file":
+                    chunks.append(f"[Attached file: {part.get('filename') or part.get('file_id') or 'file'}]")
+            content_text = "\n".join(chunk for chunk in chunks if chunk).strip()
+        else:
+            content_text = str(content or "").strip()
+        if not content_text:
             continue
         if role in {"system", "developer"}:
             prefix = "Developer" if role == "developer" else "System"
-            parts.append(f"{prefix}:\n{content}")
+            parts.append(f"{prefix}:\n{content_text}")
         elif role == "assistant":
-            parts.append(f"Assistant:\n{content}")
+            parts.append(f"Assistant:\n{content_text}")
         else:
-            parts.append(f"User:\n{content}")
+            parts.append(f"User:\n{content_text}")
     parts.append("Assistant:")
     return "\n\n".join(parts)
 
@@ -3108,15 +3261,19 @@ def _messages_to_responses_parts(messages, cfg=None):
     inputs = []
     for message in messages:
         role = str(message.get("role") or "user").strip().lower()
-        content = str(message.get("content") or "").strip()
+        content = message.get("content")
         if not content:
             continue
         if role == "developer":
-            inputs.append({"role": "developer", "content": content})
+            inputs.append({"role": "developer", "content": str(content)})
         elif role == "system":
-            inputs.append({"role": instruction_role, "content": content})
-        else:
+            inputs.append({"role": instruction_role, "content": str(content)})
+        elif isinstance(content, list):
             inputs.append({"role": "assistant" if role == "assistant" else "user", "content": content})
+        else:
+            text = str(content).strip()
+            if text:
+                inputs.append({"role": "assistant" if role == "assistant" else "user", "content": text})
     return inputs
 
 
@@ -3584,6 +3741,47 @@ def _persist_response_container_files(cfg, run, chat_id, citations):
     return files
 
 
+def _turn_file_parts(run, chat_id, raw_files):
+    if not chat_id or not isinstance(raw_files, list):
+        return [], []
+    parts = []
+    public_files = []
+    seen = set()
+    for item in raw_files[:8]:
+        if not isinstance(item, dict):
+            continue
+        rel = str(item.get("file") or "").strip()
+        file_id = str(item.get("id") or rel).strip()
+        if not rel or rel in seen:
+            continue
+        seen.add(rel)
+        path = _resolve_chat_asset(run, chat_id, rel)
+        if not path.exists() or not path.is_file():
+            continue
+        size = path.stat().st_size
+        if size > 50 * 1024 * 1024:
+            raise ValueError(f"attached file exceeds 50 MB: {path.name}")
+        mime = str(item.get("mime") or mimetypes.guess_type(str(path))[0] or "application/octet-stream")
+        filename = str(item.get("filename") or Path(rel).name)
+        data_url = f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
+        parts.append({
+            "type": "input_file",
+            "filename": filename,
+            "file_data": data_url,
+        })
+        public_files.append({
+            "id": file_id,
+            "file": rel,
+            "filename": filename,
+            "url": _chat_asset_url(run, chat_id, rel),
+            "mime": mime,
+            "size": size,
+            "kind": item.get("kind") or "upload",
+            "source": item.get("source") if isinstance(item.get("source"), dict) else {},
+        })
+    return parts, public_files
+
+
 def _prepare_chat_request(body):
     question = str(body.get("question") or "").strip()
     if not question:
@@ -3659,6 +3857,13 @@ def _prepare_chat_request(body):
         )
     provider = cfg.get("provider", "openai")
     backend = _normalize_generation_backend(cfg.get("backend"), cfg.get("provider") or "openai")
+    run = str(body.get("run") or "__workspace__").strip() or "__workspace__"
+    chat_id = str(body.get("chat_id") or body.get("id") or "").strip()
+    file_parts, turn_files = _turn_file_parts(run, chat_id, body.get("turn_files") or body.get("files") or [])
+    if file_parts:
+        user_content = [{"type": "input_text", "text": user}, *file_parts]
+    else:
+        user_content = user
     previous_response_id = str(body.get("previous_response_id") or "").strip()
     native_responses_state = backend == "responses" and bool(previous_response_id)
     instruction_role = _assistant_instruction_role(cfg)
@@ -3678,8 +3883,8 @@ def _prepare_chat_request(body):
                 fallback_messages.append(history_message)
                 if not native_responses_state:
                     messages.append(history_message)
-    messages.append({"role": "user", "content": user})
-    fallback_messages.append({"role": "user", "content": user})
+    messages.append({"role": "user", "content": user_content})
+    fallback_messages.append({"role": "user", "content": user_content})
     return {
         "question": question,
         "cfg": cfg,
@@ -3693,6 +3898,7 @@ def _prepare_chat_request(body):
         "instruction_role": instruction_role,
         "assistant_instruction": assistant_instruction,
         "user_prompt": user,
+        "turn_files": turn_files,
         "messages": messages,
         "fallback_messages": fallback_messages,
         "history_turns": history_turns,
@@ -3743,6 +3949,8 @@ def _answer_question(body):
         public_context["report_context"] = {k: v for k, v in report_context.items() if k != "text"}
     if skill_context:
         public_context["skill_context"] = {k: v for k, v in skill_context.items() if k != "text"}
+    if prepared.get("turn_files"):
+        public_context["turn_files"] = prepared["turn_files"]
     state_mode = _chat_state_mode(
         backend,
         response_id=response_id,
@@ -3956,6 +4164,7 @@ def _chat_context_preview(body):
             "context_mode": _normalize_context_mode(body.get("context_mode") or "none"),
             "report_context": body.get("report_context") or None,
             "skill_context": body.get("skill_context") or None,
+            "turn_files": prepared.get("turn_files") or [],
             "enable_code_interpreter": bool(body.get("enable_code_interpreter")),
             "model_config": sanitized_cfg,
             "history_turns": prepared["history_turns"],
@@ -4987,6 +5196,12 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json(_chat_save_session(body))
             elif parsed.path == "/api/chat_session_rename":
                 self._json(_chat_rename_session(body))
+            elif parsed.path == "/api/chat_file_upload":
+                self._json(_chat_upload_payload(body))
+            elif parsed.path == "/api/chat_files":
+                self._json(_chat_files_payload(body))
+            elif parsed.path == "/api/chat_attach_graph":
+                self._json(_chat_attach_graph_payload(body))
             elif parsed.path == "/api/generate_image":
                 self._json(_generate_chat_image(body))
             elif parsed.path == "/api/stop_job":

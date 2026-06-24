@@ -450,6 +450,7 @@ export type GraphAskContext = {
     truncated: boolean;
     include_instructions: boolean;
   };
+  turn_files?: ChatFile[];
 };
 
 export type ChatMessage = {
@@ -482,16 +483,20 @@ export type ChatImage = {
 
 export type ChatFile = {
   id: string;
+  kind?: "upload" | "generated" | "graphml" | string;
   file: string;
   filename: string;
   url?: string;
   mime: string;
   size: number;
+  created_at?: number;
   error?: string;
   source?: {
     type?: string;
     container_id?: string;
     file_id?: string;
+    path?: string;
+    mode?: string;
   };
 };
 

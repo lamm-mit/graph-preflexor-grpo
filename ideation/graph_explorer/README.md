@@ -19,8 +19,9 @@ React/Vite frontend.
 - Default graph view: 2D map. Users can switch to the 3D explorer.
 - Default chat model: `google/gemma-4-E4B-it` on `http://localhost:1234/v1`.
 - Default LLM backend mode: OpenAI Responses API (`backend: responses`).
-- Default chat context mode: `None`, meaning no graph context unless nodes are
-  selected or a report is attached.
+- Default chat context mode: `Selected only`, stored internally as `none`,
+  meaning no automatic graph retrieval. Explicitly selected nodes, staged files,
+  or attached report context are still sent for that turn.
 - The server can start without graph data. The UI should then guide the user to
   load a run folder, a disk GraphML file, or an uploaded GraphML file.
 
@@ -233,15 +234,18 @@ flowchart TD
   UserPrompt["User sends chat message"] --> ContextMode{"context mode"}
   ContextMode -->|None and no selection| PlainChat["plain chat prompt"]
   ContextMode -->|None with selection| SelectedOnly["selected-node context"]
-  ContextMode -->|Focused| Focused["selected nodes plus neighborhoods and paths"]
+  ContextMode -->|Neighborhood context| Focused["selected/query seeds plus neighborhoods and paths"]
   ContextMode -->|Graph-RAG| GraphRAG["semantic retrieval, neighborhoods, paths, centrality anchors"]
   PlainChat --> AttachReport{"report attached?"}
   SelectedOnly --> AttachReport
   Focused --> AttachReport
   GraphRAG --> AttachReport
   AttachReport -->|yes| AddReport["append report.md text to this turn"]
-  AttachReport -->|no| BuildMessages["build instruction plus user prompt"]
-  AddReport --> BuildMessages
+  AttachReport -->|no| AttachFiles{"files staged?"}
+  AddReport --> AttachFiles
+  AttachFiles -->|yes| FileParts["append input_file content parts"]
+  AttachFiles -->|no| BuildMessages["build instruction plus user prompt"]
+  FileParts --> BuildMessages
   BuildMessages --> Role{"model host"}
   Role -->|OpenAI GPT-5 style| DeveloperInstruction["developer instruction"]
   Role -->|local or compatible| SystemInstruction["system instruction"]
@@ -481,12 +485,16 @@ local OpenAI-compatible models and most other providers, the instruction role is
 
 The chat context mode controls the graph packet:
 
-- `None`: default. If no nodes are selected, this is regular chat. If nodes are
-  selected, only selected-node context is sent.
-- `Focused`: sends selected nodes plus compact neighborhoods, important edges,
-  and selected path context.
-- `Graph-RAG`: sends selected nodes plus semantic/text retrieval hits,
-  neighborhoods, path connectors, and centrality anchors.
+- `Selected only` (`none` internally): default. If no nodes are selected, this
+  is regular chat. If nodes are selected, only selected-node context is sent.
+- `Neighborhood context` (`focused` internally): expands selected nodes or the
+  focus query into compact nearby graph structure: local neighborhoods,
+  important edges, and selected path context. This differs from `Selected only`,
+  which sends no automatic graph expansion.
+- `Graph-RAG`: additive mode. It includes explicitly selected nodes first, then
+  builds a retrieval query from the user message plus optional focus query and
+  adds semantic/text hits, neighborhoods, path connectors, and centrality
+  anchors.
 
 The user can attach generated profile artifacts to one chat turn. The attachment
 selects one profile output folder and can include `report.md`, `profile.json`,
@@ -536,6 +544,11 @@ Session storage:
 - Responses tool-generated files are normal assistant messages with `files`
   metadata; binary files are stored under the active chat session
   `attachments/` directory and linked by relative `/api/chat_asset` URLs.
+- User uploads are stored durably under the active chat session `uploads/`
+  directory and indexed in `uploads.json`. They are not automatically sent on
+  every future turn. The frontend shows composer attachment chips; only those
+  `turn_files` are converted by the backend into Responses `input_file` content
+  parts for the next request.
 
 Default backend mode is Responses:
 
@@ -577,6 +590,10 @@ Image generation:
 
 - `/image <prompt>` calls `/api/generate_image`, which uses
   `client.responses.create(..., tools=[{"type": "image_generation"}])`.
+- Bare `/image` opens an image-prompt planner in the composer. The planner
+  shows four suggested prompts derived from recent chat and active graph context
+  through a small helper LLM call, plus a freeform prompt box. The image tool is
+  invoked only after the user chooses or types a prompt and clicks Generate.
 - Supported command options are `--size`, `--quality`, `--format`,
   `--transparent`, `--opaque`, `--generate`, `--edit`, and `--partial`.
 - The backend saves returned `image_generation_call.result` bytes to the active
@@ -598,6 +615,24 @@ Skill and file outputs:
   file metadata to the frontend.
 - The chat renders generated files as download cards. If a provider rejects
   tools, the backend retries without the tool so the text chat still works.
+
+Per-turn file input:
+
+- The paperclip button uploads one or more files to the active chat session and
+  stages them for the next turn.
+- `/files` lists all uploaded files plus Responses-generated files in the active
+  session and renders download cards.
+- `/graph` opens a GraphML attachment panel. A user can attach the current graph
+  artifact, choose a GraphML snapshot from the active run, or upload a
+  GraphML/XML file. After attachment, the composer opens a task chooser with a
+  freeform analysis task box and four suggested tasks generated from recent chat
+  history by a small helper LLM call.
+- Choosing a GraphML through `/graph` also attaches the
+  `graphml-deep-analysis` skill as prompt context for subsequent turns until the
+  skill chip is cleared.
+- Backend file transmission uses Responses file-input content parts with
+  base64 `file_data`, not OpenAI Files API IDs. This keeps the browser workflow
+  local and works for OpenAI-compatible servers that implement file input.
 
 ## Model Roles And Config
 
@@ -898,6 +933,9 @@ POST endpoints:
 | `/api/chat_session_load` | Load one durable chat session with messages and UI state. |
 | `/api/chat_session_save` | Save one complete chat transcript and UI state. |
 | `/api/chat_session_rename` | Rename a durable chat session. |
+| `/api/chat_file_upload` | Save a user-uploaded file under the active chat session for per-turn attachment. |
+| `/api/chat_files` | List uploaded and generated files for the active chat session. |
+| `/api/chat_attach_graph` | Copy the active/current GraphML or a server-visible GraphML path into chat uploads. |
 | `/api/generate_image` | Run the Responses `image_generation` tool and persist returned images. |
 | `/api/graph_rag_context` | Build graph retrieval context without an LLM call. |
 | `/api/ideate` | Start an `ideate.py` run. |
@@ -929,8 +967,8 @@ questions from this README and the referenced source files:
   chat, model settings, and reports?
 - How does shift-click multi-selection work conceptually?
 - Which graph metrics can drive color, size, layout, search, and context?
-- What is the difference between `None`, `Focused`, and `Graph-RAG` chat
-  context?
+- What is the difference between `Selected only`, `Neighborhood context`, and
+  `Graph-RAG` chat context?
 - How is the exact LLM context previewed before a chat request?
 - How does Responses multi-turn state use `previous_response_id`?
 - What is the fallback for backends that require history replay?
@@ -953,7 +991,7 @@ Preserve these behavior contracts unless the user asks for a breaking change:
   stale embedding state.
 - Starting a new ideation run must clear the old active graph first.
 - The chat panel stays in the right panel.
-- Chat default context is `None`.
+- Chat default context is `Selected only` (`none` internally).
 - Responses backend is the default for all chat/instruct models.
 - Chat must remain multi-turn through Responses `previous_response_id` or
   history replay fallback.

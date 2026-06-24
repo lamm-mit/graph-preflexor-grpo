@@ -20,6 +20,7 @@ import {
   Loader2,
   Network,
   PanelLeft,
+  Paperclip,
   Play,
   Plus,
   RotateCcw,
@@ -97,6 +98,8 @@ const OPTIONAL_TOOL_IDS = ["graphrag"] as const;
 const DEFAULT_CHAT_MAX_OUTPUT_TOKENS = 20000;
 const HIGH_CHAT_MAX_OUTPUT_TOKENS = 20000;
 const GENERATOR_MAX_OUTPUT_TOKENS = 8000;
+const MIN_CENTER_PANEL_WIDTH = 320;
+const MAX_RIGHT_PANEL_WIDTH = 1120;
 
 type SessionReport = {
   out: string;
@@ -162,8 +165,8 @@ function writeSessionReports(reports: SessionReport[]) {
 
 function chatContextLabel(mode: ChatContextMode) {
   if (mode === "graph_rag") return "Graph-RAG retrieval";
-  if (mode === "focused") return "Focused selection";
-  return "None";
+  if (mode === "focused") return "Neighborhood context";
+  return "Selected only";
 }
 
 function reportPartsLabel(parts: ReportContextPart[]) {
@@ -190,7 +193,7 @@ function readPanelWidths() {
     const stored = JSON.parse(window.localStorage.getItem(PANEL_WIDTH_STORAGE_KEY) || "{}");
     return {
       left: clampNumber(Number(stored.left) || 282, 220, 560),
-      right: clampNumber(Number(stored.right) || 388, 300, 680),
+      right: clampNumber(Number(stored.right) || 388, 300, MAX_RIGHT_PANEL_WIDTH),
     };
   } catch {
     return { left: 282, right: 388 };
@@ -548,6 +551,15 @@ function downloadTextFile(fileName: string, text: string, type = "text/plain;cha
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error(`Could not read ${file.name}`));
+    reader.readAsDataURL(file);
+  });
 }
 
 function safeFilePart(value: string) {
@@ -2805,6 +2817,186 @@ function ChatFileGrid({ files }: { files: ChatFile[] }) {
   );
 }
 
+function ChatGraphAttachPanel({
+  activeRun,
+  fileUploading,
+  graph,
+  graphs,
+  loading,
+  onAttachCurrent,
+  onAttachPath,
+  onClose,
+  onUploadClick,
+}: {
+  activeRun: string;
+  fileUploading: boolean;
+  graph: GraphPayload | null;
+  graphs: GraphFileSummary[];
+  loading: boolean;
+  onAttachCurrent: () => void;
+  onAttachPath: (path: string) => void;
+  onClose: () => void;
+  onUploadClick: () => void;
+}) {
+  return (
+    <div className="graph-attach-panel">
+      <div className="graph-attach-head">
+        <div>
+          <strong>Attach GraphML for this turn</strong>
+          <span>Choose the current graph, a run artifact, or upload GraphML. The graphml-deep-analysis skill will be included with the next chat request.</span>
+        </div>
+        <button aria-label="Close GraphML attachment panel" onClick={onClose} type="button">
+          <X size={14} />
+        </button>
+      </div>
+      <div className="graph-attach-actions">
+        <button disabled={!graph?.path || fileUploading} onClick={onAttachCurrent} type="button">
+          <Network size={14} />
+          Current graph
+        </button>
+        <button disabled={fileUploading} onClick={onUploadClick} type="button">
+          <Paperclip size={14} />
+          Upload GraphML
+        </button>
+      </div>
+      <div className="graph-attach-list">
+        <div className="graph-attach-list-head">
+          <strong>{activeRun ? "Run artifacts" : "Run artifacts unavailable"}</strong>
+          <span>{loading ? "loading..." : `${graphs.length} graph${graphs.length === 1 ? "" : "s"}`}</span>
+        </div>
+        {graphs.length ? (
+          graphs.slice(0, 10).map((item) => (
+            <button disabled={fileUploading} key={item.path} onClick={() => onAttachPath(item.path)} type="button">
+              <span>{snapshotLabel(item)}</span>
+              <small>{formatFileSize(item.size)} | {new Date(item.updated_at * 1000).toLocaleString()}</small>
+            </button>
+          ))
+        ) : (
+          <p>{activeRun ? "No GraphML artifacts were found in this run." : "Load a run to pick from its GraphML artifacts."}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChatGraphTaskPanel({
+  busy,
+  draft,
+  files,
+  onClose,
+  onDraftChange,
+  onRefresh,
+  onSubmit,
+  suggestions,
+}: {
+  busy: boolean;
+  draft: string;
+  files: ChatFile[];
+  onClose: () => void;
+  onDraftChange: (value: string) => void;
+  onRefresh: () => void;
+  onSubmit: (value: string) => void;
+  suggestions: string[];
+}) {
+  return (
+    <div className="graph-task-panel">
+      <div className="graph-task-head">
+        <div>
+          <strong>Choose the GraphML analysis task</strong>
+          <span>{files.length ? `${files.length} GraphML file${files.length === 1 ? "" : "s"} staged for the next turn.` : "Attach a GraphML file first."}</span>
+        </div>
+        <div>
+          <button disabled={busy} onClick={onRefresh} type="button">
+            {busy ? <Loader2 className="spin" size={12} /> : <Sparkles size={12} />}
+            Suggest
+          </button>
+          <button aria-label="Close GraphML task panel" onClick={onClose} type="button">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="graph-task-suggestions">
+        {suggestions.map((item) => (
+          <button key={item} onClick={() => onDraftChange(item)} title={item} type="button">
+            {item}
+          </button>
+        ))}
+      </div>
+      <textarea
+        onChange={(event) => onDraftChange(event.target.value)}
+        placeholder="Ask what to do with the attached GraphML..."
+        rows={3}
+        value={draft}
+      />
+      <div className="graph-task-actions">
+        <span>The task will be sent with the staged GraphML and graphml-deep-analysis skill.</span>
+        <button disabled={!draft.trim() || !files.length} onClick={() => onSubmit(draft)} type="button">
+          Ask with GraphML
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChatImagePromptPanel({
+  busy,
+  draft,
+  onClose,
+  onDraftChange,
+  onRefresh,
+  onSubmit,
+  optionsLabel,
+  suggestions,
+}: {
+  busy: boolean;
+  draft: string;
+  onClose: () => void;
+  onDraftChange: (value: string) => void;
+  onRefresh: () => void;
+  onSubmit: (value: string) => void;
+  optionsLabel: string;
+  suggestions: string[];
+}) {
+  return (
+    <div className="graph-task-panel image-prompt-panel">
+      <div className="graph-task-head">
+        <div>
+          <strong>Choose an image prompt</strong>
+          <span>{optionsLabel || "Generate a visual from recent chat, graph context, or a custom prompt."}</span>
+        </div>
+        <div>
+          <button disabled={busy} onClick={onRefresh} type="button">
+            {busy ? <Loader2 className="spin" size={12} /> : <Sparkles size={12} />}
+            Suggest
+          </button>
+          <button aria-label="Close image prompt panel" onClick={onClose} type="button">
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="graph-task-suggestions">
+        {suggestions.map((item) => (
+          <button key={item} onClick={() => onDraftChange(item)} title={item} type="button">
+            {item}
+          </button>
+        ))}
+      </div>
+      <textarea
+        onChange={(event) => onDraftChange(event.target.value)}
+        placeholder="Describe the image to generate..."
+        rows={3}
+        value={draft}
+      />
+      <div className="graph-task-actions">
+        <span>The image prompt is sent only when you click Generate image.</span>
+        <button disabled={!draft.trim()} onClick={() => onSubmit(draft)} type="button">
+          Generate image
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ImagePreviewModal({ image, onClose }: { image: ChatImage; onClose: () => void }) {
   return (
     <div className="model-modal-backdrop image-preview-backdrop" role="presentation">
@@ -2974,7 +3166,20 @@ function ChatPanel({
   const [attachedSkillIds, setAttachedSkillIds] = useState<string[]>([]);
   const [skillPickerOpen, setSkillPickerOpen] = useState(false);
   const [skillPickerQuery, setSkillPickerQuery] = useState("");
+  const [turnFiles, setTurnFiles] = useState<ChatFile[]>([]);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [graphAttachOpen, setGraphAttachOpen] = useState(false);
+  const [graphTaskOpen, setGraphTaskOpen] = useState(false);
+  const [graphTaskDraft, setGraphTaskDraft] = useState("");
+  const [graphTaskSuggestions, setGraphTaskSuggestions] = useState<string[]>([]);
+  const [graphTaskBusy, setGraphTaskBusy] = useState(false);
+  const [imagePromptOpen, setImagePromptOpen] = useState(false);
+  const [imagePromptDraft, setImagePromptDraft] = useState("");
+  const [imagePromptSuggestions, setImagePromptSuggestions] = useState<string[]>([]);
+  const [imagePromptBusy, setImagePromptBusy] = useState(false);
+  const [imagePromptOptionsRaw, setImagePromptOptionsRaw] = useState("");
   const [insightsModalRun, setInsightsModalRun] = useState("");
+  const [ragContextExpanded, setRagContextExpanded] = useState(false);
   const [contextInfoOpen, setContextInfoOpen] = useState(false);
   const [chatExportOpen, setChatExportOpen] = useState(false);
   const [chatSessions, setChatSessions] = useState<ChatSessionSummary[]>([]);
@@ -2997,6 +3202,8 @@ function ChatPanel({
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatSaveTimerRef = useRef<number | null>(null);
   const chatLoadingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const graphUploadInputRef = useRef<HTMLInputElement | null>(null);
   const contextLabel = contextSummary(graph, selectedNodes);
   const activeRun = inferRunFromGraphPath(graph?.path || "");
   const chatRunKey = activeRun || "__workspace__";
@@ -3006,6 +3213,12 @@ function ChatPanel({
   const skillsQuery = useQuery({
     queryKey: ["skills", "chat-attached"],
     queryFn: () => api.skills(),
+    refetchInterval: false,
+  });
+  const runGraphsQuery = useQuery({
+    queryKey: ["chat-run-graphs", activeRun],
+    queryFn: () => api.runGraphs(activeRun),
+    enabled: graphAttachOpen && Boolean(activeRun),
     refetchInterval: false,
   });
   const attachedSkills = useMemo(
@@ -3068,6 +3281,10 @@ function ChatPanel({
         setActiveChatSessionId(session.id);
         setChatSessionTitle(session.title || "New chat");
         setChatMessages(loaded.messages || []);
+        setTurnFiles([]);
+        setGraphAttachOpen(false);
+        setGraphTaskOpen(false);
+        setImagePromptOpen(false);
         applyChatSessionState(loaded.state || {});
         setChatSessionStatus(`${activeRun ? "Run" : "Workspace"} chat loaded.`);
         setChatSessionReady(true);
@@ -3189,6 +3406,10 @@ function ChatPanel({
       setActiveChatSessionId(loaded.session.id);
       setChatSessionTitle(loaded.session.title || "New chat");
       setChatMessages(loaded.messages || []);
+      setTurnFiles([]);
+      setGraphAttachOpen(false);
+      setGraphTaskOpen(false);
+      setImagePromptOpen(false);
       applyChatSessionState(loaded.state || {});
       setChatSessionStatus(`Loaded ${loaded.session.message_count} messages.`);
       setChatSessionReady(true);
@@ -3214,6 +3435,10 @@ function ChatPanel({
       setActiveChatSessionId(created.session.id);
       setChatSessionTitle(created.session.title);
       setChatMessages([]);
+      setTurnFiles([]);
+      setGraphAttachOpen(false);
+      setGraphTaskOpen(false);
+      setImagePromptOpen(false);
       setChatSessionStatus("Started a new chat session.");
       setChatSessionReady(true);
     } catch (error) {
@@ -3274,7 +3499,7 @@ function ChatPanel({
       .map((message) => ({ role: message.role as "user" | "assistant", content: message.content }));
   }
 
-  function buildChatBody(role: ModelRole, text = question || "(next user message)") {
+  function buildChatBody(role: ModelRole, text = question || "(next user message)", filesForTurn: ChatFile[] = turnFiles) {
     return {
       run: chatRunKey,
       chat_id: activeChatSessionId,
@@ -3287,7 +3512,8 @@ function ChatPanel({
       context_mode: agentMode,
       report_context: reportContextSelection,
       skill_context: skillContextSelection,
-      enable_code_interpreter: Boolean(skillContextSelection),
+      turn_files: filesForTurn,
+      enable_code_interpreter: Boolean(skillContextSelection || filesForTurn.length),
       code_interpreter_memory: "1g",
       model_config: role,
       history: recentHistory(),
@@ -3312,9 +3538,293 @@ function ChatPanel({
     });
   }
 
+  function clearCurrentChat() {
+    resetChat();
+    setTurnFiles([]);
+    setGraphAttachOpen(false);
+    setGraphTaskOpen(false);
+    setGraphTaskDraft("");
+    setImagePromptOpen(false);
+    setImagePromptDraft("");
+    setImagePromptOptionsRaw("");
+  }
+
+  function addTurnFiles(files: ChatFile[]) {
+    if (!files.length) return;
+    setTurnFiles((current) => {
+      const byId = new Map(current.map((file) => [file.id, file]));
+      files.forEach((file) => byId.set(file.id, file));
+      return Array.from(byId.values());
+    });
+  }
+
+  function graphTurnFiles(files: ChatFile[] = turnFiles) {
+    return files.filter((file) => {
+      const name = file.filename || file.file || "";
+      return file.source?.type === "graphml" || /\.(graphml|xml)$/i.test(name);
+    });
+  }
+
+  function looksLikeGraphPath(value: string) {
+    const text = value.trim();
+    return /\.(graphml|xml)(?:\s|$)/i.test(text) || text.startsWith("runs/") || text.startsWith("/") || text.startsWith("./") || text.startsWith("../");
+  }
+
+  function attachGraphAnalysisSkill() {
+    setAttachedSkillIds((ids) => (ids.includes("graphml-deep-analysis") ? ids : [...ids, "graphml-deep-analysis"]));
+  }
+
+  function fallbackGraphTasks(files: ChatFile[] = graphTurnFiles()) {
+    const topic = graph?.topic || latestUserText() || "the attached graph";
+    const graphLabel = files[0]?.filename || graph?.name || "GraphML";
+    return [
+      `Summarize ${graphLabel}: key hubs, communities, bridges, and weakly connected areas.`,
+      `Find the most interesting long-range paths in ${graphLabel} and explain why they matter for ${topic}.`,
+      `Identify bridge concepts and structural gaps in ${graphLabel}, then propose the next five exploration queries.`,
+      `Audit ${graphLabel} for duplicated concepts, isolated clusters, missing links, and surprising recombinations.`,
+    ];
+  }
+
+  function graphTaskContextText(files: ChatFile[]) {
+    const recent = recentHistory()
+      .slice(-6)
+      .map((message) => `${message.role}: ${message.content.slice(0, 700)}`)
+      .join("\n");
+    return [
+      graph ? `Active graph: ${graph.name} | ${graph.stats.nodes} nodes | ${graph.stats.edges} edges | topic: ${graph.topic || "unknown"}` : "No active graph payload.",
+      files.length ? `Attached GraphML files: ${files.map((file) => file.filename).join(", ")}` : "No GraphML file attached yet.",
+      selectedLabels.length ? `Selected nodes: ${selectedLabels.slice(0, 12).join(", ")}` : "No selected nodes.",
+      recent ? `Recent chat:\n${recent}` : "No recent chat history.",
+    ].join("\n\n");
+  }
+
+  async function suggestGraphTasks(files: ChatFile[] = graphTurnFiles(), preferredDraft = "") {
+    const fallback = fallbackGraphTasks(files);
+    setGraphTaskSuggestions(fallback);
+    if (preferredDraft.trim()) {
+      setGraphTaskDraft(preferredDraft.trim());
+    } else {
+      setGraphTaskDraft((current) => current.trim() || fallback[0] || "");
+    }
+    if (!activeChatRole?.model) return;
+    setGraphTaskBusy(true);
+    try {
+      const helperRole: ModelRole = { ...activeChatRole, max_tokens: 900 };
+      delete (helperRole as Partial<ModelRole>).temperature;
+      const res = await api.ask({
+        run: chatRunKey,
+        chat_id: activeChatSessionId,
+        question: [
+          "Suggest exactly four useful tasks for analyzing an attached GraphML file in a graph exploration assistant.",
+          "Use the recent chat and active graph context below to make the tasks specific.",
+          "Each task must be a standalone user message. Keep each under 22 words.",
+          "Return one task per line with no numbering, no bullets, and no explanation.",
+          "",
+          graphTaskContextText(files),
+        ].join("\n"),
+        selected_nodes: [],
+        query: "",
+        depth: 1,
+        max_nodes: 20,
+        max_edges: 40,
+        context_mode: "none",
+        report_context: null,
+        skill_context: null,
+        turn_files: [],
+        enable_code_interpreter: false,
+        model_config: helperRole,
+        history: recentHistory(),
+      });
+      const suggestions = parseGeneratedPrompts(res.answer).slice(0, 4);
+      if (suggestions.length) {
+        setGraphTaskSuggestions(suggestions);
+        if (!preferredDraft.trim()) setGraphTaskDraft((current) => current.trim() || suggestions[0]);
+      }
+    } catch {
+      setGraphTaskSuggestions(fallback);
+    } finally {
+      setGraphTaskBusy(false);
+    }
+  }
+
+  function openGraphTaskPlanner(files: ChatFile[], preferredDraft = "") {
+    const graphFiles = graphTurnFiles(files);
+    setGraphTaskOpen(true);
+    void suggestGraphTasks(graphFiles.length ? graphFiles : files, preferredDraft);
+  }
+
+  function fallbackImagePrompts() {
+    const seed = latestUserText() || graph?.topic || "the active graph exploration";
+    const graphHint = graph ? `${graph.stats.nodes.toLocaleString()}-node graph` : "concept map";
+    return [
+      `A polished scientific concept-map illustration of ${seed}, with highlighted bridge ideas and clear labels.`,
+      `A clean AI-lab style visual summary of the ${graphHint}, emphasizing clusters, hubs, and surprising connections.`,
+      `An editorial scientific figure showing the main mechanism implied by ${seed}, with elegant annotations.`,
+      `A high-resolution abstract network visualization inspired by ${seed}, using crisp nodes, paths, and depth cues.`,
+    ];
+  }
+
+  function imagePromptContextText() {
+    const recent = recentHistory()
+      .slice(-6)
+      .map((message) => `${message.role}: ${message.content.slice(0, 700)}`)
+      .join("\n");
+    return [
+      graph ? `Active graph: ${graph.name} | ${graph.stats.nodes} nodes | ${graph.stats.edges} edges | topic: ${graph.topic || "unknown"}` : "No active graph payload.",
+      selectedLabels.length ? `Selected nodes: ${selectedLabels.slice(0, 12).join(", ")}` : "No selected nodes.",
+      recent ? `Recent chat:\n${recent}` : "No recent chat history.",
+    ].join("\n\n");
+  }
+
+  async function suggestImagePrompts(preferredDraft = imagePromptDraft) {
+    const fallback = fallbackImagePrompts();
+    setImagePromptSuggestions(fallback);
+    setImagePromptDraft((current) => preferredDraft.trim() || current.trim() || fallback[0] || "");
+    if (!activeChatRole?.model) return;
+    setImagePromptBusy(true);
+    try {
+      const helperRole: ModelRole = { ...activeChatRole, max_tokens: 900 };
+      delete (helperRole as Partial<ModelRole>).temperature;
+      const res = await api.ask({
+        run: chatRunKey,
+        chat_id: activeChatSessionId,
+        question: [
+          "Suggest exactly four strong image-generation prompts for the current graph exploration chat.",
+          "Make each prompt visually specific, polished, and useful for scientific communication.",
+          "Use the recent chat and active graph context below. Each prompt must be standalone and under 35 words.",
+          "Return one prompt per line with no numbering, no bullets, and no explanation.",
+          "",
+          imagePromptContextText(),
+        ].join("\n"),
+        selected_nodes: [],
+        query: "",
+        depth: 1,
+        max_nodes: 20,
+        max_edges: 40,
+        context_mode: "none",
+        report_context: null,
+        skill_context: null,
+        turn_files: [],
+        enable_code_interpreter: false,
+        model_config: helperRole,
+        history: recentHistory(),
+      });
+      const suggestions = parseGeneratedPrompts(res.answer).slice(0, 4);
+      if (suggestions.length) {
+        setImagePromptSuggestions(suggestions);
+        if (!preferredDraft.trim()) setImagePromptDraft((current) => current.trim() || suggestions[0]);
+      }
+    } catch {
+      setImagePromptSuggestions(fallback);
+    } finally {
+      setImagePromptBusy(false);
+    }
+  }
+
+  function openImagePromptPlanner(rawOptions = "", preferredDraft = "") {
+    setImagePromptOptionsRaw(rawOptions.trim());
+    setImagePromptOpen(true);
+    void suggestImagePrompts(preferredDraft);
+  }
+
+  async function uploadChatFiles(fileList: FileList | File[], source: Record<string, unknown> = { type: "user_upload" }) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    if (!activeChatSessionId) {
+      addChatMessage({ role: "assistant", content: "Chat session is still loading. Try the upload again in a moment.", meta: "files" });
+      return;
+    }
+    setFileUploading(true);
+    try {
+      const uploaded: ChatFile[] = [];
+      for (const file of files) {
+        const data = await fileToDataUrl(file);
+        const res = await api.uploadChatFile({
+          run: chatRunKey,
+          chat_id: activeChatSessionId,
+          filename: file.name,
+          mime: file.type || "",
+          data,
+          source,
+        });
+        uploaded.push(res.file);
+      }
+      addTurnFiles(uploaded);
+      if (source.type === "graphml") {
+        attachGraphAnalysisSkill();
+        openGraphTaskPlanner(uploaded);
+      }
+      addChatMessage({
+        role: "system",
+        meta: "files",
+        content: `Attached ${uploaded.length} file${uploaded.length === 1 ? "" : "s"} to the next chat turn.${source.type === "graphml" ? " Choose the GraphML analysis task below." : ""}`,
+        files: uploaded,
+      });
+    } catch (error) {
+      addChatMessage({ role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "file upload error" });
+    } finally {
+      setFileUploading(false);
+    }
+  }
+
+  async function attachGraphFile(mode: "current" | "path", path?: string, preferredDraft = "") {
+    if (!activeChatSessionId) {
+      addChatMessage({ role: "assistant", content: "Chat session is still loading. Try `/graph` again in a moment.", meta: "graph file" });
+      return;
+    }
+    setFileUploading(true);
+    try {
+      const res = await api.attachGraphFile({ run: chatRunKey, chat_id: activeChatSessionId, mode, path });
+      addTurnFiles([res.file]);
+      attachGraphAnalysisSkill();
+      setGraphAttachOpen(false);
+      openGraphTaskPlanner([res.file], preferredDraft);
+      addChatMessage({
+        role: "system",
+        meta: "graph file",
+        content: `Attached ${res.file.filename} to the next chat turn and enabled graphml-deep-analysis. Choose the analysis task below.`,
+        files: [res.file],
+      });
+    } catch (error) {
+      addChatMessage({ role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "graph attach error" });
+    } finally {
+      setFileUploading(false);
+    }
+  }
+
+  async function showSessionFiles() {
+    if (!activeChatSessionId) {
+      addChatMessage({ role: "assistant", content: "Chat session is still loading. Try `/files` again in a moment.", meta: "files" });
+      return;
+    }
+    addChatMessage({ role: "user", content: "/files", meta: chatSessionTitle });
+    const pending = addChatMessage({ role: "assistant", content: "Listing session files...", meta: "files" });
+    try {
+      const res = await api.chatFiles(chatRunKey, activeChatSessionId);
+      const uploads = res.uploads || [];
+      const generated = res.generated || [];
+      const lines = [
+        `This chat session has ${uploads.length} uploaded file${uploads.length === 1 ? "" : "s"} and ${generated.length} generated file${generated.length === 1 ? "" : "s"}.`,
+        "",
+        uploads.length ? "Uploaded files:" : "Uploaded files: none",
+        ...uploads.map((file) => `- ${file.filename} (${formatFileSize(file.size)})`),
+        "",
+        generated.length ? "Generated files:" : "Generated files: none",
+        ...generated.map((file) => `- ${file.filename} (${formatFileSize(file.size)})`),
+      ];
+      updateChatMessage(pending, {
+        content: lines.join("\n"),
+        meta: "files",
+        files: res.files || [],
+      });
+    } catch (error) {
+      updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "files error" });
+    }
+  }
+
   function executeCommandSpec(id: ChatCommandId) {
     if (id === "clear") {
-      resetChat();
+      clearCurrentChat();
       return;
     }
     if (id === "followups") {
@@ -3334,7 +3844,18 @@ function ChatPanel({
       return;
     }
     if (id === "image") {
-      setQuestion("/image ");
+      setQuestion("");
+      openImagePromptPlanner("");
+      return;
+    }
+    if (id === "files") {
+      setQuestion("");
+      void showSessionFiles();
+      return;
+    }
+    if (id === "graph") {
+      setQuestion("");
+      setGraphAttachOpen(true);
       return;
     }
     if (id === "skills") {
@@ -3736,15 +4257,18 @@ function ChatPanel({
     }
   }
 
-  async function startImageGeneration(rawArgs: string) {
+  async function startImageGeneration(rawArgs: string, optionsOverride: { allowPlanner?: boolean } = {}) {
     const options = parseImageCommand(rawArgs);
     const prompt = options.prompt;
     if (!prompt) {
-      addChatMessage({
-        role: "assistant",
-        content: "Use `/image <prompt>` to generate an image. Options: `--size 1024x1024`, `--quality high`, `--format webp`, `--transparent`, `--edit`.",
-        meta: "image",
-      });
+      if (optionsOverride.allowPlanner !== false) {
+        openImagePromptPlanner(rawArgs);
+        addChatMessage({
+          role: "assistant",
+          content: "Choose an image prompt below, or write your own before generating.",
+          meta: "image prompt",
+        });
+      }
       return;
     }
     const role = activeChatRole;
@@ -3784,6 +4308,9 @@ function ChatPanel({
         images: res.images,
         ...responseStateMeta(role, res.response_id),
       });
+      setImagePromptOpen(false);
+      setImagePromptDraft("");
+      setImagePromptOptionsRaw("");
     } catch (error) {
       updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "image error" });
     } finally {
@@ -3799,7 +4326,7 @@ function ChatPanel({
     const restText = match?.[2] || "";
     const rest = restText.split(/\s+/).filter(Boolean);
     if (command === "clear") {
-      resetChat();
+      clearCurrentChat();
       setQuestion("");
       return true;
     }
@@ -3816,6 +4343,34 @@ function ChatPanel({
     if (command === "image") {
       setQuestion("");
       void startImageGeneration(restText);
+      return true;
+    }
+    if (command === "files") {
+      setQuestion("");
+      void showSessionFiles();
+      return true;
+    }
+    if (command === "graph") {
+      setQuestion("");
+      addChatMessage({ role: "user", content: `/graph ${restText}`.trim(), meta: "graph file" });
+      if (rest[0] === "current") {
+        void attachGraphFile("current", undefined, rest.slice(1).join(" "));
+      } else if (restText.trim() && looksLikeGraphPath(restText)) {
+        void attachGraphFile("path", restText.trim());
+      } else {
+        if (restText.trim()) {
+          setGraphTaskDraft(restText.trim());
+          setGraphTaskOpen(true);
+        }
+        setGraphAttachOpen(true);
+        addChatMessage({
+          role: "assistant",
+          content: restText.trim()
+            ? "Choose a GraphML artifact to attach. I preserved your draft analysis task below."
+            : "Choose a GraphML artifact to attach, then choose or type the analysis task.",
+          meta: "graph file",
+        });
+      }
       return true;
     }
     if (command === "insights") {
@@ -3855,7 +4410,7 @@ function ChatPanel({
     }
     if (command === "focus") {
       setAgentMode("focused");
-      addChatMessage({ role: "system", content: "Switched to focused context mode.", meta: "command" });
+      addChatMessage({ role: "system", content: "Switched to Neighborhood context mode.", meta: "command" });
       setQuestion("");
       return true;
     }
@@ -3873,11 +4428,12 @@ function ChatPanel({
     return false;
   }
 
-  async function ask() {
-    if (!question.trim()) return;
-    if (executeCommand(question)) return;
+  async function submitChatQuestion(rawQuestion: string, allowCommand = true) {
+    const askedQuestion = rawQuestion.trim();
+    if (!askedQuestion) return;
+    if (allowCommand && executeCommand(askedQuestion)) return;
     if (!graph && agentMode !== "none") {
-      addChatMessage({ role: "assistant", content: "Load a graph before using Focused selection or Graph-RAG retrieval. Use Context: None for regular chat without graph context.", meta: "context" });
+      addChatMessage({ role: "assistant", content: "Load a graph before using Neighborhood context or Graph-RAG retrieval. Use Context: Selected only for regular chat without graph context when no nodes are selected.", meta: "context" });
       return;
     }
     const role = activeChatRole;
@@ -3886,13 +4442,16 @@ function ChatPanel({
       return;
     }
     const priorResponseId = previousResponseId(messages, role);
-    addChatMessage({ role: "user", content: question, meta: contextSummary(graph, selectedNodes) });
+    const filesForTurn = turnFiles;
+    addChatMessage({ role: "user", content: askedQuestion, meta: contextSummary(graph, selectedNodes), files: filesForTurn });
     const pending = addChatMessage({ role: "assistant", content: "Thinking...", meta: chatRoleName });
+    setQuestion("");
     setBusy(true);
     try {
-      const res = await api.ask({ ...buildChatBody(role, question), previous_response_id: priorResponseId || undefined });
+      const res = await api.ask({ ...buildChatBody(role, askedQuestion, filesForTurn), previous_response_id: priorResponseId || undefined });
       const retrievedNodes = res.context.nodes || [];
       setLastRagNodes(agentMode === "graph_rag" ? retrievedNodes : []);
+      setRagContextExpanded(false);
       if (agentMode === "graph_rag" && retrievedNodes.length) {
         setSearchResults(contextNodesToSearchResults(retrievedNodes));
       }
@@ -3902,12 +4461,18 @@ function ChatPanel({
         files: res.files || [],
         ...responseStateMeta(role, res.response_id),
       });
-      setQuestion("");
+      setTurnFiles([]);
+      setGraphTaskOpen(false);
+      setGraphTaskDraft("");
     } catch (error) {
       updateChatMessage(pending, { content: error instanceof Error ? error.message : String(error), meta: "error" });
     } finally {
       setBusy(false);
     }
+  }
+
+  async function ask() {
+    await submitChatQuestion(question, true);
   }
 
   async function suggestFollowups() {
@@ -4006,7 +4571,7 @@ function ChatPanel({
             <Info size={14} />
           </button>
           <span className="model-badge" title="Change this under Model Settings.">chat</span>
-          <IconButton description="Clear the current durable chat session." icon={<RotateCcw size={14} />} label="Reset" onClick={resetChat} />
+          <IconButton description="Clear the current durable chat session." icon={<RotateCcw size={14} />} label="Reset" onClick={clearCurrentChat} />
         </div>
       </div>
       {contextInfoOpen && activeChatRole?.model ? (
@@ -4056,11 +4621,11 @@ function ChatPanel({
         ) : (
           <div className="empty-chat">
             {graph ? (
-              "Ask normally, select nodes for selected-only context, or switch to Focused / Graph-RAG when you want retrieval."
+              "Ask normally, select nodes for selected-only context, or switch to Neighborhood / Graph-RAG when you want retrieval."
             ) : (
               <>
                 <strong>No graph context loaded.</strong>
-                <span>Context: None works as regular chat. Open Runs when you want graph-aware context from a run folder, GraphML snapshot, upload, or new ideation run.</span>
+                <span>Context: Selected only works as regular chat when no nodes are selected. Open Runs when you want graph-aware context from a run folder, GraphML snapshot, upload, or new ideation run.</span>
                 <button onClick={onOpenRuns} type="button">Open Runs</button>
               </>
             )}
@@ -4102,9 +4667,45 @@ function ChatPanel({
             }
           />
         ) : null}
+        {graphAttachOpen ? (
+          <ChatGraphAttachPanel
+            activeRun={activeRun}
+            fileUploading={fileUploading}
+            graph={graph}
+            graphs={runGraphsQuery.data?.graphs || []}
+            loading={runGraphsQuery.isLoading}
+            onAttachCurrent={() => void attachGraphFile("current")}
+            onAttachPath={(path) => void attachGraphFile("path", path)}
+            onClose={() => setGraphAttachOpen(false)}
+            onUploadClick={() => graphUploadInputRef.current?.click()}
+          />
+        ) : null}
         <div ref={chatEndRef} />
       </div>
       <div className="chat-composer">
+        <input
+          className="hidden-file-input"
+          multiple
+          onChange={(event) => {
+            if (event.target.files?.length) void uploadChatFiles(event.target.files);
+            event.currentTarget.value = "";
+          }}
+          ref={fileInputRef}
+          type="file"
+        />
+        <input
+          accept=".graphml,.xml,text/xml,application/xml"
+          className="hidden-file-input"
+          multiple
+          onChange={(event) => {
+            if (event.target.files?.length) {
+              void uploadChatFiles(event.target.files, { type: "graphml", mode: "upload" }).then(() => setGraphAttachOpen(false));
+            }
+            event.currentTarget.value = "";
+          }}
+          ref={graphUploadInputRef}
+          type="file"
+        />
         <div className="prompt-row">
           {followups.map((prompt, index) => (
             <button key={prompt} onClick={() => setQuestion(prompt)} title={prompt} type="button">
@@ -4273,24 +4874,34 @@ function ChatPanel({
             onClose={() => setSkillPickerOpen(false)}
           />
         ) : null}
-        {lastRagNodes.length ? (
+        {agentMode === "graph_rag" && lastRagNodes.length ? (
           <div className="rag-context-strip">
-            <div>
-              <strong>Retrieved context</strong>
+            <button
+              aria-expanded={ragContextExpanded}
+              className="rag-context-toggle"
+              onClick={() => setRagContextExpanded((value) => !value)}
+              type="button"
+            >
+              <span>
+                <ChevronRight className={cx(ragContextExpanded && "open")} size={14} />
+                <strong>Retrieved context</strong>
+              </span>
               <span>{lastRagNodes.length} nodes surfaced by Graph-RAG</span>
-            </div>
-            <div className="rag-node-chips">
-              {lastRagNodes.slice(0, 18).map((node) => (
-                <button
-                  key={node.id}
-                  onClick={() => setSelectedNode(node.id)}
-                  title={`Select ${node.label} in the graph viewer`}
-                  type="button"
-                >
-                  {node.label}
-                </button>
-              ))}
-            </div>
+            </button>
+            {ragContextExpanded ? (
+              <div className="rag-node-chips">
+                {lastRagNodes.slice(0, 40).map((node) => (
+                  <button
+                    key={node.id}
+                    onClick={() => setSelectedNode(node.id)}
+                    title={`Select ${node.label} in the graph viewer`}
+                    type="button"
+                  >
+                    {node.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {question.startsWith("/") ? (
@@ -4315,6 +4926,66 @@ function ChatPanel({
             ))}
           </div>
         ) : null}
+        {turnFiles.length ? (
+          <div className="turn-file-strip">
+            <div>
+              <Paperclip size={13} />
+              <span>{turnFiles.length} attached for next turn</span>
+            </div>
+            <div className="turn-file-chips">
+              {turnFiles.map((file) => (
+                <span className="turn-file-chip" key={file.id} title={`${file.filename} | ${file.mime || "file"} | ${formatFileSize(file.size)}`}>
+                  <FileText size={12} />
+                  {file.filename}
+                  <button
+                    aria-label={`Remove ${file.filename}`}
+                    onClick={() => setTurnFiles((current) => current.filter((item) => item.id !== file.id))}
+                    type="button"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <button
+              onClick={() => {
+                setTurnFiles([]);
+                setGraphTaskOpen(false);
+                setGraphTaskDraft("");
+              }}
+              type="button"
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
+        {graphTaskOpen ? (
+          <ChatGraphTaskPanel
+            busy={graphTaskBusy}
+            draft={graphTaskDraft}
+            files={graphTurnFiles()}
+            onClose={() => setGraphTaskOpen(false)}
+            onDraftChange={setGraphTaskDraft}
+            onRefresh={() => void suggestGraphTasks(graphTurnFiles(), graphTaskDraft)}
+            onSubmit={(value) => void submitChatQuestion(value, false)}
+            suggestions={graphTaskSuggestions}
+          />
+        ) : null}
+        {imagePromptOpen ? (
+          <ChatImagePromptPanel
+            busy={imagePromptBusy}
+            draft={imagePromptDraft}
+            onClose={() => setImagePromptOpen(false)}
+            onDraftChange={setImagePromptDraft}
+            onRefresh={() => void suggestImagePrompts(imagePromptDraft)}
+            onSubmit={(value) => {
+              const raw = `${imagePromptOptionsRaw} ${value}`.trim();
+              void startImageGeneration(raw, { allowPlanner: false });
+            }}
+            optionsLabel={imagePromptOptionsRaw ? `Image options: ${imagePromptOptionsRaw}` : ""}
+            suggestions={imagePromptSuggestions}
+          />
+        ) : null}
         <textarea
           onChange={(event) => setQuestion(event.target.value)}
           onKeyDown={(event) => {
@@ -4328,33 +4999,47 @@ function ChatPanel({
           value={question}
         />
         <div className="composer-tools">
+          <IconButton
+            description="Attach files to this chat turn. Uploaded files are saved with the current chat session and sent to the model only when attached."
+            disabled={fileUploading || !activeChatSessionId}
+            icon={fileUploading ? <Loader2 className="spin" size={14} /> : <Paperclip size={14} />}
+            label="Attach"
+            onClick={() => fileInputRef.current?.click()}
+          />
+          <IconButton
+            description="Attach the current or run GraphML and enable graphml-deep-analysis for the next turn."
+            disabled={fileUploading || !activeChatSessionId}
+            icon={<Network size={14} />}
+            label="GraphML"
+            onClick={() => setGraphAttachOpen(true)}
+          />
           <label className="agent-mode">
             <span>
               Context
-              <HelpTip text="None is the default: it sends only explicitly selected nodes; with no selected nodes it is regular chat. Focused adds compact neighborhoods and an optional focus query. Graph-RAG retrieves semantic/text matches, neighborhoods, bridge paths, and central nodes." />
+              <HelpTip text="Selected only sends exactly the nodes you explicitly selected; with no selected nodes it is regular chat. Neighborhood context expands your selected nodes or focus query into nearby nodes, important edges, and compact local paths. Graph-RAG is additive: it includes selected nodes, then runs a broader retrieval query from your message plus the optional focus query, adding semantic/text hits, neighborhoods, bridge paths, and central anchors." />
             </span>
             <select value={agentMode} onChange={(event) => setAgentMode(event.target.value as ChatContextMode)}>
-              <option value="none">None</option>
+              <option value="none">Selected only</option>
               <option value="graph_rag">Graph-RAG retrieval</option>
-              <option value="focused">Focused selection</option>
+              <option value="focused">Neighborhood context</option>
             </select>
           </label>
           <label className="context-query">
             <span>
               Focus query
-              <HelpTip text="Optional search term used to pull matching nodes into the graph context packet. In Graph-RAG mode it is combined with your question for broader retrieval." />
+              <HelpTip text="Optional search term used to pull matching nodes into the graph context packet. In Graph-RAG mode, your message plus this focus query become the retrieval query; selected nodes are still included separately." />
             </span>
             <input
               disabled={agentMode === "none"}
               onChange={(event) => setContextQuery(event.target.value)}
-              placeholder={agentMode === "none" ? "disabled in None mode" : "optional concept filter"}
+              placeholder={agentMode === "none" ? "disabled in Selected only" : "optional concept filter"}
               value={contextQuery}
             />
           </label>
           <label className="context-count">
             <span>
               Max nodes
-              <HelpTip text="Maximum retrieved nodes sent with each chat request. Graph-RAG can use a larger budget; the backend still caps it to protect the browser and model context." />
+              <HelpTip text="Maximum graph-context nodes sent with each chat request. In Graph-RAG this includes selected nodes plus retrieved nodes; the backend still caps it to protect browser and model context." />
             </span>
             <input
               disabled={agentMode === "none"}
@@ -5977,7 +6662,12 @@ function App() {
         if (side === "left") {
           setLeftPanelWidth(clampNumber(moveEvent.clientX - 44, 220, 560));
         } else {
-          setRightPanelWidth(clampNumber(window.innerWidth - moveEvent.clientX, 300, 680));
+          const maxRightWidth = clampNumber(
+            window.innerWidth - 44 - leftPanelWidth - MIN_CENTER_PANEL_WIDTH,
+            300,
+            MAX_RIGHT_PANEL_WIDTH,
+          );
+          setRightPanelWidth(clampNumber(window.innerWidth - moveEvent.clientX, 300, maxRightWidth));
         }
       };
       const onUp = () => {

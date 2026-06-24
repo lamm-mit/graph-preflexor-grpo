@@ -208,7 +208,7 @@ label {
   .workspace {
     position: relative;
     display: grid;
-    grid-template-columns: 44px var(--left-panel-width, 282px) minmax(420px, 1fr) var(--right-panel-width, 388px);
+    grid-template-columns: 44px var(--left-panel-width, 282px) minmax(320px, 1fr) var(--right-panel-width, 388px);
     gap: 0;
     height: calc(100vh - 44px);
     padding: 0;
@@ -3190,6 +3190,10 @@ label {
     box-shadow: 0 12px 28px rgb(40 36 30 / 0.08);
   }
 
+  .hidden-file-input {
+    display: none;
+  }
+
   .prompt-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3862,6 +3866,302 @@ label {
     color: var(--muted);
   }
 
+  .turn-file-strip {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #ddd7ca;
+    border-radius: 9px;
+    background: #fbf8f0;
+    padding: 5px;
+  }
+
+  .turn-file-strip > div:first-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 10.5px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .turn-file-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .turn-file-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 210px;
+    gap: 5px;
+    border: 1px solid #d2cbbd;
+    border-radius: 999px;
+    background: #fffefa;
+    color: #34312c;
+    padding: 3px 5px 3px 7px;
+    font-size: 10.5px;
+    font-weight: 760;
+  }
+
+  .turn-file-chip svg {
+    flex: 0 0 auto;
+    color: #6c675c;
+  }
+
+  .turn-file-chip > button,
+  .turn-file-strip > button {
+    display: inline-grid;
+    place-items: center;
+    border: 1px solid #d8d1c3;
+    border-radius: 999px;
+    background: #fffefa;
+    color: #5b554b;
+    cursor: pointer;
+  }
+
+  .turn-file-chip > button {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+  }
+
+  .turn-file-strip > button {
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    font-weight: 800;
+  }
+
+  .graph-attach-panel {
+    display: grid;
+    gap: 8px;
+    margin: 6px 0;
+    border: 1px solid #d8d1c2;
+    border-radius: 11px;
+    background: linear-gradient(180deg, #fffefa 0%, #f8f5ed 100%);
+    padding: 9px;
+    box-shadow: 0 16px 34px rgb(40 36 30 / 0.08);
+  }
+
+  .graph-attach-head,
+  .graph-attach-actions,
+  .graph-attach-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .graph-attach-head > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .graph-attach-head strong {
+    color: #292721;
+    font-size: 12px;
+  }
+
+  .graph-attach-head span,
+  .graph-attach-list-head span,
+  .graph-attach-list p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 10.5px;
+    line-height: 1.35;
+  }
+
+  .graph-attach-head > button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border: 1px solid #ddd7cc;
+    border-radius: 7px;
+    background: #fffefa;
+    color: #514c44;
+    cursor: pointer;
+  }
+
+  .graph-attach-actions {
+    justify-content: flex-start;
+  }
+
+  .graph-attach-actions button,
+  .graph-attach-list button {
+    border: 1px solid #d8d1c3;
+    border-radius: 8px;
+    background: #fffefa;
+    color: #34312c;
+    font-size: 11px;
+    font-weight: 780;
+    cursor: pointer;
+  }
+
+  .graph-attach-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0 9px;
+  }
+
+  .graph-attach-actions button:disabled,
+  .graph-attach-list button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .graph-attach-list {
+    display: grid;
+    gap: 5px;
+  }
+
+  .graph-attach-list button {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 7px;
+    text-align: left;
+  }
+
+  .graph-attach-list button:hover {
+    border-color: #bdb4a2;
+    background: #f2eee5;
+  }
+
+  .graph-attach-list small {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 720;
+  }
+
+  .graph-task-panel {
+    display: grid;
+    gap: 7px;
+    border: 1px solid #d7d0c1;
+    border-radius: 10px;
+    background: #fbf8f0;
+    padding: 7px;
+  }
+
+  .graph-task-head,
+  .graph-task-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .graph-task-head > div:first-child {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+  }
+
+  .graph-task-head strong {
+    color: #2f2b25;
+    font-size: 11.5px;
+  }
+
+  .graph-task-head span,
+  .graph-task-actions span {
+    color: var(--muted);
+    font-size: 10.5px;
+    line-height: 1.35;
+  }
+
+  .graph-task-head > div:last-child {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .graph-task-head button,
+  .graph-task-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 26px;
+    border: 1px solid #d8d1c3;
+    border-radius: 7px;
+    background: #fffefa;
+    color: #38342e;
+    padding: 0 8px;
+    font-size: 10.5px;
+    font-weight: 800;
+    cursor: pointer;
+  }
+
+  .graph-task-head button:last-child {
+    width: 26px;
+    padding: 0;
+  }
+
+  .graph-task-head button:disabled,
+  .graph-task-actions button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  .graph-task-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .graph-task-suggestions button {
+    max-width: 100%;
+    border: 1px solid #d8d1c3;
+    border-radius: 999px;
+    background: #fffefa;
+    color: #403b33;
+    padding: 4px 8px;
+    font-size: 10.5px;
+    font-weight: 760;
+    overflow-wrap: anywhere;
+    text-align: left;
+    white-space: normal;
+    cursor: pointer;
+  }
+
+  .graph-task-suggestions button:hover,
+  .graph-task-head button:hover,
+  .graph-task-actions button:hover {
+    border-color: #bdb4a2;
+    background: #f2eee5;
+  }
+
+  .chat-composer .graph-task-panel textarea {
+    min-height: 62px;
+    border: 1px solid #ddd7ca;
+    border-radius: 8px;
+    background: #fffefa;
+    padding: 7px;
+    font-size: 11.5px;
+    resize: vertical;
+  }
+
+  .chat-composer .graph-task-panel textarea:focus {
+    border-color: #c8bda9;
+    box-shadow: 0 0 0 2px rgb(147 124 80 / 0.12);
+  }
+
+  .graph-task-actions button {
+    border-color: #9fbaa5;
+    background: #e7f2e8;
+    color: #225b35;
+  }
+
   .run-wizard-card {
     display: grid;
     gap: 8px;
@@ -3984,7 +4284,7 @@ label {
 
   .composer-tools {
     display: grid;
-    grid-template-columns: 104px minmax(0, 1fr) 78px auto;
+    grid-template-columns: auto auto 104px minmax(0, 1fr) 78px auto;
     align-items: end;
     gap: 6px;
   }
@@ -4015,11 +4315,34 @@ label {
     padding: 7px;
   }
 
-  .rag-context-strip > div:first-child {
+  .rag-context-toggle {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .rag-context-toggle > span:first-child {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    gap: 5px;
+  }
+
+  .rag-context-toggle svg {
+    color: #6f695f;
+    transition: transform 0.16s ease;
+  }
+
+  .rag-context-toggle svg.open {
+    transform: rotate(90deg);
   }
 
   .rag-context-strip strong {
@@ -4027,7 +4350,8 @@ label {
     font-size: 12px;
   }
 
-  .rag-context-strip span {
+  .rag-context-strip span,
+  .rag-context-toggle > span:last-child {
     color: var(--muted);
     font-size: 10.5px;
   }
@@ -5229,7 +5553,7 @@ label {
   }
 
   .workspace {
-    grid-template-columns: 44px var(--left-panel-width, 276px) minmax(420px, 1fr) var(--right-panel-width, 360px);
+    grid-template-columns: 44px var(--left-panel-width, 276px) minmax(320px, 1fr) var(--right-panel-width, 360px);
   }
 
   .brand-copy {

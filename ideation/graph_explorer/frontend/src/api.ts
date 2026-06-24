@@ -1,5 +1,6 @@
 import type {
   BridgeIdea,
+  ChatFile,
   ChatMessage,
   ChatSessionPayload,
   ChatSessionsPayload,
@@ -67,6 +68,18 @@ export const api = {
   }) => request<ChatSessionPayload>("/api/chat_session_save", body),
   renameChatSession: (run: string, id: string, title: string) =>
     request<ChatSessionPayload>("/api/chat_session_rename", { run, id, title }),
+  uploadChatFile: (body: {
+    run: string;
+    chat_id: string;
+    filename: string;
+    mime?: string;
+    data: string;
+    source?: Record<string, unknown>;
+  }) => request<{ run: string; chat_id: string; file: ChatFile }>("/api/chat_file_upload", body),
+  chatFiles: (run: string, chat_id: string) =>
+    request<{ run: string; chat_id: string; uploads: ChatFile[]; generated: ChatFile[]; files: ChatFile[] }>("/api/chat_files", { run, chat_id }),
+  attachGraphFile: (body: { run: string; chat_id: string; mode: "current" | "path"; path?: string }) =>
+    request<{ run: string; chat_id: string; file: ChatFile }>("/api/chat_attach_graph", body),
   chatAssetUrl: (run: string, chat_id: string, file: string) =>
     `/api/chat_asset?run=${encodeURIComponent(run || "__workspace__")}&chat_id=${encodeURIComponent(chat_id)}&file=${encodeURIComponent(file)}`,
   suggestRunOut: (body: { topic: string; strategy?: string; model_config?: ModelRole }) =>
@@ -91,6 +104,7 @@ export const api = {
     context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
     skill_context?: SkillChatContext | null;
+    turn_files?: ChatFile[];
     enable_code_interpreter?: boolean;
     code_interpreter_memory?: string;
     model_config: ModelRole & { api_key?: string };
@@ -109,6 +123,7 @@ export const api = {
     context_mode?: "none" | "focused" | "graph_rag";
     report_context?: { out: string; max_chars?: number; include_report?: boolean; include_profile?: boolean } | null;
     skill_context?: SkillChatContext | null;
+    turn_files?: ChatFile[];
     enable_code_interpreter?: boolean;
     code_interpreter_memory?: string;
     model_config: ModelRole & { api_key?: string };
@@ -121,8 +136,8 @@ export const api = {
       instruction_role: string;
       assistant_instruction: string;
       user_prompt: string;
-      messages: Array<{ role: string; content: string }>;
-      fallback_messages: Array<{ role: string; content: string }>;
+      messages: Array<{ role: string; content: unknown }>;
+      fallback_messages: Array<{ role: string; content: unknown }>;
       context: GraphAskContext;
       request: Record<string, unknown>;
     }>("/api/chat_context_preview", body),
