@@ -407,7 +407,7 @@ for commit in commits[:20]:
 PY
 ```
 
-For Gemma 4 exports used by mistral.rs, add `--mistralrs_compat_save` and set `--raw_tensor_source google/gemma-4-E4B-it`. This clones the merged `state_dict` before saving and copies any missing raw Gemma tensors from the original Google checkpoint so aliased/tied keys are materialized in the safetensors output. It is off by default because it uses more host RAM and can make the saved model larger.
+For Gemma 4 exports used by mistral.rs, add `--mistralrs_compat_save`. This clones the merged `state_dict` before saving and fills missing raw tensor keys from matching full-model sources. If `--raw_tensor_source` is not set, the script tries `base_model`, then `processor_model`, then `tokenizer_model`. It is off by default because it uses more host RAM and can make the saved model larger.
 
 Merge the latest pushed GRPO adapter for mistral.rs:
 
@@ -420,7 +420,6 @@ python src/merge_lora_adapter.py \
   --output_dir ./Graph-Preflexor-4b_06222026 \
   --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --mistralrs_compat_save \
-  --raw_tensor_source google/gemma-4-E4B-it \
   --shard_size 50GB \
   --hf_token "$HF_TOKEN"
 ```
@@ -437,7 +436,6 @@ python src/merge_lora_adapter.py \
   --output_dir ./Graph-Preflexor-4b_06222026 \
   --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --mistralrs_compat_save \
-  --raw_tensor_source google/gemma-4-E4B-it \
   --shard_size 50GB \
   --hf_token "$HF_TOKEN"
 ```
@@ -466,6 +464,63 @@ for key in [
             if key in handle.keys():
                 hits.append(path.name)
     print(key, hits)
+PY
+```
+
+Check whether Google’s original raw Gemma 4 checkpoint duplicates donor-layer shared-KV values. For `google/gemma-4-E4B-it`, this should report mismatches for `k_proj.weight` and `v_proj.weight`, which is why the merge helper copies missing raw keys from a full checkpoint source rather than reconstructing them from donor layers.
+
+```bash
+python - <<'PY'
+import json
+import os
+from pathlib import Path
+
+import torch
+from huggingface_hub import hf_hub_download, snapshot_download
+from safetensors import safe_open
+
+repo = "google/gemma-4-E4B-it"
+token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+config_path = Path(hf_hub_download(repo_id=repo, filename="config.json", token=token))
+cfg = json.loads(config_path.read_text())
+text_cfg = cfg.get("text_config", cfg)
+first_shared = text_cfg["num_hidden_layers"] - text_cfg["num_kv_shared_layers"]
+layer_types = text_cfg["layer_types"]
+snap = Path(snapshot_download(repo, token=token, allow_patterns=["*.safetensors"]))
+safetensors_files = sorted(snap.glob("*.safetensors"))
+
+def get_tensor(key):
+    for path in safetensors_files:
+        with safe_open(path, framework="pt", device="cpu") as handle:
+            if key in handle.keys():
+                return handle.get_tensor(key)
+    raise KeyError(key)
+
+mismatches = 0
+checked = 0
+for layer_idx in range(first_shared, text_cfg["num_hidden_layers"]):
+    attention_type = layer_types[layer_idx]
+    donor_idx = max(
+        idx
+        for idx, candidate_type in enumerate(layer_types[:first_shared])
+        if candidate_type == attention_type
+    )
+    for suffix in ("k_proj.weight", "k_proj.bias", "v_proj.weight", "v_proj.bias", "k_norm.weight", "k_norm.bias"):
+        raw_key = f"model.language_model.layers.{layer_idx}.self_attn.{suffix}"
+        donor_key = f"model.language_model.layers.{donor_idx}.self_attn.{suffix}"
+        try:
+            raw_tensor = get_tensor(raw_key)
+            donor_tensor = get_tensor(donor_key)
+        except KeyError:
+            continue
+        checked += 1
+        same = torch.equal(raw_tensor, donor_tensor)
+        if not same:
+            mismatches += 1
+            print("MISMATCH", raw_key, "donor", donor_key)
+
+print("checked:", checked)
+print("mismatches:", mismatches)
 PY
 ```
 

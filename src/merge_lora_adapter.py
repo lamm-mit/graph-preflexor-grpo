@@ -285,6 +285,48 @@ def add_missing_raw_tensors_from_source(
     return len(source_entries)
 
 
+def add_missing_raw_tensors_from_candidates(
+    state_dict: dict[str, Any],
+    *,
+    candidates: list[tuple[str, Optional[str], str]],
+    token: Optional[str],
+    max_missing_tensors: int,
+) -> int:
+    """Copy raw keys missing after HF merge from matching full-model checkpoints."""
+
+    copied = 0
+    seen: set[tuple[str, Optional[str]]] = set()
+    for source, revision, label in candidates:
+        if not source:
+            continue
+        key = (source, revision)
+        if key in seen:
+            continue
+        seen.add(key)
+        print(f"Checking missing raw tensors from {source} ({label})")
+        copied += add_missing_raw_tensors_from_source(
+            state_dict,
+            source=source,
+            revision=revision,
+            token=token,
+            max_missing_tensors=max_missing_tensors,
+        )
+
+    if copied == 0:
+        print("No missing raw tensors were copied from candidate full-model sources.")
+    return copied
+
+
+def raw_tensor_candidates(args: argparse.Namespace, base_model: str) -> list[tuple[str, Optional[str], str]]:
+    if args.raw_tensor_source:
+        return [(args.raw_tensor_source, args.raw_tensor_revision, "explicit raw tensor source")]
+    return [
+        (base_model, args.base_revision, "base model"),
+        (args.processor_model, args.processor_revision, "processor model"),
+        (args.tokenizer_model, args.tokenizer_revision, "tokenizer model"),
+    ]
+
+
 def merge_adapter(args: argparse.Namespace):
     import torch
     from huggingface_hub import create_repo, upload_folder
@@ -370,11 +412,9 @@ def merge_adapter(args: argparse.Namespace):
         print("Materializing aliased/tied tensors with a cloned CPU state_dict before save.")
         print("This can use substantial host RAM and may produce larger safetensors files.")
         state_dict = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-        raw_tensor_source = args.raw_tensor_source or args.processor_model or args.tokenizer_model or base_model
-        add_missing_raw_tensors_from_source(
+        add_missing_raw_tensors_from_candidates(
             state_dict,
-            source=raw_tensor_source,
-            revision=args.raw_tensor_revision,
+            candidates=raw_tensor_candidates(args, base_model),
             token=token,
             max_missing_tensors=args.max_missing_raw_tensors,
         )
@@ -472,19 +512,20 @@ def parse_args() -> argparse.Namespace:
         dest="mistralrs_compat_save",
         action="store_true",
         help=(
-            "Clone the merged model state_dict to CPU before save_pretrained and copy "
-            "missing raw tensors from --raw_tensor_source. Use for Gemma 4 exports when "
-            "a runtime such as mistral.rs expects materialized alias/tied tensor keys. "
-            "Default: off."
+            "Clone the merged model state_dict to CPU before save_pretrained and fill missing "
+            "raw safetensors keys from matching full-model sources. Use for exports when a "
+            "runtime such as mistral.rs expects materialized Gemma 4 tensor keys. By default "
+            "the script tries base_model, then processor_model, then tokenizer_model. "
+            "--raw_tensor_source can override that source list. Default: off."
         ),
     )
     parser.add_argument(
         "--raw_tensor_source",
         default=None,
         help=(
-            "Full-model repo/path to copy missing raw safetensors keys from when "
-            "--mistralrs_compat_save is enabled. Defaults to processor_model, then "
-            "tokenizer_model, then base_model."
+            "Optional full-model repo/path to copy missing raw safetensors keys from when "
+            "--mistralrs_compat_save is enabled. If omitted, the script tries base_model, "
+            "then processor_model, then tokenizer_model."
         ),
     )
     parser.add_argument("--raw_tensor_revision", default=None, help="Optional revision for --raw_tensor_source.")
