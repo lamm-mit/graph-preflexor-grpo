@@ -18,6 +18,7 @@ Output: figures/sft_panels.{png,svg,pdf}
 """
 import argparse
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -26,6 +27,15 @@ import wandb
 import plotcfg
 
 STEP_CANDIDATES = ("train/global_step", "global_step", "_step")
+EPOCH_CANDIDATES = ("train/epoch", "epoch")
+X_AXIS_CANDIDATES = {
+    "step": STEP_CANDIDATES,
+    "epoch": EPOCH_CANDIDATES,
+}
+X_AXIS_LABELS = {
+    "step": "Training step",
+    "epoch": "Epoch",
+}
 METRICS = [
     ("train_loss", ("train/loss", "loss", "train_loss", "train/train_loss"), "Train loss", "Loss"),
     ("eval_loss", ("eval/loss", "eval_loss", "validation/loss", "train/eval_loss"), "Eval loss", "Loss"),
@@ -34,7 +44,7 @@ METRICS = [
 ]
 DEFAULT_COLORS = ("#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e")
 EXCLUDE_AUTO_COLUMNS = {
-    "_runtime", "_timestamp", "_step", "train/global_step", "global_step", "epoch",
+    "_runtime", "_timestamp", "_step", "train/global_step", "global_step", "train/epoch", "epoch",
 }
 
 
@@ -104,19 +114,24 @@ def auto_metrics(h):
     return [(col, (col,), col, col) for col in selected]
 
 
-def series_from_history(h, key_candidates):
+def output_with_suffix(out, suffix):
+    path = Path(out)
+    return str(path.with_name(f"{path.name}_{suffix}"))
+
+
+def series_from_history(h, key_candidates, x_axis):
     metric_key = next((k for k in key_candidates if k in h.columns), None)
     if metric_key is None:
         return pd.Series(dtype=float), None
-    step_key = next((k for k in STEP_CANDIDATES if k in h.columns), None)
-    if step_key is None:
-        step_key = "_step" if "_step" in h.columns else None
-    if step_key is None:
+    x_key = next((k for k in X_AXIS_CANDIDATES[x_axis] if k in h.columns), None)
+    if x_key is None and x_axis == "step":
+        x_key = "_step" if "_step" in h.columns else None
+    if x_key is None:
         return pd.Series(dtype=float), metric_key
-    frame = h[[step_key, metric_key]].copy()
-    frame[step_key] = pd.to_numeric(frame[step_key], errors="coerce")
+    frame = h[[x_key, metric_key]].copy()
+    frame[x_key] = pd.to_numeric(frame[x_key], errors="coerce")
     frame[metric_key] = pd.to_numeric(frame[metric_key], errors="coerce")
-    s = frame.dropna(subset=[step_key, metric_key]).set_index(step_key).sort_index()
+    s = frame.dropna(subset=[x_key, metric_key]).set_index(x_key).sort_index()
     if s.empty:
         return pd.Series(dtype=float), metric_key
     return s.groupby(level=0).mean()[metric_key], metric_key
@@ -126,12 +141,67 @@ def smooth(s, w):
     return s.rolling(w, center=True, min_periods=1).mean() if w and w > 1 else s
 
 
+def plot_panels(histories, metric_specs, x_axis, smooth_window, out):
+    handles = []
+    labels = []
+    nplots = min(4, len(metric_specs))
+    fig, axes = plt.subplots(2, 2, figsize=(7.2, 4.6), sharex=False)
+    axes = list(axes.flat)
+    for ax in axes:
+        ax.grid(True, color="0.85", lw=0.5)
+        ax.set_axisbelow(True)
+
+    for run, h in histories:
+        plotted = 0
+        for ax, (_, key_candidates, title, ylabel) in zip(axes, metric_specs[:nplots]):
+            s, found_key = series_from_history(h, key_candidates, x_axis)
+            if s.empty:
+                continue
+            plotted += 1
+            raw = s
+            sm = smooth(s, smooth_window)
+            ax.plot(raw.index, raw.values, color=run["color"], alpha=0.18, lw=0.8)
+            ln, = ax.plot(sm.index, sm.values, color=run["color"], lw=1.8, label=run["label"])
+            if title == "Train loss":
+                print(f"{run['label']} {found_key} over {x_axis}: {sm.iloc[0]:.4g}->{sm.iloc[-1]:.4g}")
+            if run["label"] not in labels:
+                handles.append(ln)
+                labels.append(run["label"])
+        if plotted == 0:
+            print(f"\n{run['label']} ({run['run']}): no configured SFT metrics found for x-axis {x_axis!r}.")
+            print("Available relevant columns:")
+            for col in interesting_columns(h):
+                print(f"  {col}")
+
+    panel_labels = ("(a)", "(b)", "(c)", "(d)")
+    for ax, panel, (_, _, title, ylabel) in zip(axes, panel_labels, metric_specs[:nplots]):
+        ax.set_title(f"{panel} {title}")
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel(X_AXIS_LABELS[x_axis])
+        if not ax.lines:
+            ax.text(0.5, 0.5, "metric not logged", ha="center", va="center",
+                    transform=ax.transAxes, color="0.45")
+    for ax in axes[nplots:]:
+        ax.set_axis_off()
+
+    if handles:
+        fig.legend(handles, labels, loc="lower center", ncol=min(3, len(handles)),
+                   frameon=False, bbox_to_anchor=(0.5, -0.02))
+    fig.tight_layout(rect=(0, 0.08 if handles else 0, 1, 1))
+    for ext in ("png", "svg", "pdf"):
+        fig.savefig(f"{out}.{ext}", bbox_inches="tight")
+        print(f"wrote {out}.{ext}")
+    plt.close(fig)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--config", default=None,
                    help="YAML config (default plot_config.yaml or $PLOT_CONFIG)")
     p.add_argument("--smooth", type=int, default=15)
     p.add_argument("--out", default="figures/sft_panels")
+    p.add_argument("--x-axis", choices=("step", "epoch", "both"), default="both",
+                   help="Plot against trainer step, epoch, or write both figures.")
     p.add_argument("--list-keys", action="store_true",
                    help="Print available W&B history columns for the SFT runs and exit.")
     p.add_argument("--max-rows", type=int, default=200000,
@@ -173,7 +243,7 @@ def main():
     found_preferred = False
     for _, h in histories:
         for _, key_candidates, _, _ in METRICS:
-            s, _ = series_from_history(h, key_candidates)
+            s, _ = series_from_history(h, key_candidates, "step")
             found_preferred = found_preferred or not s.empty
     if not found_preferred:
         for _, h in histories:
@@ -186,53 +256,11 @@ def main():
     if not metric_specs:
         metric_specs = list(METRICS)
 
-    nplots = min(4, len(metric_specs))
-    fig, axes = plt.subplots(2, 2, figsize=(7.2, 4.6), sharex=False)
-    axes = list(axes.flat)
-    for ax in axes:
-        ax.grid(True, color="0.85", lw=0.5)
-        ax.set_axisbelow(True)
-
-    for run, h in histories:
-        plotted = 0
-        for ax, (_, key_candidates, title, ylabel) in zip(axes, metric_specs[:nplots]):
-            s, found_key = series_from_history(h, key_candidates)
-            if s.empty:
-                continue
-            plotted += 1
-            raw = s
-            sm = smooth(s, args.smooth)
-            ax.plot(raw.index, raw.values, color=run["color"], alpha=0.18, lw=0.8)
-            ln, = ax.plot(sm.index, sm.values, color=run["color"], lw=1.8, label=run["label"])
-            if title == "Train loss":
-                print(f"{run['label']} {found_key}: {sm.iloc[0]:.4g}->{sm.iloc[-1]:.4g}")
-            if run["label"] not in labels:
-                handles.append(ln)
-                labels.append(run["label"])
-        if plotted == 0:
-            print(f"\n{run['label']} ({run['run']}): no configured SFT metrics found.")
-            print("Available relevant columns:")
-            for col in interesting_columns(h):
-                print(f"  {col}")
-
-    panel_labels = ("(a)", "(b)", "(c)", "(d)")
-    for ax, panel, (_, _, title, ylabel) in zip(axes, panel_labels, metric_specs[:nplots]):
-        ax.set_title(f"{panel} {title}")
-        ax.set_ylabel(ylabel)
-        ax.set_xlabel("Training step")
-        if not ax.lines:
-            ax.text(0.5, 0.5, "metric not logged", ha="center", va="center",
-                    transform=ax.transAxes, color="0.45")
-    for ax in axes[nplots:]:
-        ax.set_axis_off()
-
-    if handles:
-        fig.legend(handles, labels, loc="lower center", ncol=min(3, len(handles)),
-                   frameon=False, bbox_to_anchor=(0.5, -0.02))
-    fig.tight_layout(rect=(0, 0.08 if handles else 0, 1, 1))
-    for ext in ("png", "svg", "pdf"):
-        fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")
-        print(f"wrote {args.out}.{ext}")
+    if args.x_axis in ("step", "both"):
+        plot_panels(histories, metric_specs, "step", args.smooth, args.out)
+    if args.x_axis in ("epoch", "both"):
+        out = output_with_suffix(args.out, "epoch") if args.x_axis == "both" else args.out
+        plot_panels(histories, metric_specs, "epoch", args.smooth, out)
 
 
 if __name__ == "__main__":

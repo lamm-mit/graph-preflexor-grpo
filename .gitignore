@@ -12,6 +12,7 @@ __pycache__/
 /ideation/runs/
 /ideation/hf_runs/
 /ideation/figures/
+/plots/figures/
 /ideation/.cache/
 /ideation/.graph_explorer/
 *.cache

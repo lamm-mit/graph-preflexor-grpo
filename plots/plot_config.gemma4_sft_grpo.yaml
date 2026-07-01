@@ -3,6 +3,7 @@
 # Use with the existing GRPO plotting scripts:
 #   cd plots
 #   python plot_sft_panels.py --config plot_config.gemma4_sft_grpo.yaml \
+#     --x-axis both \
 #     --out figures/gemma4_sft_panels
 #   python plot_reward_panels.py --config plot_config.gemma4_sft_grpo.yaml \
 #     --out figures/gemma4_sft_grpo_reward_panels
