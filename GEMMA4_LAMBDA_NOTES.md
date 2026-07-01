@@ -391,6 +391,194 @@ python src/run_grpo_graph.py \
   --debug_rewards
 ```
 
+### GRPO Trainer Checkpoint Backups for Exact Restart
+
+The normal Hub adapter push is enough to recover LoRA weights, but exact crash recovery needs a full local Trainer checkpoint folder with `trainer_state.json`, optimizer/scheduler state, and RNG state. Before shutting down a remote instance, upload a tarball of the newest complete `checkpoint-*` directory to the same Hugging Face model repo under `trainer-checkpoints/`.
+
+These examples assume `hf auth login` was already completed on the remote machine. Wait for a checkpoint folder to finish writing before uploading it.
+
+Upload the newest full Trainer checkpoint for the GRPO run initialized from final SFT:
+
+```bash
+cd ~/graph-preflexor-grpo
+set -euo pipefail
+
+OUT="./gemma4-e4b-grpo-from-sftL-step1782"
+HUB="lamm-mit/gemma4-e4b-grpo-from-sftL-step1782"
+
+LATEST=$(find "$OUT" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1)
+test -n "$LATEST" || { echo "ERROR: no checkpoint-* dirs under $OUT"; exit 1; }
+
+STEP=$(basename "$LATEST")
+echo "Latest checkpoint: $LATEST"
+echo "Upload target: $HUB/trainer-checkpoints/$STEP.tar.gz"
+
+test -f "$LATEST/trainer_state.json"
+test -f "$LATEST/adapter_config.json"
+
+mkdir -p restart_backups
+tar -C "$OUT" -czf "restart_backups/$STEP.tar.gz" "$STEP"
+sha256sum "restart_backups/$STEP.tar.gz" > "restart_backups/$STEP.tar.gz.sha256"
+
+hf upload "$HUB" "restart_backups/$STEP.tar.gz" "trainer-checkpoints/$STEP.tar.gz" --repo-type model --commit-message "Upload trainer restart checkpoint $STEP"
+hf upload "$HUB" "restart_backups/$STEP.tar.gz.sha256" "trainer-checkpoints/$STEP.tar.gz.sha256" --repo-type model --commit-message "Upload trainer restart checksum $STEP"
+```
+
+Download and resume the GRPO run initialized from final SFT:
+
+```bash
+cd ~/graph-preflexor-grpo
+source .venv/bin/activate
+set -euo pipefail
+
+OUT="./gemma4-e4b-grpo-from-sftL-step1782"
+HUB="lamm-mit/gemma4-e4b-grpo-from-sftL-step1782"
+
+# Set this to the uploaded checkpoint name, e.g. checkpoint-600.
+STEP="checkpoint-600"
+
+mkdir -p restart_download "$OUT"
+
+hf download "$HUB" \
+  "trainer-checkpoints/$STEP.tar.gz" \
+  "trainer-checkpoints/$STEP.tar.gz.sha256" \
+  --repo-type model \
+  --local-dir restart_download
+
+cd restart_download/trainer-checkpoints
+sha256sum -c "$STEP.tar.gz.sha256"
+cd ../../
+
+tar -C "$OUT" -xzf "restart_download/trainer-checkpoints/$STEP.tar.gz"
+
+python src/run_grpo_graph.py \
+  --base_model_dir lamm-mit/Graph-Preflexor-sft-4b_0621026 \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --dataset lamm-mit/graph_reasoning_10K \
+  --output_dir "$OUT" \
+  --judge_model grok-4-1-fast-non-reasoning \
+  --judge_api_key "$XAI_API_KEY" \
+  --judge_base_url https://api.x.ai/v1 \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 8 \
+  --learning_rate 5e-6 \
+  --epochs 1 \
+  --max_completion_length 4000 \
+  --temperature 0.8 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules language-default \
+  --lora_r 64 \
+  --lora_alpha 128 \
+  --lora_dropout 0.0 \
+  --save_steps 50 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --push_to_hub \
+  --hub_model_id "$HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards \
+  --resume_from_checkpoint "$OUT/$STEP"
+```
+
+Upload the newest full Trainer checkpoint for the GRPO run initialized from SFT step 600:
+
+```bash
+cd ~/graph-preflexor-grpo
+set -euo pipefail
+
+OUT="./gemma4-e4b-grpo-from-sftL-step600"
+HUB="lamm-mit/gemma4-e4b-grpo-from-sftL-step600"
+
+LATEST=$(find "$OUT" -maxdepth 1 -type d -name 'checkpoint-*' | sort -V | tail -n 1)
+test -n "$LATEST" || { echo "ERROR: no checkpoint-* dirs under $OUT"; exit 1; }
+
+STEP=$(basename "$LATEST")
+echo "Latest checkpoint: $LATEST"
+echo "Upload target: $HUB/trainer-checkpoints/$STEP.tar.gz"
+
+test -f "$LATEST/trainer_state.json"
+test -f "$LATEST/adapter_config.json"
+
+mkdir -p restart_backups
+tar -C "$OUT" -czf "restart_backups/$STEP.tar.gz" "$STEP"
+sha256sum "restart_backups/$STEP.tar.gz" > "restart_backups/$STEP.tar.gz.sha256"
+
+hf upload "$HUB" "restart_backups/$STEP.tar.gz" "trainer-checkpoints/$STEP.tar.gz" --repo-type model --commit-message "Upload trainer restart checkpoint $STEP"
+hf upload "$HUB" "restart_backups/$STEP.tar.gz.sha256" "trainer-checkpoints/$STEP.tar.gz.sha256" --repo-type model --commit-message "Upload trainer restart checksum $STEP"
+```
+
+Download and resume the GRPO run initialized from SFT step 600:
+
+```bash
+cd ~/graph-preflexor-grpo
+source .venv/bin/activate
+set -euo pipefail
+
+OUT="./gemma4-e4b-grpo-from-sftL-step600"
+HUB="lamm-mit/gemma4-e4b-grpo-from-sftL-step600"
+
+# Set this to the uploaded checkpoint name, e.g. checkpoint-600.
+STEP="checkpoint-600"
+
+mkdir -p restart_download "$OUT"
+
+hf download "$HUB" \
+  "trainer-checkpoints/$STEP.tar.gz" \
+  "trainer-checkpoints/$STEP.tar.gz.sha256" \
+  --repo-type model \
+  --local-dir restart_download
+
+cd restart_download/trainer-checkpoints
+sha256sum -c "$STEP.tar.gz.sha256"
+cd ../../
+
+tar -C "$OUT" -xzf "restart_download/trainer-checkpoints/$STEP.tar.gz"
+
+python src/run_grpo_graph.py \
+  --base_model_dir lamm-mit/gemma4-e4b-sft-graph-10k-L_step_600 \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --dataset lamm-mit/graph_reasoning_10K \
+  --output_dir "$OUT" \
+  --judge_model grok-4-1-fast-non-reasoning \
+  --judge_api_key "$XAI_API_KEY" \
+  --judge_base_url https://api.x.ai/v1 \
+  --weight_correctness 0.30 \
+  --weight_format 0.15 \
+  --weight_graph_utility 0.25 \
+  --weight_graph_networkx 0.10 \
+  --weight_graph_diversity 0.10 \
+  --weight_graph_structure 0.10 \
+  --per_device_train_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --num_generations 8 \
+  --learning_rate 5e-6 \
+  --epochs 1 \
+  --max_completion_length 4000 \
+  --temperature 0.4 \
+  --scale_rewards batch \
+  --loss_type dapo \
+  --lora_target_modules language-default \
+  --lora_r 32 \
+  --lora_alpha 64 \
+  --lora_dropout 0.05 \
+  --save_steps 50 \
+  --logging_steps 10 \
+  --chat_template_enable_thinking false \
+  --push_to_hub \
+  --hub_model_id "$HUB" \
+  --hf_token "$HF_TOKEN" \
+  --debug_rewards \
+  --resume_from_checkpoint "$OUT/$STEP"
+```
+
 ### 4. Merge GRPO Adapter
 
 If the trainer pushed the adapter files directly to the Hub repo root at each save, use a Hub commit SHA rather than a checkpoint subfolder. For step 50, find the commit first:
