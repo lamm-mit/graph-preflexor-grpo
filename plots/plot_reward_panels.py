@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-"""Compact publication figure: GRPO reward for all three models as panels (a)(b)(c).
+"""Compact publication figure: GRPO reward panels.
 
-2x3 grid: top row = total reward, bottom row = the six components; columns are
-1.7B / 3B / 8B. x-axis normalized to [0,1] training progress; y shared per row;
-one shared component legend. Double-column (\\textwidth) friendly.
+Top row = total reward, bottom row = the six components. Columns are determined
+from the number of GRPO entries in the YAML config.
 
 """
 import argparse, os
@@ -38,12 +37,37 @@ def ser(api, ent, proj, rid, key, maxstep=None, off=0):
     return s
 
 
-def model_series(api, ent, proj, ra, rb, key, max_step_b=1000):
+def model_series(api, ent, proj, ra, rb, key, max_step_b=None, continuation_mode="auto", label=None):
     a = ser(api, ent, proj, ra, key)
     if not rb:
         return a
-    off = int(ser(api, ent, proj, ra, key).index.max())
-    b = ser(api, ent, proj, rb, key, maxstep=max_step_b, off=off)
+    b_raw = ser(api, ent, proj, rb, key, maxstep=max_step_b)
+    if a.empty:
+        return b_raw
+    if b_raw.empty:
+        return a
+
+    a_max = float(a.index.max())
+    b_min = float(b_raw.index.min())
+    b_max = float(b_raw.index.max())
+    mode = continuation_mode or "auto"
+    if mode == "auto":
+        # Trainer resumes usually log absolute global steps (e.g. restart from
+        # checkpoint-600 starts near step 600). Fresh W&B continuation runs often
+        # restart at 0 and need an offset.
+        mode = "absolute" if b_min > 0 and b_min <= a_max + max(10.0, 0.05 * a_max) else "offset"
+
+    if mode == "absolute":
+        b = b_raw
+        if label and key == TOTAL:
+            print(f"{label}: continuation uses absolute steps ({ra} max={a_max:.0f}, {rb} {b_min:.0f}->{b_max:.0f})")
+    elif mode == "offset":
+        b = b_raw.copy()
+        b.index = b.index + int(a_max)
+        if label and key == TOTAL:
+            print(f"{label}: continuation offset by {int(a_max)} ({rb} raw {b_min:.0f}->{b_max:.0f})")
+    else:
+        raise ValueError(f"unknown continuation mode {continuation_mode!r}")
     return pd.concat([a, b]).sort_index()
 
 
@@ -64,6 +88,8 @@ def main():
                    help="YAML config (default plot_config.yaml or $PLOT_CONFIG)")
     p.add_argument("--smooth", type=int, default=15)
     p.add_argument("--out", default="figures/reward_panels")
+    p.add_argument("--continuation-mode", choices=("auto", "absolute", "offset"), default=None,
+                   help="Override GRPO continuation handling for all models.")
     args = p.parse_args()
 
     cfg = plotcfg.load(args.config)
@@ -77,7 +103,10 @@ def main():
         "axes.spines.top": False, "axes.spines.right": False, "figure.dpi": 150,
     })
     comp_colors = plt.cm.tab10.colors
-    fig, axes = plt.subplots(2, 3, figsize=(7.2, 4.5), sharex="col", sharey="row")
+    ncols = max(1, len(MODELS))
+    fig_width = max(4.8, 3.2 * ncols)
+    fig, axes = plt.subplots(2, ncols, figsize=(fig_width, 4.5),
+                             sharex="col", sharey="row", squeeze=False)
     for ax in axes.flat:
         ax.grid(True, color="0.85", lw=0.5)
         ax.set_axisbelow(True)
@@ -85,28 +114,37 @@ def main():
     comp_handles = None
     for j, mdl in enumerate(MODELS):
         label, ra, rb = mdl["panel"], mdl["ra"], mdl["rb"]
+        max_step_b = mdl.get("max_step_b")
+        continuation_mode = args.continuation_mode or mdl.get("continuation_mode", "auto")
         # total
-        tot = smooth(model_series(api, ent, proj, ra, rb, TOTAL), args.smooth)
-        tot_raw = model_series(api, ent, proj, ra, rb, TOTAL)
+        tot_raw = model_series(api, ent, proj, ra, rb, TOTAL,
+                               max_step_b=max_step_b,
+                               continuation_mode=continuation_mode,
+                               label=label)
+        tot = smooth(tot_raw, args.smooth)
         axes[0, j].plot(tot_raw.index, tot_raw.values, color="#3060a0", alpha=0.18, lw=0.8)
         axes[0, j].plot(tot.index, tot.values, color="#3060a0", lw=1.8)
         axes[0, j].set_title(label)
         # components
         handles = []
         for i, (key, clabel) in enumerate(COMPONENTS):
-            cs = smooth(model_series(api, ent, proj, ra, rb, key), args.smooth)
+            cs = smooth(model_series(api, ent, proj, ra, rb, key,
+                                     max_step_b=max_step_b,
+                                     continuation_mode=continuation_mode), args.smooth)
             ln, = axes[1, j].plot(cs.index, cs.values, color=comp_colors[i], lw=1.4, label=clabel)
             handles.append(ln)
         comp_handles = handles
-        print(f"{label}: total {tot.iloc[0]:.3f}->{tot.iloc[-1]:.3f}")
+        if not tot.empty:
+            print(f"{label}: total {tot.iloc[0]:.3f}->{tot.iloc[-1]:.3f}")
 
     axes[0, 0].set_ylabel("Total reward")
     axes[1, 0].set_ylabel("Reward component")
-    for j in range(3):
+    for j in range(ncols):
         axes[1, j].set_ylim(0, 1.05)
     fig.supxlabel("Training step (GRPO)", y=0.10, fontsize=9)
-    fig.legend(comp_handles, [h.get_label() for h in comp_handles], loc="lower center",
-               ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.04))
+    if comp_handles:
+        fig.legend(comp_handles, [h.get_label() for h in comp_handles], loc="lower center",
+                   ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.04))
     fig.tight_layout(rect=(0, 0.13, 1, 1))
     for ext in ("png", "svg", "pdf"):
         fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")

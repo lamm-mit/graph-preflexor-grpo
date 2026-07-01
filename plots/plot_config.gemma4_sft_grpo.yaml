@@ -1,0 +1,46 @@
+# Gemma 4 SFT + GRPO plotting config.
+#
+# Use with the existing GRPO plotting scripts:
+#   cd plots
+#   python plot_sft_panels.py --config plot_config.gemma4_sft_grpo.yaml \
+#     --out figures/gemma4_sft_panels
+#   python plot_reward_panels.py --config plot_config.gemma4_sft_grpo.yaml \
+#     --out figures/gemma4_sft_grpo_reward_panels
+#   python plot_length_diag.py --config plot_config.gemma4_sft_grpo.yaml \
+#     --out figures/gemma4_sft_grpo_length_diag
+#
+# Notes:
+# - `plot_orpo_panels.py` is ORPO-specific and is not a good fit for the SFT run
+#   because SFT does not log ORPO preference accuracy/reward margins.
+# - The second GRPO condition includes a W&B restart/continuation from
+#   checkpoint-600. That restart should be plotted with absolute trainer steps
+#   so the continuation is not shifted right a second time.
+
+entity: lamm-mit
+project: graph-preflexor
+
+sft:
+  label: Gemma 4 E4B SFT
+  run: wb07zkae
+  source: lamm-mit/gemma4-e4b-sft-graph-10k-L
+  color: "#1f77b4"
+
+models:
+  - label: GRPO from SFT (1 epoch)
+    color: "#1f77b4"
+    sft_source: step_600
+    sft_run: wb07zkae
+    grpo: [23dbof1b]
+
+  - label: GRPO from SFT (3 epochs)
+    color: "#d62728"
+    sft_source: final
+    sft_run: wb07zkae
+    grpo: [2ux50cij, dk1k27dl]
+    continuation_mode: absolute
+
+# Leave unset for this config so resumed absolute-step continuations are not
+# clipped. If a fresh continuation run restarts its step counter at 0 and you
+# only want its first N steps appended, set this to that N and use
+# `continuation_mode: offset`.
+max_step_b:

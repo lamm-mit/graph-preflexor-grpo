@@ -4,8 +4,8 @@
 2x2 grid, columns are panels (a) and (b):
   (a) reasoning-trace length:   top mean terminated length, bottom truncated %
   (b) optimization diagnostics: top within-group reward std, bottom policy entropy
-Three model lines each, x normalized to [0,1] training progress, one shared
-model legend. Double-column friendly.
+One line per GRPO entry in the YAML config, x normalized to [0,1] training
+progress, one shared model legend. Double-column friendly.
 
 Output: figures/grpo_length_diag.{png,svg,pdf}
 """
@@ -32,12 +32,34 @@ def ser(api, ent, proj, rid, key, maxstep=None, off=0):
     return s
 
 
-def model_series(api, ent, proj, ra, rb, key, max_step_b=1000):
+def model_series(api, ent, proj, ra, rb, key, max_step_b=None, continuation_mode="auto", label=None):
     a = ser(api, ent, proj, ra, key)
     if not rb:
         return a
-    off = int(ser(api, ent, proj, ra, key).index.max())
-    b = ser(api, ent, proj, rb, key, maxstep=max_step_b, off=off)
+    b_raw = ser(api, ent, proj, rb, key, maxstep=max_step_b)
+    if a.empty:
+        return b_raw
+    if b_raw.empty:
+        return a
+
+    a_max = float(a.index.max())
+    b_min = float(b_raw.index.min())
+    b_max = float(b_raw.index.max())
+    mode = continuation_mode or "auto"
+    if mode == "auto":
+        mode = "absolute" if b_min > 0 and b_min <= a_max + max(10.0, 0.05 * a_max) else "offset"
+
+    if mode == "absolute":
+        b = b_raw
+        if label:
+            print(f"{label}: continuation uses absolute steps ({ra} max={a_max:.0f}, {rb} {b_min:.0f}->{b_max:.0f})")
+    elif mode == "offset":
+        b = b_raw.copy()
+        b.index = b.index + int(a_max)
+        if label:
+            print(f"{label}: continuation offset by {int(a_max)} ({rb} raw {b_min:.0f}->{b_max:.0f})")
+    else:
+        raise ValueError(f"unknown continuation mode {continuation_mode!r}")
     return pd.concat([a, b]).sort_index()
 
 
@@ -58,6 +80,8 @@ def main():
                    help="YAML config (default plot_config.yaml or $PLOT_CONFIG)")
     p.add_argument("--smooth", type=int, default=11)
     p.add_argument("--out", default="figures/grpo_length_diag")
+    p.add_argument("--continuation-mode", choices=("auto", "absolute", "offset"), default=None,
+                   help="Override GRPO continuation handling for all models.")
     args = p.parse_args()
 
     cfg = plotcfg.load(args.config)
@@ -84,8 +108,14 @@ def main():
     handles = []
     for mdl in MODELS:
         label, ra, rb, color = mdl["label"], mdl["ra"], mdl["rb"], mdl["color"]
+        max_step_b = mdl.get("max_step_b")
+        continuation_mode = args.continuation_mode or mdl.get("continuation_mode", "auto")
         for (r, c), (key, scale) in spec.items():
-            s = norm_x(smooth(model_series(api, ent, proj, ra, rb, key), args.smooth))
+            s = norm_x(smooth(model_series(api, ent, proj, ra, rb, key,
+                                           max_step_b=max_step_b,
+                                           continuation_mode=continuation_mode,
+                                           label=label if (r, c) == (0, 0) else None),
+                              args.smooth))
             ln, = axes[r, c].plot(s.index, s.values * scale, color=color, lw=1.8, label=label)
             if (r, c) == (0, 0):
                 handles.append(ln)
@@ -99,7 +129,7 @@ def main():
     axes[1, 0].set_ylim(bottom=0)
     fig.supxlabel("Training progress (normalized)", y=0.075, fontsize=9)
     fig.legend(handles, [h.get_label() for h in handles], loc="lower center",
-               ncol=3, frameon=False, bbox_to_anchor=(0.5, -0.02))
+               ncol=min(3, max(1, len(handles))), frameon=False, bbox_to_anchor=(0.5, -0.02))
     fig.tight_layout(rect=(0, 0.09, 1, 1))
     for ext in ("png", "svg", "pdf"):
         fig.savefig(f"{args.out}.{ext}", bbox_inches="tight")

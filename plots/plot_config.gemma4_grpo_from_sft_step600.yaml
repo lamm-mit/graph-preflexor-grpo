@@ -1,0 +1,26 @@
+# Gemma 4 GRPO plotting config: GRPO initialized from SFT checkpoint step 600.
+#
+# Use:
+#   cd plots
+#   python plot_reward_panels.py --config plot_config.gemma4_grpo_from_sft_step600.yaml \
+#     --out figures/gemma4_grpo_from_sft_step600_reward_panels
+#   python plot_length_diag.py --config plot_config.gemma4_grpo_from_sft_step600.yaml \
+#     --out figures/gemma4_grpo_from_sft_step600_length_diag
+
+entity: lamm-mit
+project: graph-preflexor
+
+sft:
+  label: Gemma 4 E4B SFT
+  run: wb07zkae
+  source: lamm-mit/gemma4-e4b-sft-graph-10k-L
+  color: "#1f77b4"
+
+models:
+  - label: GRPO from SFT (1 epoch)
+    color: "#1f77b4"
+    sft_source: step_600
+    sft_run: wb07zkae
+    grpo: [23dbof1b]
+
+max_step_b:

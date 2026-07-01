@@ -24,9 +24,10 @@ def load(path=None):
 
 def models(cfg, phase):
     """phase in {'orpo', 'grpo'}. Returns a list of dicts, one per model:
-        {label, panel, ra, rb, color}
-    where 'panel' prepends an (a)/(b)/(c) tag, and for GRPO 'rb' is the optional
-    continuation run (first `max_step_b` steps appended after 'ra')."""
+        {label, panel, ra, rb, color, continuation_mode, max_step_b}
+    where 'panel' prepends an (a)/(b)/(c) tag. For GRPO, 'rb' is an optional
+    continuation run; plotting scripts decide whether its steps are absolute or
+    should be offset after 'ra'."""
     out = []
     for i, m in enumerate(cfg["models"]):
         if phase == "grpo":
@@ -40,5 +41,10 @@ def models(cfg, phase):
             "label": m["label"],
             "panel": f"({_LETTERS[i]}) {m['label']}",
             "ra": ra, "rb": rb, "color": m.get("color"),
+            "continuation_mode": m.get(
+                "continuation_mode",
+                m.get("continuation", cfg.get("continuation_mode", cfg.get("continuation", "auto"))),
+            ),
+            "max_step_b": m.get("max_step_b", cfg.get("max_step_b")),
         })
     return out

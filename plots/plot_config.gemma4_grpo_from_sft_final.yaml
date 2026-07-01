@@ -1,0 +1,30 @@
+# Gemma 4 GRPO plotting config: GRPO initialized from final SFT checkpoint.
+#
+# Use:
+#   cd plots
+#   python plot_reward_panels.py --config plot_config.gemma4_grpo_from_sft_final.yaml \
+#     --out figures/gemma4_grpo_from_sft_final_reward_panels
+#   python plot_length_diag.py --config plot_config.gemma4_grpo_from_sft_final.yaml \
+#     --out figures/gemma4_grpo_from_sft_final_length_diag
+#
+# This run was restarted from checkpoint-600, so the continuation W&B run logs
+# absolute trainer steps and should not be shifted right again.
+
+entity: lamm-mit
+project: graph-preflexor
+
+sft:
+  label: Gemma 4 E4B SFT
+  run: wb07zkae
+  source: lamm-mit/gemma4-e4b-sft-graph-10k-L
+  color: "#d62728"
+
+models:
+  - label: GRPO from SFT (3 epochs)
+    color: "#d62728"
+    sft_source: final
+    sft_run: wb07zkae
+    grpo: [2ux50cij, dk1k27dl]
+    continuation_mode: absolute
+
+max_step_b:
