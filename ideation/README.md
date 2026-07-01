@@ -85,6 +85,19 @@ python ideate.py --topic "self-healing biopolymer composites" --strategy leap \
     --out runs/exp_leap_4b  --config config-4b.yaml
 ```
 
+CUDA_VISIBLE_DEVICES=1 python ideate.py --topic "fracture resistant composites" --strategy leap \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_leap_fracture_resistant --config config-4b.yaml
+
+CUDA_VISIBLE_DEVICES=1 python ideate.py --topic "silk-inspired protein designs to high toughness" --strategy leap \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_leap_protein --config config-4b.yaml
+
+CUDA_VISIBLE_DEVICES=1 python ideate.py --topic "engineered living materials that grow and self-repair" --strategy leap \
+    --budget-calls 100000000 --budget-tokens 100000000000 --max-iter 100000000 \
+    --out runs/exp_leap_engineered_living --config config-4b.yaml
+
+
 ```bash
 python plot_ideation.py --runs runs/exp_leap \
     --labels leap --out runs/exp_leap/figures/leap
@@ -989,6 +1002,9 @@ Notes:
   it `fresh` unless you're deliberately testing multi-turn behavior.
 
 
+python plot_ideation.py --runs runs/exp_leap_fracture_resistant --labels "leav" --out figures/adh
+
+
 ## Direct comparison benchmark
 
 ```
@@ -1262,6 +1278,9 @@ python synthesize.py   --run runs/ex_cooling --backend hf \
     --model meta-llama/Llama-3.2-3B-Instruct --out runs/ex_cooling/answer.md \
     --task "Explain a new design principle for a surface that cools itself below ambient with no power, \
 inspired by a biological structure from the mined leads. State the mechanism and how to test it."
+
+python plot_ideation.py --runs runs/exp_leap_fracture_resistant --labels fracture_resistant
+
 
 # C. Bioinspired mechanics — impact-resistant, lightweight architected materials
 python ideate.py --topic "bioinspired impact-resistant architected metamaterials" \

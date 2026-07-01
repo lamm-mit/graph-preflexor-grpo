@@ -543,7 +543,17 @@ export type ImageGenerationResponse = {
 export type VisualState = {
   viewMode: "3d" | "2d";
   canvasTheme: "dark" | "light";
-  layout: "force" | "component" | "community" | "degree" | "timeline";
+  layout:
+    | "force"
+    | "component"
+    | "community"
+    | "degree"
+    | "timeline"
+    | "timeline_community"
+    | "semantic_map"
+    | "lineage_tree"
+    | "unexpected_bridges"
+    | "core_periphery";
   colorBy: "component" | "community" | "degree" | "pagerank" | "core" | "iter" | "depth";
   colorPalette: "atlas" | "viridis" | "plasma" | "graphite" | "categorical";
   sizeBy: "degree" | "pagerank" | "core" | "constant";

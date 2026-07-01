@@ -1076,6 +1076,19 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const paletteInfo = colorPalettes[visual.colorPalette] || colorPalettes.atlas;
   const categorical = visual.colorBy === "component" || visual.colorBy === "community";
   const colorLabel = visual.colorBy === "pagerank" ? "PageRank" : visual.colorBy[0].toUpperCase() + visual.colorBy.slice(1);
+  const layoutDescriptions: Record<string, string> = {
+    force: "General network map: structural neighborhoods are pulled together and components are softly separated.",
+    component: "Component atlas: disconnected components become distinct local clusters.",
+    community: "Community atlas: detected graph communities are given clearer territories.",
+    degree: "Degree radial: hubs move toward the center and low-degree nodes move outward.",
+    timeline: "Timeline: nodes are placed left-to-right by ideation iteration.",
+    timeline_community: "Timeline lanes: iteration is preserved, while communities/components occupy compact horizontal lanes.",
+    semantic_map: "Embedding map: uses UMAP/PCA/t-SNE/embedding node coordinates when present; otherwise uses a stable label projection.",
+    lineage_tree: "Lineage tree: a Sugiyama-style layered view using depth or iteration as the trunk and communities/components as branches.",
+    unexpected_bridges: "Unexpected bridges: cross-community, high-betweenness, low-clustering brokers are pulled into the center.",
+    core_periphery: "Core-periphery: k-core, PageRank, and degree place dense graph core nodes near the center.",
+  };
+  const layoutDescription = layoutDescriptions[visual.layout] || layoutDescriptions.force;
   return (
     <Drawer
       defaultOpen={defaultOpen}
@@ -1110,12 +1123,24 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
           <select
             value={visual.layout}
             onChange={(event) => setVisual({ layout: event.target.value as typeof visual.layout })}
+            title={layoutDescription}
           >
-            <option value="force">Force</option>
-            <option value="component">Component</option>
-            <option value="community">Community</option>
-            <option value="degree">Degree radial</option>
-            <option value="timeline">Timeline</option>
+            <optgroup label="Structure">
+              <option value="force">Force</option>
+              <option value="component">Component atlas</option>
+              <option value="community">Community atlas</option>
+              <option value="degree">Degree radial</option>
+              <option value="core_periphery">Core-periphery</option>
+            </optgroup>
+            <optgroup label="Temporal">
+              <option value="timeline">Timeline</option>
+              <option value="timeline_community">Timeline lanes</option>
+              <option value="lineage_tree">Lineage tree</option>
+            </optgroup>
+            <optgroup label="Semantic / Discovery">
+              <option value="semantic_map">Embedding map</option>
+              <option value="unexpected_bridges">Unexpected bridges</option>
+            </optgroup>
           </select>
         </label>
         <label>
@@ -1191,6 +1216,7 @@ function VisualControls({ defaultOpen = false }: { defaultOpen?: boolean }) {
           />
         </label>
       </div>
+      <div className="micro-help">{layoutDescription}</div>
       <div className="visual-legend">
         <div>
           <strong>{colorLabel}</strong>

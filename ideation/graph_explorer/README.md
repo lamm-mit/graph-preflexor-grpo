@@ -411,7 +411,26 @@ The frontend exposes:
 - View mode: 2D or 3D.
 - Canvas theme: black canvas or white canvas. The theme applies only to the
   graph artifact canvas, not the surrounding light UI shell.
-- Layouts: force, component, community, degree, timeline.
+- Layouts:
+  - Force: deterministic structural map inspired by force-directed graph
+    drawing for quick whole-graph orientation.
+  - Component atlas: separates connected components into local territories.
+  - Community atlas: separates detected communities into local territories.
+  - Degree radial: places hubs near the center and peripheral concepts outside.
+  - Core-periphery: uses k-core, PageRank, and degree to emphasize the dense
+    graph core versus the periphery.
+  - Timeline: places nodes by ideation iteration.
+  - Timeline lanes: preserves iteration on the x-axis while grouping
+    communities/components into compact lanes.
+  - Lineage tree: a Sugiyama-style layered view using depth or iteration as the
+    trunk and communities/components as branches. This is a structural lineage
+    proxy, not a biological phylogeny.
+  - Embedding map: uses node attributes such as UMAP, PCA, t-SNE, embedding, or
+    layout coordinates when present. If no coordinates are present, it falls
+    back to a deterministic label projection so the mode remains usable.
+  - Unexpected bridges: pulls cross-community, high-betweenness,
+    low-clustering broker nodes toward the center to help inspect unusual
+    recombinations and non-obvious conceptual links.
 - Node color metrics: component, community, degree, PageRank, k-core,
   iteration, depth.
 - Palettes: atlas, viridis, plasma, graphite, categorical.
@@ -1128,3 +1147,8 @@ python src/merge_lora_adapter.py \
   --hub_model_id lamm-mit/Graph-Preflexor-4b_06222026 \
   --shard_size 99GB \
   --hf_token "$HF_TOKEN"
+\\
+
+
+
+In May 2026, an OpenAI model produced a breakthrough on the planar unit distance problem first posed by Paul Erdős in 1946 — the first AI-generated proof judged good enough to merit publication in a top mathematics journal even if a human had produced it alone — by disproving Erdős's conjecture: rather than the long-expected bound, the model extended Erdős's original construction to show that points can be separated by exactly one unit far more often than that.
