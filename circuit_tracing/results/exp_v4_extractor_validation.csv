@@ -1,0 +1,85 @@
+id,question_type,extractor_prec,extractor_rec,extractor_f1,edge_direction_acc,elem_problem,elem_failure_mode,elem_intervention,elem_mechanism,elem_target,elem_outcome,answer_preview
+0,cross_domain_mapping,1.0,0.6667,0.8,0.0,0,0,0,1,0,0,"**Final Answer:**
+
+Next-generation multi-agent scientific systems can achieve adaptive, long-horizon"
+1,cross_domain_mapping,0.6667,0.4,0.5,0.0,0,0,0,1,1,0,"**Final Answer:**
+
+The tradeoff between maximizing throughput for one class of users (e.g., cars in "
+2,causal_multiscale_reasoning,1.0,0.3333,0.5,0.1429,0,1,0,1,1,0,"### **Final Answer:**
+
+In a polymer network composed of both **rigid, short cross-linkers** and **fl"
+3,hidden_variable_identification,0.8,0.4444,0.5714,0.0,0,1,0,1,1,1,"**Final Answer:**
+
+At **very high grafting densities**, increasing the grafting density **reduces gl"
+4,model_abstraction_and_breakdown,0.5714,0.6667,0.6154,0.0,0,1,0,1,1,0,"**Final Answer:**
+
+A generative model that maps protein sequences to mechanical properties represent"
+5,tradeoff_and_non_monotonicity,0.6667,0.2857,0.4,0.4,0,0,1,1,0,1,"**Final Answer:**
+
+To design a cross-linked polymer network that **maximizes stiffness while maintai"
+6,tradeoff_and_non_monotonicity,1.0,0.5556,0.7143,0.0,0,0,0,1,0,0,"**Final Answer:**
+
+The design of a polymer-grafted nanoparticle composite for high-rate impact mitig"
+7,model_abstraction_and_breakdown,0.25,0.5,0.3333,0.0,0,1,0,1,0,0,"**Final Answer:**
+
+The model generalizes the behavior of a deterministic cellular automaton by learn"
+8,tradeoff_and_non_monotonicity,0.8,0.4444,0.5714,0.5,0,1,0,1,0,1,"**Final Answer:**
+
+In multilayer graphene oxide (GO) thin films, the mechanical behavior under dynam"
+9,model_abstraction_and_breakdown,0.3333,0.4,0.3636,0.0,0,0,0,1,0,1,"**Final Answer:**
+
+In the context of an implicit particle model for polymer-grafted nanoparticles, t"
+10,hidden_variable_identification,0.6,0.4286,0.5,0.0,0,1,1,1,1,0,"**Final Answer:**
+
+The minimal additional state variable that a mechanistic model must include to re"
+11,tradeoff_and_non_monotonicity,0.6667,0.25,0.3636,0.0,0,1,0,0,1,1,"**Final Answer:**
+
+The mechanical behavior of multilayer graphene-oxide films under impact is govern"
+12,hidden_variable_identification,0.5,0.6,0.5455,0.0,0,0,1,1,0,0,"**Final Answer:**
+
+The hidden variable that must be introduced to explain the observed behavior in t"
+13,hidden_variable_identification,0.75,0.5,0.6,0.0,0,0,0,1,0,0,"**Final Answer:**
+
+The hidden variable that reconciles the observed differences in the mechanical an"
+14,hidden_variable_identification,1.0,0.7143,0.8333,0.0,0,0,0,1,0,0,"**Final Answer:**
+
+The **omitted state variable** that governs both **crosslink placement** and **se"
+15,hidden_variable_identification,0.5,0.5,0.5,0.0,0,1,0,1,0,0,The infinite-sheet criterion fails in the context of a finite membrane because it assumes that the b
+16,model_abstraction_and_breakdown,0.75,0.6,0.6667,0.0,0,0,0,1,0,1,"The observed stiffer behavior of **sample A** compared to **sample B**, despite the same nanoparticl"
+17,hidden_variable_identification,0.4286,0.6,0.5,0.0,0,1,0,1,1,0,"**Final Answer:**
+
+The critical microscopic state variable that determines whether increasing the nu"
+18,hidden_variable_identification,0.5,0.6667,0.5714,0.0,0,1,0,1,1,0,"**Final Answer:**
+
+The hidden variable driving the observed failure mode in the multi-agent protein "
+19,model_abstraction_and_breakdown,0.6667,0.5,0.5714,0.0,0,1,0,0,0,1,"**Final Answer:**
+
+Matching residue-wise backbone amplitudes to a target normal mode is an effective"
+20,hidden_variable_identification,1.0,0.4,0.5714,0.0,0,0,0,1,0,0,"**Final Answer:**
+
+The hidden variable that reconciles the matched coarse statistics between Model A"
+21,hidden_variable_identification,0.6667,0.4,0.5,0.0,0,1,0,1,1,0,"**Final Answer:**
+
+The hidden variable that best explains the system's failure to produce high-quali"
+22,hidden_variable_identification,1.0,0.8571,0.9231,0.0,0,0,0,1,0,1,"**Final Answer:**
+
+The **hidden variable** that must be added to the transport model to reconcile al"
+23,model_abstraction_and_breakdown,0.5,0.4,0.4444,0.0,0,1,0,0,0,1,"**Final Answer:**
+
+A predictor trained only on sequence strings and fiber-level outputs may perform "
+24,hidden_variable_identification,0.7143,1.0,0.8333,0.0,1,1,0,1,1,0,"**Final Answer:**
+
+The hidden variable that best explains the size-dependent breakdown in out-of-dom"
+25,hidden_variable_identification,1.0,0.8,0.8889,0.0,0,1,0,1,0,1,"**Final Answer:**
+
+The hidden variable that best explains the observed pattern of rising inter-agent"
+26,hidden_variable_identification,0.5,0.5,0.5,0.0,0,0,0,1,0,1,"**Final Answer:**
+
+The **hidden variable** that connects training example format, sequence-level sta"
+27,hidden_variable_identification,0.75,0.4286,0.5455,0.0,0,0,0,1,1,0,"**Final Answer:**
+
+The **minimal hidden variable** that an effective interaction model must include "
+28,model_abstraction_and_breakdown,0.75,0.4286,0.5455,0.0,0,0,0,1,0,1,The assumption that cross-linking degree $ x $ and mass density $ \rho $ are sufficient to describe 
+29,hidden_variable_identification,0.3333,0.1667,0.2222,0.4,0,1,0,1,0,0,"**Final Answer:**
+
+The hidden variable that connects topology, non-affinity, early versus delayed sc"
