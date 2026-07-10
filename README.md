@@ -1927,6 +1927,19 @@ Options: `--config PATH` (or `$PLOT_CONFIG`), `--smooth N`, `--out PATH`. `plotc
 - [MergeKit](https://github.com/arcee-ai/mergekit) - Comprehensive merging toolkit
 
 ```bibtex
+@article{Pal2026GraphNativeRL,
+  author       = {Pal, Subhadeep and Sourav, Shashwat and Ghosal, Tirthankar and Buehler, Markus J.},
+  title        = {Graph-Native Reinforcement Learning Enables Traceable Scientific Hypothesis Generation through Conceptual Recombination},
+  journal      = {arXiv preprint},
+  year         = {2026},
+  eprint       = {2607.00924},
+  archivePrefix= {arXiv},
+  primaryClass = {cs.AI},
+  doi          = {10.48550/arXiv.2607.00924},
+  url          = {https://arxiv.org/abs/2607.00924},
+  note         = {Preprint},
+  published    = {2026-07-01}
+}
 @article{Buehler2025PRefLexOR,
   author       = {Buehler, Markus J.},
   title        = {PRefLexOR: preference-based recursive language modeling for exploratory optimization of reasoning and agentic thinking},
