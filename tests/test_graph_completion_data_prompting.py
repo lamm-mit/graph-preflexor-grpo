@@ -115,8 +115,11 @@ def test_new_trainer_defaults_do_not_change_legacy_defaults():
     assert not args.transformers_cuda_graphs
     assert args.continuous_batching_unsupported_policy == "fallback"
     assert args.vllm_enforce_eager
+    assert args.vllm_importance_sampling_correction
+    assert args.vllm_importance_sampling_mode == "token_truncate"
+    assert args.vllm_importance_sampling_clip_max == 3.0
     assert args.wandb_project == "graph-completion-grpo"
-    assert args.wandb_entity is None
+    assert args.wandb_entity == "lamm-mit"
 
 
 def test_wandb_project_default_and_override_are_applied_before_trainer(monkeypatch):
@@ -234,6 +237,22 @@ def test_installed_trl_accepts_sampling_and_kl_settings():
     assert config.transformers_continuous_batching_config["max_memory_percent"] == 0.45
     assert config.transformers_continuous_batching_config["use_cuda_graph"] is False
     assert config.transformers_continuous_batching_config["default_compile_level"] == 1
+
+
+def test_installed_trl_accepts_token_level_truncated_vllm_is():
+    config = build_compatible_grpo_config(
+        output_dir="/tmp/graph-completion-vllm-is-test",
+        use_cpu=True,
+        bf16=False,
+        fp16=False,
+        use_vllm=True,
+        vllm_importance_sampling_correction=True,
+        vllm_importance_sampling_mode="token_truncate",
+        vllm_importance_sampling_clip_max=3.0,
+    )
+    assert config.vllm_importance_sampling_correction
+    assert config.vllm_importance_sampling_mode == "token_truncate"
+    assert config.vllm_importance_sampling_clip_max == 3.0
 
 
 def test_end_to_end_local_dataset_preparation(tmp_path):

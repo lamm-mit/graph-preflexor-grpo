@@ -81,11 +81,12 @@ When `--report_to wandb` is active, the trainer sets the W&B project before
 initializing `Trainer`. The graph-completion-specific default is:
 
 ```text
---wandb_project graph-completion-grpo
+--wandb_project graph-completion-grpo --wandb_entity lamm-mit
 ```
 
 Therefore no environment variable is needed for the normal training command.
-Override the project or select a W&B team directly through the trainer:
+These defaults target `https://wandb.ai/lamm-mit/graph-completion-grpo`. Override
+the project or W&B entity directly through the trainer:
 
 ```text
 --wandb_project my-graph-project --wandb_entity lamm-mit
@@ -364,6 +365,22 @@ to colocated vLLM, disabling its torch compilation and CUDA graphs. The
 installed TRL interface does not expose this vLLM constructor setting directly,
 so the graph-completion trainer applies a narrowly scoped initialization hook.
 Use `--no_vllm_enforce_eager` only for an explicit optimized-backend benchmark.
+
+The trainer also overrides the installed TRL `sequence_mask` importance-
+sampling default. Multiplying small vLLM/Transformers log-probability
+differences across graph completions thousands of tokens long can collapse the
+sequence ratio toward zero and extinguish gradients. The graph-completion
+defaults are therefore:
+
+```text
+--vllm_importance_sampling_correction
+--vllm_importance_sampling_mode token_truncate
+--vllm_importance_sampling_clip_max 3.0
+```
+
+This retains mismatch correction but applies and truncates it per token. Do not
+use `sequence_mask` for these long rollouts without first demonstrating healthy
+importance ratios and gradient norms in a bounded benchmark.
 
 For an external server, use `--vllm_mode server` and set
 `--vllm_server_host`/`--vllm_server_port`.

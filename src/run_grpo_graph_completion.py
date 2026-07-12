@@ -31,6 +31,7 @@ from lora_utils import add_lora_config_args
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it"
 DEFAULT_WANDB_PROJECT = "graph-completion-grpo"
+DEFAULT_WANDB_ENTITY = "lamm-mit"
 
 
 def _optional_positive(value: int) -> Optional[int]:
@@ -147,8 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--wandb_entity",
-        default=None,
-        help="Optional W&B user or team entity.",
+        default=DEFAULT_WANDB_ENTITY,
+        help=f"W&B user or team entity (default: {DEFAULT_WANDB_ENTITY}).",
     )
     parser.add_argument("--no_gradient_checkpointing", action="store_true")
 
@@ -176,6 +177,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use_vllm", action="store_true")
     parser.add_argument("--vllm_mode", choices=["colocate", "server"], default="colocate")
     parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.30)
+    parser.add_argument(
+        "--vllm_importance_sampling_correction",
+        dest="vllm_importance_sampling_correction",
+        action="store_true",
+        help="Correct vLLM/Transformers log-probability mismatch (default).",
+    )
+    parser.add_argument(
+        "--no_vllm_importance_sampling_correction",
+        dest="vllm_importance_sampling_correction",
+        action="store_false",
+        help="Disable vLLM importance-sampling correction.",
+    )
+    parser.set_defaults(vllm_importance_sampling_correction=True)
+    parser.add_argument(
+        "--vllm_importance_sampling_mode",
+        choices=["token_truncate", "token_mask", "sequence_truncate", "sequence_mask"],
+        default="token_truncate",
+        help="Use token-level truncated IS by default for long graph completions.",
+    )
+    parser.add_argument(
+        "--vllm_importance_sampling_clip_max",
+        type=float,
+        default=3.0,
+        help="Upper vLLM importance-ratio bound (default: 3.0).",
+    )
     parser.add_argument(
         "--vllm_enforce_eager",
         dest="vllm_enforce_eager",
@@ -253,6 +279,8 @@ def main() -> None:
         )
     if not 0.0 < args.transformers_kv_cache_memory_percent < 1.0:
         raise ValueError("--transformers_kv_cache_memory_percent must be between 0 and 1")
+    if args.vllm_importance_sampling_clip_max <= 0.0:
+        raise ValueError("--vllm_importance_sampling_clip_max must be positive")
     if args.dtype == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
         raise ValueError("BF16 was requested but this CUDA device does not report BF16 support")
     if args.hf_token:
@@ -314,7 +342,10 @@ def main() -> None:
             f"mode={args.vllm_mode}, "
             f"gpu_memory_utilization={args.vllm_gpu_memory_utilization:.2f}, "
             f"enforce_eager={args.vllm_enforce_eager}, "
-            f"cuda_graphs={not args.vllm_enforce_eager}"
+            f"cuda_graphs={not args.vllm_enforce_eager}, "
+            f"importance_sampling={args.vllm_importance_sampling_correction}, "
+            f"importance_sampling_mode={args.vllm_importance_sampling_mode}, "
+            f"importance_sampling_clip_max={args.vllm_importance_sampling_clip_max}"
         )
     thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 
@@ -381,6 +412,9 @@ def main() -> None:
         "use_vllm": args.use_vllm,
         "vllm_mode": args.vllm_mode,
         "vllm_gpu_memory_utilization": args.vllm_gpu_memory_utilization,
+        "vllm_importance_sampling_correction": args.vllm_importance_sampling_correction,
+        "vllm_importance_sampling_mode": args.vllm_importance_sampling_mode,
+        "vllm_importance_sampling_clip_max": args.vllm_importance_sampling_clip_max,
         "vllm_server_host": args.vllm_server_host,
         "vllm_server_port": args.vllm_server_port,
         "vllm_max_model_length": args.max_prompt_length + args.max_completion_length,
