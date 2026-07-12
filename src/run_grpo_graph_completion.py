@@ -17,6 +17,7 @@ from graph_completion_modeling import (
     build_compatible_grpo_config,
     configure_trainable_model,
     load_graph_completion_model_and_tokenizer,
+    resolve_continuous_batching,
 )
 from graph_completion_prompting import apply_graph_completion_chat_template
 from graph_completion_rewards import (
@@ -150,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Enable continuous-batching CUDA graphs (default: disabled initially).",
     )
+    parser.add_argument(
+        "--continuous_batching_unsupported_policy",
+        choices=["fallback", "error"],
+        default="fallback",
+        help="Fallback to ordinary Transformers generation or fail for unsupported architectures.",
+    )
     parser.add_argument("--push_to_hub", action="store_true")
     parser.add_argument("--hub_model_id", default=None)
     parser.add_argument("--hub_public", action="store_true")
@@ -173,14 +180,6 @@ def main() -> None:
         raise ValueError("--transformers_kv_cache_memory_percent must be between 0 and 1")
     if args.dtype == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
         raise ValueError("BF16 was requested but this CUDA device does not report BF16 support")
-    print(
-        "Rollout performance settings: "
-        f"backend={'transformers-continuous-batching' if args.use_transformers_continuous_batching else ('vllm' if args.use_vllm else 'transformers-generate')}, "
-        f"attention={args.attn_implementation}, hub_kernels={args.use_hub_kernels}, "
-        f"dtype={args.dtype}, kv_cache_memory={args.transformers_kv_cache_memory_percent:.2f}, "
-        f"compile_level={args.transformers_compile_level}, "
-        f"cuda_graphs={args.transformers_cuda_graphs}"
-    )
     if args.hf_token:
         login(token=args.hf_token, add_to_git_credential=False)
     modes = [item.strip() for item in args.modes.split(",") if item.strip()] if args.modes else None
@@ -208,6 +207,32 @@ def main() -> None:
         attn_implementation=args.attn_implementation,
         use_hub_kernels=args.use_hub_kernels,
     )
+    effective_continuous_batching = resolve_continuous_batching(
+        model,
+        requested=args.use_transformers_continuous_batching,
+        unsupported_policy=args.continuous_batching_unsupported_policy,
+        fallback_attention=args.attn_implementation.removeprefix("paged|"),
+    )
+    effective_attention = (
+        args.attn_implementation
+        if effective_continuous_batching
+        else args.attn_implementation.removeprefix("paged|")
+    )
+    kv_cache_display = (
+        f"{args.transformers_kv_cache_memory_percent:.2f}"
+        if effective_continuous_batching
+        else "n/a"
+    )
+    compile_display = args.transformers_compile_level if effective_continuous_batching else "n/a"
+    print(
+        "Rollout performance settings: "
+        f"backend={'transformers-continuous-batching' if effective_continuous_batching else ('vllm' if args.use_vllm else 'transformers-generate')}, "
+        f"attention={effective_attention}, hub_kernels={args.use_hub_kernels}, "
+        f"dtype={args.dtype}, "
+        f"kv_cache_memory={kv_cache_display}, "
+        f"compile_level={compile_display}, "
+        f"cuda_graphs={args.transformers_cuda_graphs if effective_continuous_batching else False}"
+    )
     thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 
     def add_prompt(row):
@@ -215,6 +240,7 @@ def main() -> None:
             "prompt": apply_graph_completion_chat_template(
                 tokenizer,
                 row["x0"],
+                condition=row.get("condition"),
                 mode=str(row["mode"]),
                 enable_thinking=thinking,
             )
@@ -275,7 +301,7 @@ def main() -> None:
         "vllm_server_host": args.vllm_server_host,
         "vllm_server_port": args.vllm_server_port,
         "vllm_max_model_length": args.max_prompt_length + args.max_completion_length,
-        "use_transformers_continuous_batching": args.use_transformers_continuous_batching,
+        "use_transformers_continuous_batching": effective_continuous_batching,
         "transformers_continuous_batching_config": {
             "block_size": args.transformers_cache_block_size,
             "max_memory_percent": args.transformers_kv_cache_memory_percent,
@@ -283,7 +309,7 @@ def main() -> None:
             "default_compile_level": args.transformers_compile_level,
             "seed": args.seed,
         }
-        if args.use_transformers_continuous_batching
+        if effective_continuous_batching
         else None,
         "push_to_hub": args.push_to_hub,
         "hub_model_id": args.hub_model_id,

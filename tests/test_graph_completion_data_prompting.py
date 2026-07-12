@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -15,8 +16,10 @@ from graph_completion_prompting import apply_graph_completion_chat_template
 import graph_completion_modeling
 from graph_completion_modeling import (
     build_compatible_grpo_config,
+    continuous_batching_compatibility,
     load_graph_completion_model_and_tokenizer,
     model_load_kwargs,
+    resolve_continuous_batching,
 )
 from run_grpo_graph_completion import build_parser
 
@@ -82,9 +85,14 @@ class MockTokenizer:
 
 def test_gemma_thinking_is_forwarded_by_default():
     tokenizer = MockTokenizer()
-    prompt = apply_graph_completion_chat_template(tokenizer, render_graph_canvas(EMPTY))
+    prompt = apply_graph_completion_chat_template(
+        tokenizer,
+        render_graph_canvas(EMPTY),
+        condition="Humidity increases water uptake.",
+    )
     assert tokenizer.kwargs["enable_thinking"] is True
     assert "<answer>" in prompt and "complete corrected graph" in prompt
+    assert "Condition:\nHumidity increases water uptake." in prompt
 
 
 def test_new_trainer_defaults_do_not_change_legacy_defaults():
@@ -100,6 +108,7 @@ def test_new_trainer_defaults_do_not_change_legacy_defaults():
     assert args.transformers_kv_cache_memory_percent == 0.45
     assert args.transformers_compile_level == 1
     assert not args.transformers_cuda_graphs
+    assert args.continuous_batching_unsupported_policy == "fallback"
 
 
 def test_model_load_defaults_use_bf16_paged_sdpa_and_hub_kernels():
@@ -113,6 +122,55 @@ def test_missing_hub_kernels_fails_before_model_download(monkeypatch):
     monkeypatch.setattr(graph_completion_modeling, "is_kernels_available", lambda: False)
     with pytest.raises(ImportError, match="Hub kernels are enabled"):
         load_graph_completion_model_and_tokenizer("does-not-download")
+
+
+class FakeRolloutModel:
+    def __init__(self, config):
+        self.config = config
+        self.attention = None
+
+    def set_attn_implementation(self, attention):
+        self.attention = attention
+
+
+def test_gemma4_continuous_batching_falls_back_to_sdpa():
+    model = FakeRolloutModel(
+        SimpleNamespace(
+            model_type="gemma4",
+            text_config=SimpleNamespace(model_type="gemma4_text"),
+        )
+    )
+    compatible, reason = continuous_batching_compatibility(model)
+    assert not compatible
+    assert "mixed local/global" in reason
+    assert not resolve_continuous_batching(model, requested=True)
+    assert model.attention == "sdpa"
+
+
+def test_supported_decoder_keeps_continuous_batching():
+    model = FakeRolloutModel(
+        SimpleNamespace(
+            model_type="llama",
+            num_hidden_layers=4,
+            num_attention_heads=4,
+            hidden_size=256,
+            vocab_size=1024,
+        )
+    )
+    assert resolve_continuous_batching(model, requested=True)
+    assert model.attention is None
+
+
+def test_disabling_continuous_batching_uses_standard_sdpa():
+    model = FakeRolloutModel(SimpleNamespace(model_type="llama"))
+    assert not resolve_continuous_batching(model, requested=False)
+    assert model.attention == "sdpa"
+
+
+def test_gemma4_continuous_batching_can_be_strict():
+    model = FakeRolloutModel(SimpleNamespace(model_type="gemma4", text_config=None))
+    with pytest.raises(ValueError, match="does not yet support Gemma 4"):
+        resolve_continuous_batching(model, requested=True, unsupported_policy="error")
 
 
 def test_installed_trl_accepts_sampling_and_kl_settings():

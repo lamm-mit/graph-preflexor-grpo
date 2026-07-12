@@ -376,8 +376,14 @@ def graph_pair_contract_errors(row: Mapping[str, Any]) -> list[str]:
     elif mode == "wrong_relations":
         if x0_nodes != target_nodes:
             errors.append("wrong_relations changes node objects")
-        x0_endpoints = Counter((edge["source"], edge["target"]) for edge in x0_edges.values())
-        target_endpoints = Counter((edge["source"], edge["target"]) for edge in target_edges.values())
+        # Compare endpoint presence rather than multiplicity. A published row
+        # can contain multiple target relations on the same endpoint pair that
+        # corrupt to the same wrong semantic edge. Canonicalization then
+        # collapses that duplicate, but the pair is still a valid
+        # wrong-relation repair task and must not be filtered as an endpoint
+        # change.
+        x0_endpoints = {(edge["source"], edge["target"]) for edge in x0_edges.values()}
+        target_endpoints = {(edge["source"], edge["target"]) for edge in target_edges.values()}
         if x0_endpoints != target_endpoints:
             errors.append("wrong_relations changes edge endpoints")
     elif mode == "extra_edges":

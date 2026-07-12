@@ -93,6 +93,60 @@ def model_load_kwargs(
     }
 
 
+def continuous_batching_compatibility(model: Any) -> tuple[bool, Optional[str]]:
+    """Conservatively check Transformers paged-cache compatibility.
+
+    Transformers' current paged cache consumes one top-level decoder geometry.
+    Gemma 4 is a composite model whose language decoder mixes local/global
+    attention head dimensions, so projecting its nested text attributes onto
+    the outer config would allocate an incorrect cache.
+    """
+
+    config = model.config
+    model_type = str(getattr(config, "model_type", ""))
+    text_config = getattr(config, "text_config", None)
+    text_model_type = str(getattr(text_config, "model_type", "")) if text_config is not None else ""
+    if model_type.startswith("gemma4") or text_model_type.startswith("gemma4"):
+        return False, (
+            "Transformers continuous batching does not yet support Gemma 4's composite, "
+            "mixed local/global attention cache geometry"
+        )
+    required = ("num_hidden_layers", "num_attention_heads", "hidden_size", "vocab_size")
+    missing = [name for name in required if getattr(config, name, None) is None]
+    if missing:
+        return False, f"model config lacks paged-cache attributes: {', '.join(missing)}"
+    return True, None
+
+
+def resolve_continuous_batching(
+    model: Any,
+    *,
+    requested: bool,
+    unsupported_policy: str = "fallback",
+    fallback_attention: str = "sdpa",
+) -> bool:
+    """Return the effective backend and switch paged attention to SDPA on fallback."""
+
+    if not requested:
+        if hasattr(model, "set_attn_implementation"):
+            model.set_attn_implementation(fallback_attention)
+        return False
+    compatible, reason = continuous_batching_compatibility(model)
+    if compatible:
+        return True
+    if unsupported_policy == "error":
+        raise ValueError(reason)
+    if unsupported_policy != "fallback":
+        raise ValueError("unsupported continuous-batching policy")
+    print(
+        "[graph-completion modeling] WARNING: "
+        f"{reason}. Falling back to ordinary Transformers generation with SDPA."
+    )
+    if hasattr(model, "set_attn_implementation"):
+        model.set_attn_implementation(fallback_attention)
+    return False
+
+
 def load_graph_completion_model_and_tokenizer(
     model_path: str,
     *,

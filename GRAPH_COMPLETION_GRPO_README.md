@@ -19,6 +19,8 @@ transformer, EditFlow, or diffusion implementation is used.
 
 - `src/run_grpo_graph_completion.py`: standalone GRPO trainer.
 - `src/validate_graph_completion.py`: dataset audit and saved-completion scorer.
+- `src/sample_graph_completion.py`: mode-balanced vLLM sampling with raw-rollout
+  and scored-reference inspection views.
 - `src/graph_completion_data.py`: official-split loading, pair auditing, grouped
   validation manifests, caps, and balanced sampling.
 - `src/graph_completion_prompting.py`: complete-graph prompt and native-thinking
@@ -53,6 +55,7 @@ interfaces without loading a model:
 python -c "import transformers,trl,peft,datasets; print(transformers.__version__, trl.__version__, peft.__version__, datasets.__version__)"
 python src/run_grpo_graph_completion.py --help
 python src/validate_graph_completion.py --help
+python src/sample_graph_completion.py --help
 ```
 
 Transformers continuous batching requires Transformers 5.8 or newer. Hub
@@ -72,9 +75,10 @@ python -c "from transformers.utils import is_kernels_available; assert is_kernel
 The trainer fails early when Hub kernels are enabled but that package is
 missing, instead of downloading the full model and failing afterward.
 
-## Rollout performance defaults
+## Rollout performance defaults and Gemma 4 fallback
 
-The new trainer defaults to the requested initial performance profile:
+The trainer requests the initial performance profile for compatible decoder
+models:
 
 ```text
 Transformers continuous batching: enabled
@@ -85,6 +89,24 @@ Model and training dtype:           BF16
 Continuous-batching CUDA graphs:    disabled
 Continuous-batching compile level:  1
 Paged KV-cache memory budget:       0.45 of free GPU memory after model load
+```
+
+Transformers 5.13 continuous batching is not compatible with Gemma 4's
+composite configuration and mixed local/global attention head dimensions. Its
+paged-cache implementation currently expects a single top-level decoder
+geometry. The trainer detects Gemma 4 and safely falls back to ordinary
+Transformers generation with standard `sdpa`; it does not copy nested config
+attributes into an incorrectly shaped paged cache.
+
+The effective Gemma 4 defaults are therefore:
+
+```text
+Generation backend:                 Transformers generate
+Attention implementation:          sdpa
+Hugging Face Hub kernels:           enabled
+Model and training dtype:           BF16
+CUDA graphs:                        disabled
+Continuous-batching compile/cache:  not applicable
 ```
 
 The corresponding explicit flags are:
@@ -98,10 +120,11 @@ The corresponding explicit flags are:
 --transformers_kv_cache_memory_percent 0.45
 ```
 
-CUDA graphs remain off unless `--transformers_cuda_graphs` is supplied. Use
-`--no_hub_kernels` or `--no_transformers_continuous_batching` only for
-compatibility/debugging. The trainer rejects simultaneous vLLM and Transformers
-continuous batching so the active rollout backend is unambiguous.
+CUDA graphs remain off unless `--transformers_cuda_graphs` is supplied. The
+default `--continuous_batching_unsupported_policy fallback` makes the Gemma 4
+fallback automatic; use `error` to fail instead. The trainer rejects
+simultaneous vLLM and Transformers continuous batching so the requested rollout
+backend is unambiguous.
 
 ## Dataset and pair validation
 
@@ -214,11 +237,9 @@ python -u src/run_grpo_graph_completion.py \
   --num_generations 4 \
   --reward_stage shaped \
   --dtype bfloat16 \
-  --attn_implementation 'paged|sdpa' \
+  --attn_implementation sdpa \
   --use_hub_kernels \
-  --use_transformers_continuous_batching \
-  --transformers_kv_cache_memory_percent 0.45 \
-  --transformers_compile_level 1 \
+  --no_transformers_continuous_batching \
   --lora_target_modules language-default \
   --lora_r 32 \
   --lora_alpha 64 \
@@ -283,11 +304,9 @@ python -u src/run_grpo_graph_completion.py \
   --top_p 0.95 \
   --beta 0.0 \
   --dtype bfloat16 \
-  --attn_implementation 'paged|sdpa' \
+  --attn_implementation sdpa \
   --use_hub_kernels \
-  --use_transformers_continuous_batching \
-  --transformers_kv_cache_memory_percent 0.45 \
-  --transformers_compile_level 1 \
+  --no_transformers_continuous_batching \
   --reward_stage shaped \
   --scale_rewards batch \
   --loss_type dapo \
@@ -324,7 +343,7 @@ python -u src/run_grpo_graph_completion.py \
 For an external server, use `--vllm_mode server` and set
 `--vllm_server_host`/`--vllm_server_port`.
 
-## Benchmark compile level 1 against 0
+## Benchmark compile level 1 against 0 on compatible models
 
 Keep the dataset manifest, row/source caps, seed, generation parameters, and
 hardware identical. Change only compile level and use distinct output/run names:
@@ -354,7 +373,9 @@ python -u src/run_grpo_graph_completion.py \
 Compare warmup time, total wall time, generated tokens/second, peak allocated
 VRAM, and reward statistics. Compile level 1 is the recommended default only
 after it wins or remains operationally preferable on the target DGX Spark
-software stack.
+software stack. This benchmark is not currently applicable to Gemma 4 because
+its Transformers continuous-batching path is disabled by the compatibility
+guard.
 
 ## Resume paths
 
@@ -406,6 +427,126 @@ python -u src/validate_graph_completion.py \
 The command writes row-level scores plus a `.summary.json` file with overall
 and per-mode means.
 
+## Inspect baseline model rollouts
+
+The graph-completion sampler uses the same prompt builder, native-thinking
+setting, prompt/completion limits, temperature, and top-p defaults as training.
+It selects valid official-split rows deterministically and balances the sample
+across the requested corruption modes. It uses vLLM with BF16, prefix caching,
+a 0.45 KV-cache memory budget, and CUDA graphs disabled by default.
+
+Print the exact effective prompt tokens and the untouched decoded model
+continuation. No answer extraction, cleanup, reference display, or reward
+calculation is performed in this view:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model google/gemma-4-E4B-it \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --modes missing_edges,wrong_relations,extra_edges \
+  --num_tasks 3 \
+  --num_generations 1 \
+  --temperature 0.8 \
+  --top_p 0.95 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view raw \
+  --output_jsonl outputs/graph_completion/gemma4-baseline-raw-samples.jsonl
+```
+
+Everything between `RAW DECODED MODEL COMPLETION` and `END RAW COMPLETION` is
+the rollout string retained in `raw_completion`, exactly as it is passed to the
+graph-completion reward function. The JSONL also retains completion token IDs,
+token count, finish reason, and stop reason. Increase `--num_generations` to 8
+to inspect an entire GRPO-sized rollout group for each task.
+
+For vLLM 0.23 compatibility, prompt truncation is passed through
+`LLM.generate(..., tokenization_kwargs=...)`; it is intentionally not supplied
+as `SamplingParams(truncate_prompt_tokens=...)`, which vLLM 0.23 rejects. The
+sampler constructs `SamplingParams` before loading model weights so any future
+sampling-interface incompatibility fails before the expensive Gemma load.
+
+Use the scored view to print that same untouched rollout followed by the gold
+complete graph and the deterministic training reward breakdown:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model google/gemma-4-E4B-it \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --modes missing_edges,wrong_relations,extra_edges \
+  --num_tasks 3 \
+  --num_generations 1 \
+  --temperature 0.8 \
+  --top_p 0.95 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view scored \
+  --reward_stage shaped \
+  --output_jsonl outputs/graph_completion/gemma4-baseline-scored-samples.jsonl
+```
+
+The default model is the untouched `google/gemma-4-E4B-it` baseline. A merged
+trained checkpoint can be supplied through `--model` for a like-for-like visual
+comparison. Hub kernels and Transformers attention flags do not apply to this
+sampler because generation is performed directly by vLLM; vLLM manages its own
+paged attention backend.
+
+## Complete a user-provided partial graph
+
+Manual inference uses the same graph-completion instruction, native-thinking
+chat template, and raw vLLM output path as training. Supply a scientific
+condition together with an inline partial graph:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model google/gemma-4-E4B-it \
+  --condition "Complete a mechanism graph explaining how humidity changes the stiffness of a silk fibroin film through water uptake and microstructure." \
+  --partial_graph_json '{"nodes":[{"id":"Humidity"},{"id":"WaterUptake"},{"id":"BetaSheetContent"},{"id":"Stiffness"}],"edges":[{"source":"Humidity","relation":"increases","target":"WaterUptake"}]}' \
+  --manual_mode partial_subgraph \
+  --manual_fixed_policy all \
+  --num_generations 1 \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --seed 11 \
+  --max_prompt_length 4096 \
+  --max_completion_length 1500 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view raw \
+  --output_jsonl outputs/graph_completion/manual-humidity.jsonl \
+  --output_text_file outputs/graph_completion/manual-humidity.txt
+```
+
+`--manual_fixed_policy all` is the safe completion default: every supplied
+node and edge is marked `[FIXED]`, so the model may add missing content but must
+not rewrite the user's graph. To submit a corrupted graph that may need edits,
+use `--manual_fixed_policy none` and an appropriate `--manual_mode`, such as
+`wrong_relations` or `extra_edges`.
+
+Instead of shell-quoting a large graph, store the same JSON object in a file and
+replace `--partial_graph_json ...` with:
+
+```text
+--partial_graph_file inputs/partial-graph.json
+```
+
+Manual inference has no gold graph, so it supports `--view raw` but not
+`--view scored`. The JSONL preserves the exact decoded continuation, token IDs,
+finish reason, condition, and rendered fixed graph. `--output_text_file` saves
+the same human-readable prompt and raw response printed to the terminal.
+
+The sampler accepts a full or merged model through `--model`. A PEFT-only LoRA
+checkpoint must first be merged with the repository's existing merge command.
+
 ## Push and merge
 
 Hub repositories are private by default. Add these flags to a training command:
@@ -437,5 +578,6 @@ The focused tests do not download Gemma or the gated dataset:
 pytest -q \
   tests/test_graph_completion_parsing.py \
   tests/test_graph_completion_metrics_rewards.py \
-  tests/test_graph_completion_data_prompting.py
+  tests/test_graph_completion_data_prompting.py \
+  tests/test_graph_completion_sampling.py
 ```

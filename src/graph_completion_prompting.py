@@ -25,23 +25,41 @@ You may reason using the model's native thinking channel. Only the final answer 
 """
 
 
-def build_graph_completion_user_prompt(x0: str, *, mode: Optional[str] = None) -> str:
+def build_graph_completion_user_prompt(
+    x0: str,
+    *,
+    condition: Optional[str] = None,
+    mode: Optional[str] = None,
+) -> str:
+    condition_line = f"Condition:\n{str(condition).strip()}\n\n" if condition else ""
     mode_line = f"Corruption mode: {mode}\n\n" if mode else ""
-    return f"{GRAPH_COMPLETION_INSTRUCTION}\n{mode_line}{str(x0).strip()}"
+    return (
+        f"{GRAPH_COMPLETION_INSTRUCTION}\n"
+        f"{condition_line}{mode_line}{str(x0).strip()}"
+    )
 
 
 def apply_graph_completion_chat_template(
     tokenizer: Any,
     x0: str,
     *,
+    condition: Optional[str] = None,
     mode: Optional[str] = None,
     enable_thinking: Optional[bool] = True,
 ) -> str:
     return apply_chat_template(
         tokenizer,
-        [{"role": "user", "content": build_graph_completion_user_prompt(x0, mode=mode)}],
+        [
+            {
+                "role": "user",
+                "content": build_graph_completion_user_prompt(
+                    x0,
+                    condition=condition,
+                    mode=mode,
+                ),
+            }
+        ],
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=enable_thinking,
     )
-

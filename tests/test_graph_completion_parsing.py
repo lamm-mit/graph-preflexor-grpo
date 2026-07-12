@@ -90,3 +90,28 @@ def test_known_wrong_relation_fixed_conflict_is_invalid():
     errors = graph_pair_contract_errors(row)
     assert any("fixed edge" in error and "absent from target" in error for error in errors)
 
+
+def test_wrong_relation_duplicate_collapse_preserves_endpoint_contract():
+    target = {
+        "nodes": [{"id": "a"}, {"id": "b"}],
+        "edges": [
+            {"source": "a", "relation": "activates", "target": "b"},
+            {"source": "a", "relation": "enables", "target": "b"},
+        ],
+    }
+    corrupted = {
+        "nodes": target["nodes"],
+        "edges": [
+            {"source": "a", "relation": "incorrect_relation", "target": "b"},
+            {"source": "a", "relation": "incorrect_relation", "target": "b"},
+        ],
+    }
+    row = {
+        "mode": "wrong_relations",
+        "x0": render_graph_canvas(corrupted, fixed_node_ids=["a", "b"]),
+        "x0_graph_json": json.dumps(corrupted),
+        "x1_graph_json": json.dumps(target),
+        "fixed_node_ids": ["a", "b"],
+        "fixed_edge_keys": [],
+    }
+    assert graph_pair_contract_errors(row) == []
