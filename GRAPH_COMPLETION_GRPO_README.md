@@ -75,6 +75,24 @@ python -c "from transformers.utils import is_kernels_available; assert is_kernel
 The trainer fails early when Hub kernels are enabled but that package is
 missing, instead of downloading the full model and failing afterward.
 
+## Weights & Biases project
+
+When `--report_to wandb` is active, the trainer sets the W&B project before
+initializing `Trainer`. The graph-completion-specific default is:
+
+```text
+--wandb_project graph-completion-grpo
+```
+
+Therefore no environment variable is needed for the normal training command.
+Override the project or select a W&B team directly through the trainer:
+
+```text
+--wandb_project my-graph-project --wandb_entity lamm-mit
+```
+
+`--run_name` continues to name the individual run within that project.
+
 ## Rollout performance defaults and Gemma 4 fallback
 
 The trainer requests the initial performance profile for compatible decoder
@@ -337,8 +355,15 @@ python -u src/run_grpo_graph_completion.py \
   --no_transformers_continuous_batching \
   --use_vllm \
   --vllm_mode colocate \
-  --vllm_gpu_memory_utilization 0.30
+  --vllm_gpu_memory_utilization 0.30 \
+  --vllm_enforce_eager
 ```
+
+`--vllm_enforce_eager` is enabled by default and passes `enforce_eager=True`
+to colocated vLLM, disabling its torch compilation and CUDA graphs. The
+installed TRL interface does not expose this vLLM constructor setting directly,
+so the graph-completion trainer applies a narrowly scoped initialization hook.
+Use `--no_vllm_enforce_eager` only for an explicit optimized-backend benchmark.
 
 For an external server, use `--vllm_mode server` and set
 `--vllm_server_host`/`--vllm_server_port`.

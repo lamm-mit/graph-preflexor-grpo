@@ -1,4 +1,5 @@
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -21,7 +22,11 @@ from graph_completion_modeling import (
     model_load_kwargs,
     resolve_continuous_batching,
 )
-from run_grpo_graph_completion import build_parser
+from run_grpo_graph_completion import (
+    build_parser,
+    configure_wandb_environment,
+    patch_colocated_vllm_enforce_eager,
+)
 
 
 TARGET = {
@@ -109,6 +114,40 @@ def test_new_trainer_defaults_do_not_change_legacy_defaults():
     assert args.transformers_compile_level == 1
     assert not args.transformers_cuda_graphs
     assert args.continuous_batching_unsupported_policy == "fallback"
+    assert args.vllm_enforce_eager
+    assert args.wandb_project == "graph-completion-grpo"
+    assert args.wandb_entity is None
+
+
+def test_wandb_project_default_and_override_are_applied_before_trainer(monkeypatch):
+    monkeypatch.delenv("WANDB_PROJECT", raising=False)
+    monkeypatch.delenv("WANDB_ENTITY", raising=False)
+    configure_wandb_environment(
+        "wandb",
+        project="graph-completion-grpo",
+        entity="lamm-mit",
+    )
+    assert os.environ["WANDB_PROJECT"] == "graph-completion-grpo"
+    assert os.environ["WANDB_ENTITY"] == "lamm-mit"
+
+    configure_wandb_environment("none", project="must-not-replace")
+    assert os.environ["WANDB_PROJECT"] == "graph-completion-grpo"
+
+
+def test_colocated_vllm_eager_patch_is_scoped(monkeypatch):
+    import trl.generation.vllm_generation as vllm_generation
+
+    calls = []
+
+    def fake_llm(*args, **kwargs):
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(vllm_generation, "LLM", fake_llm, raising=False)
+    with patch_colocated_vllm_enforce_eager(True):
+        vllm_generation.LLM(model="test")
+    assert calls == [{"model": "test", "enforce_eager": True}]
+    assert vllm_generation.LLM is fake_llm
 
 
 def test_model_load_defaults_use_bf16_paged_sdpa_and_hub_kernels():

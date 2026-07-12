@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from contextlib import contextmanager
 from typing import Optional
 
 import torch
@@ -29,10 +30,56 @@ from lora_utils import add_lora_config_args
 
 
 DEFAULT_MODEL = "google/gemma-4-E4B-it"
+DEFAULT_WANDB_PROJECT = "graph-completion-grpo"
 
 
 def _optional_positive(value: int) -> Optional[int]:
     return None if value <= 0 else value
+
+
+def configure_wandb_environment(
+    report_to: str,
+    *,
+    project: str,
+    entity: Optional[str] = None,
+) -> None:
+    """Configure the Transformers W&B callback before Trainer initialization."""
+
+    integrations = {item.strip().lower() for item in report_to.split(",") if item.strip()}
+    if "wandb" not in integrations:
+        return
+    if not project.strip():
+        raise ValueError("--wandb_project must be non-empty when reporting to wandb")
+    os.environ["WANDB_PROJECT"] = project.strip()
+    if entity and entity.strip():
+        os.environ["WANDB_ENTITY"] = entity.strip()
+    print(
+        "W&B settings: "
+        f"project={os.environ['WANDB_PROJECT']}, "
+        f"entity={os.environ.get('WANDB_ENTITY', 'default')}"
+    )
+
+
+@contextmanager
+def patch_colocated_vllm_enforce_eager(enabled: bool):
+    """Inject vLLM eager mode into TRL versions that do not expose the option."""
+
+    if not enabled:
+        yield
+        return
+    import trl.generation.vllm_generation as vllm_generation
+
+    original_llm = vllm_generation.LLM
+
+    def eager_llm(*args, **kwargs):
+        kwargs["enforce_eager"] = True
+        return original_llm(*args, **kwargs)
+
+    vllm_generation.LLM = eager_llm
+    try:
+        yield
+    finally:
+        vllm_generation.LLM = original_llm
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -93,6 +140,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save_total_limit", type=int, default=3)
     parser.add_argument("--report_to", default="wandb", help="Comma-separated integrations or 'none'.")
     parser.add_argument("--run_name", default=None)
+    parser.add_argument(
+        "--wandb_project",
+        default=DEFAULT_WANDB_PROJECT,
+        help=f"W&B project name (default: {DEFAULT_WANDB_PROJECT}).",
+    )
+    parser.add_argument(
+        "--wandb_entity",
+        default=None,
+        help="Optional W&B user or team entity.",
+    )
     parser.add_argument("--no_gradient_checkpointing", action="store_true")
 
     parser.add_argument("--lora_r", type=int, default=32)
@@ -119,6 +176,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--use_vllm", action="store_true")
     parser.add_argument("--vllm_mode", choices=["colocate", "server"], default="colocate")
     parser.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.30)
+    parser.add_argument(
+        "--vllm_enforce_eager",
+        dest="vllm_enforce_eager",
+        action="store_true",
+        help="Disable vLLM torch.compile and CUDA graphs initially (default).",
+    )
+    parser.add_argument(
+        "--no_vllm_enforce_eager",
+        dest="vllm_enforce_eager",
+        action="store_false",
+        help="Allow vLLM compilation/CUDA graphs for an explicit benchmark.",
+    )
+    parser.set_defaults(vllm_enforce_eager=True)
     parser.add_argument("--vllm_server_host", default="0.0.0.0")
     parser.add_argument("--vllm_server_port", type=int, default=8000)
     parser.add_argument(
@@ -166,6 +236,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    configure_wandb_environment(
+        args.report_to,
+        project=args.wandb_project,
+        entity=args.wandb_entity,
+    )
     if args.resume_grpo_checkpoint and args.resume_from_checkpoint:
         raise ValueError(
             "--resume_grpo_checkpoint and --resume_from_checkpoint are mutually exclusive"
@@ -233,6 +308,14 @@ def main() -> None:
         f"compile_level={compile_display}, "
         f"cuda_graphs={args.transformers_cuda_graphs if effective_continuous_batching else False}"
     )
+    if args.use_vllm:
+        print(
+            "vLLM rollout settings: "
+            f"mode={args.vllm_mode}, "
+            f"gpu_memory_utilization={args.vllm_gpu_memory_utilization:.2f}, "
+            f"enforce_eager={args.vllm_enforce_eager}, "
+            f"cuda_graphs={not args.vllm_enforce_eager}"
+        )
     thinking = parse_chat_template_enable_thinking(args.chat_template_enable_thinking)
 
     def add_prompt(row):
@@ -319,15 +402,21 @@ def main() -> None:
     grpo_config = build_compatible_grpo_config(**config_kwargs)
     reward_config = reward_config_from_args(args)
     reward_function = make_grpo_reward_function(reward_config)
-    trainer = GRPOTrainer(
-        model=model,
-        args=grpo_config,
-        processing_class=tokenizer,
-        train_dataset=train,
-        eval_dataset=validation,
-        reward_funcs=[reward_function],
-        peft_config=None,
+    patch_vllm = bool(
+        args.use_vllm
+        and args.vllm_mode == "colocate"
+        and args.vllm_enforce_eager
     )
+    with patch_colocated_vllm_enforce_eager(patch_vllm):
+        trainer = GRPOTrainer(
+            model=model,
+            args=grpo_config,
+            processing_class=tokenizer,
+            train_dataset=train,
+            eval_dataset=validation,
+            reward_funcs=[reward_function],
+            peft_config=None,
+        )
     trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     trainer.save_model(args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
