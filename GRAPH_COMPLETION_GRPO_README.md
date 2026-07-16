@@ -151,6 +151,20 @@ The loader requires the official `train` and `test` splits and raises if their
 `source_index` sets overlap. Validation is selected only from whole source
 groups in `train`; its source IDs are persisted and reused exactly.
 
+The three data roles are deliberately separate:
+
+- **Training:** official `train` rows whose `source_index` is not in the
+  validation manifest.
+- **Validation:** complete source groups withheld from the official `train`
+  split and recorded in `--validation_manifest`. Use this split to select a
+  checkpoint and tune inference settings.
+- **Test:** the dataset's untouched official `test` split. Reserve this for the
+  final, one-time result after checkpoint selection.
+
+Consequently, the checkpoint-selection benchmark below uses `--split
+validation`; it does **not** use the official test split. Always reuse the exact
+manifest and seed from training so the validation identities remain fixed.
+
 By default, internally impossible pairs are excluded with exact counts and
 examples printed by mode. Use `--invalid_pair_policy error` to fail instead.
 
@@ -306,38 +320,108 @@ python -u src/run_grpo_graph_completion.py \
   --report_to wandb
 ```
 
-## Recommended full LoRA run
+## Recommended memory-safe colocated-vLLM LoRA run
+
+This is the canonical conditioned graph-completion run for the DGX Spark/GB10
+setup. It incorporates the settings validated during debugging: eight
+rollouts, LoRA rank 64, token-level truncated vLLM importance sampling,
+evaluation disabled, no truncated-completion masking, eager vLLM execution,
+and a conservative colocated KV-cache budget.
 
 ```bash
 python -u src/run_grpo_graph_completion.py \
   --base_model google/gemma-4-E4B-it \
   --dataset lamm-mit/graph-canvas-inpainting-121k \
-  --output_dir models/Gemma4-E4B-graph-completion-grpo \
+  --output_dir models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis \
   --validation_manifest outputs/graph_completion/full-validation-sources.json \
-  --num_generations 4 \
+  --validation_source_count 512 \
+  --invalid_pair_policy filter \
+  --num_generations 8 \
   --per_device_train_batch_size 1 \
   --gradient_accumulation_steps 8 \
   --learning_rate 5e-6 \
-  --epochs 1 \
+  --max_steps 2000 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
   --temperature 0.8 \
   --top_p 0.95 \
   --beta 0.0 \
+  --reward_stage shaped \
+  --scale_rewards batch \
+  --loss_type dapo \
   --dtype bfloat16 \
   --attn_implementation sdpa \
   --use_hub_kernels \
   --no_transformers_continuous_batching \
-  --reward_stage shaped \
-  --scale_rewards batch \
-  --loss_type dapo \
+  --use_vllm \
+  --vllm_mode colocate \
+  --vllm_gpu_memory_utilization 0.30 \
+  --vllm_enforce_eager \
+  --vllm_importance_sampling_correction \
+  --vllm_importance_sampling_mode token_truncate \
+  --vllm_importance_sampling_clip_max 3.0 \
   --lora_target_modules language-default \
-  --lora_r 32 \
-  --lora_alpha 64 \
-  --lora_dropout 0.05 \
+  --lora_r 64 \
+  --lora_alpha 128 \
+  --lora_dropout 0.00 \
   --chat_template_enable_thinking true \
-  --save_steps 100 \
+  --save_steps 50 \
+  --save_total_limit 3 \
+  --eval_steps 0 \
   --logging_steps 1 \
-  --report_to wandb
+  --report_to wandb \
+  --wandb_project graph-completion-grpo \
+  --wandb_entity lamm-mit \
+  --run_name gemma4-e4b-graph-completion-token-tis-vllm \
+  --push_to_hub \
+  --hub_model_id lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis
 ```
+
+The Hub repository is private because `--hub_public` is absent. `--max_steps`
+overrides the epoch default; 2,000 steps is still a multi-day run at the
+observed eager-vLLM throughput.
+
+### Memory and OOM rationale
+
+- Keep `--per_device_train_batch_size 1`. Eight completions are already
+  generated for every prompt, and the LoRA training model and colocated vLLM
+  engine share the same device memory.
+- Keep `--vllm_gpu_memory_utilization 0.30` for training. The 0.45 value used by
+  the standalone sampler is not a safe default for colocated training because
+  the sampler does not also hold optimizer state, gradients, activations, and
+  trainable LoRA weights.
+- `--vllm_enforce_eager` disables vLLM compilation and CUDA-graph capture,
+  avoiding their additional startup/capture memory until explicitly
+  benchmarked. Do not switch to `--no_vllm_enforce_eager` during an established
+  run.
+- Standard Transformers continuous batching remains off because Gemma 4's
+  mixed local/global cache geometry is unsupported, and it must not be enabled
+  simultaneously with vLLM.
+- BF16 and SDPA apply to the training-side Transformers model. vLLM selects its
+  compatible paged attention backend independently.
+- If an OOM still occurs, first reduce `--vllm_gpu_memory_utilization` from 0.30
+  to 0.25. Next reduce `--max_completion_length`; reduce `--num_generations`
+  only as a final tradeoff because it changes the GRPO group size.
+
+### Evaluation and truncation safeguards
+
+`--eval_steps 0` intentionally disables periodic validation. The fixed
+validation manifest is still prepared, but no validation generation occurs.
+The full 5,629-row validation set previously projected to roughly 172 hours per
+evaluation and increased memory pressure. If periodic evaluation is later
+enabled, cap it first (for example `--max_eval_rows 48`) and ensure the global
+evaluation batch is divisible by the evaluation generation count.
+
+Do not add `--mask_truncated_completions`. vLLM rollouts frequently omit an EOS
+token from the completion IDs even when the decoded response ends with a valid
+`</answer>`, causing TRL to report `completions/clipped_ratio=1`. Masking those
+rows previously produced zero loss and zero gradients.
+
+During the first 5-10 steps, verify that
+`sampling/importance_sampling_ratio/mean` is around order one rather than
+`1e-8` or smaller, and that gradient norms do not collapse toward `1e-14`.
+`token_truncate` is required because sequence-level correction collapsed across
+the thousands of tokens in these graph completions.
 
 Use `--lora_target_modules language-all-linear`, `all-linear`, or a
 comma-separated explicit list for alternative LoRA policies. Use `--no_lora`
@@ -454,7 +538,9 @@ Prediction JSONL rows must contain `source_index`, `variant_index`, and either
 {"source_index": 42, "variant_index": 3, "raw_completion": "...<answer>{...}</answer>"}
 ```
 
-Score them against the official test references:
+The scorer accepts `train`, `validation`, or `test`. The example below scores
+against the official test references and should therefore be used only for the
+final report, after choosing a checkpoint on validation:
 
 ```bash
 python -u src/validate_graph_completion.py \
@@ -611,6 +697,250 @@ python -u src/merge_lora_adapter.py \
 
 Consult `python src/merge_lora_adapter.py --help` for the exact installed merge
 CLI and existing mistral.rs/Hub options.
+
+## Recover, merge, and publish the selected checkpoint
+
+For the conditioned token-TIS run documented above, training reward peaked
+around steps 1,350-1,400 and completion length began a sustained runaway after
+roughly step 1,500. Start checkpoint testing with **checkpoint 1,400** and use
+checkpoint 1,350 as the fallback comparison. Do not select a checkpoint from
+the collapsed 1,650+ region merely because it is newer.
+
+First check whether the candidate checkpoints still exist locally:
+
+```bash
+ls -ld \
+  models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis/checkpoint-{1350,1400,1450}
+```
+
+With `--save_total_limit 3`, these older local directories may have been
+deleted. Because training used `--push_to_hub`, find the Hub revision that was
+pushed at step 1,400:
+
+```bash
+python - <<'PY'
+from huggingface_hub import HfApi
+
+repo = "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis"
+for commit in HfApi().list_repo_commits(repo):
+    print(commit.created_at, commit.commit_id, commit.title)
+PY
+```
+
+Find the entry corresponding to step 1,400, often titled `Training in progress,
+step 1400`, and export its commit SHA:
+
+```bash
+export ADAPTER_REVISION="PASTE_STEP_1400_COMMIT_SHA"
+```
+
+Merge that Hub revision into the Gemma 4 base model and upload the resulting
+standalone model:
+
+```bash
+python -u src/merge_lora_adapter.py \
+  --adapter lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis \
+  --adapter_revision "${ADAPTER_REVISION}" \
+  --base_model google/gemma-4-E4B-it \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --dtype bfloat16 \
+  --device_map auto \
+  --max_shard_size 4GB \
+  --push_to_hub \
+  --hub_model_id lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --commit_message "Merge graph-completion GRPO checkpoint 1400"
+```
+
+If the local checkpoint directory survived, replace the Hub adapter and
+revision arguments above with:
+
+```text
+--adapter models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis \
+--checkpoint 1400
+```
+
+The merge CLI pushes by default; `--push_to_hub` is included above to make that
+side effect explicit. The destination repository is private because
+`--hub_public` is absent. `--mistralrs_compat_save` is unnecessary for normal
+Transformers or vLLM inference.
+
+### Smoke-test raw and scored generations
+
+Inspect a small, mode-balanced sample before starting a longer benchmark:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split train \
+  --modes missing_edges,missing_nodes,wrong_relations,extra_edges,partial_subgraph,prior_empty \
+  --num_tasks 12 \
+  --num_generations 1 \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view scored \
+  --reward_stage shaped \
+  --output_jsonl outputs/graph_completion/step-1400-visual-samples.jsonl \
+  --output_text_file outputs/graph_completion/step-1400-visual-samples.txt
+```
+
+This small training-split sample is only a qualitative format and termination
+smoke test. Do not use its scores to choose between checkpoints. Verify that
+responses contain a complete `<answer>...</answer>` block, terminate before
+4,096 tokens, preserve fixed objects, and avoid large numbers of spurious
+edges. If checkpoint 1,400 already shows runaway completions, repeat the
+recovery and merge procedure for checkpoint 1,350.
+
+### Generate the held-out validation predictions
+
+`validate_graph_completion.py` is a deterministic scorer: it does not load a
+model or generate predictions. The dataset sampler currently exposes official
+`train` and `test` rows, so the following driver uses the existing preparation
+and generation functions directly to select the exact withheld `validation`
+rows from the training manifest. It generates one deterministic response for a
+mode-balanced 512-row validation subset:
+
+```bash
+export MERGED_MODEL="lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400"
+export VAL_ROWS=512
+
+python -u - <<'PY'
+import os
+import sys
+
+sys.path.insert(0, "src")
+
+from graph_completion_data import prepare_graph_completion_datasets
+from sample_graph_completion import (
+    generate_graph_completion_samples,
+    write_graph_completion_samples_jsonl,
+)
+
+model = os.environ["MERGED_MODEL"]
+num_rows = int(os.environ["VAL_ROWS"])
+manifest = "outputs/graph_completion/full-validation-sources.json"
+output = "outputs/graph_completion/step-1400-validation-512.jsonl"
+
+prepared = prepare_graph_completion_datasets(
+    "lamm-mit/graph-canvas-inpainting-121k",
+    validation_manifest=manifest,
+    validation_source_count=512,
+    invalid_pair_policy="filter",
+    seed=42,
+    max_eval_rows=num_rows,
+)
+
+records = generate_graph_completion_samples(
+    prepared.validation,
+    model=model,
+    tokenizer_model=model,
+    dtype="bfloat16",
+    tensor_parallel_size=1,
+    gpu_memory_utilization=0.45,
+    max_prompt_length=4096,
+    max_completion_length=4096,
+    num_generations=1,
+    temperature=0.0,
+    top_p=1.0,
+    seed=42,
+    enable_thinking=True,
+    use_cuda_graphs=False,
+    enable_prefix_caching=True,
+)
+
+write_graph_completion_samples_jsonl(records, output)
+print(f"Wrote {len(records)} validation predictions to {output}")
+PY
+```
+
+Score those predictions against the same 512 withheld validation rows:
+
+```bash
+python -u src/validate_graph_completion.py \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split validation \
+  --validation_manifest outputs/graph_completion/full-validation-sources.json \
+  --validation_source_count 512 \
+  --invalid_pair_policy filter \
+  --max_rows 512 \
+  --seed 42 \
+  --predictions outputs/graph_completion/step-1400-validation-512.jsonl \
+  --output_file outputs/graph_completion/step-1400-validation-512-scored.jsonl \
+  --max_completion_length 4096 \
+  --reward_stage shaped
+```
+
+The aggregate overall and per-mode results are written to:
+
+```text
+outputs/graph_completion/step-1400-validation-512-scored.jsonl.summary.json
+```
+
+Use exactly the same manifest, seed, row cap, decoding settings, and reward
+configuration when comparing checkpoint 1,350, checkpoint 1,400, and the base
+model. After selecting one checkpoint on validation, run the equivalent
+official `test` benchmark once for the final reported result.
+
+### Run the final official test benchmark
+
+Use the dataset's actual official `test` split only after the checkpoint and
+decoding settings are frozen. For checkpoint 1,400, generate one deterministic
+response for every valid official-test row:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --num_tasks 3637 \
+  --num_generations 1 \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view raw \
+  --output_jsonl outputs/graph_completion/step-1400-test-predictions.jsonl
+```
+
+The pair audit currently leaves 3,637 valid official-test rows after filtering
+the four impossible `wrong_relations` pairs. If the dataset revision changes,
+use the valid test-row count printed by the audit as `--num_tasks`.
+
+Score the saved raw completions against the official test references:
+
+```bash
+python -u src/validate_graph_completion.py \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --validation_manifest outputs/graph_completion/full-validation-sources.json \
+  --validation_source_count 512 \
+  --invalid_pair_policy filter \
+  --seed 42 \
+  --predictions outputs/graph_completion/step-1400-test-predictions.jsonl \
+  --output_file outputs/graph_completion/step-1400-test-scored.jsonl \
+  --max_completion_length 4096 \
+  --reward_stage shaped
+```
+
+The final overall and per-mode test metrics are written to:
+
+```text
+outputs/graph_completion/step-1400-test-scored.jsonl.summary.json
+```
+
+Do not compare several checkpoints on this split and then report the best one;
+that would turn the test set into another validation set. If checkpoint choice
+is still open, return to the withheld validation workflow above.
 
 ## Tests
 
