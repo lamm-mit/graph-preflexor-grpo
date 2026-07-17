@@ -12,10 +12,12 @@ from sample_graph_completion import (
     build_manual_graph_completion_task,
     build_graph_completion_sample_prompts,
     build_parser,
+    load_completed_graph_completion_task_keys,
     parse_graph_completion_modes,
     print_graph_completion_samples,
     sample_graph_completion_tasks,
     score_graph_completion_samples,
+    select_unfinished_graph_completion_tasks,
 )
 import sample_graph_completion
 
@@ -81,6 +83,7 @@ def test_sample_cli_defaults_match_training_rollouts():
     assert args.manual_fixed_policy == "all"
     assert args.generation_batch_size == 0
     assert not args.stream_output_jsonl
+    assert not args.resume_output_jsonl
 
 
 def test_parse_modes_rejects_unknown_mode():
@@ -365,3 +368,128 @@ def test_append_jsonl_keeps_completed_batches(tmp_path):
     assert append_graph_completion_samples_jsonl(second, str(output)) == 1
     rows = [json.loads(line) for line in output.read_text().splitlines()]
     assert [row["task_index"] for row in rows] == [1, 2, 3]
+
+
+def test_resume_selects_only_missing_task_identities(tmp_path):
+    rows = Dataset.from_list(
+        [
+            make_row(1, "prior_empty"),
+            make_row(1, "wrong_relations"),
+            make_row(2, "extra_edges"),
+        ]
+    )
+    output = tmp_path / "predictions.jsonl"
+    append_graph_completion_samples_jsonl(
+        [
+            {
+                "source_index": 1,
+                "variant_index": 0,
+                "mode": "prior_empty",
+                "generation_index": 1,
+                "raw_completion": "done",
+            },
+            {
+                "source_index": 2,
+                "variant_index": 0,
+                "mode": "extra_edges",
+                "generation_index": 1,
+                "raw_completion": "done",
+            },
+        ],
+        str(output),
+    )
+
+    completed, count = load_completed_graph_completion_task_keys(str(output))
+    unfinished = select_unfinished_graph_completion_tasks(rows, completed)
+
+    assert count == 2
+    assert len(unfinished) == 1
+    assert unfinished[0]["mode"] == "wrong_relations"
+
+
+def test_resume_rejects_duplicate_existing_task_identity(tmp_path):
+    output = tmp_path / "duplicates.jsonl"
+    record = {
+        "source_index": 1,
+        "variant_index": 0,
+        "mode": "prior_empty",
+        "generation_index": 1,
+    }
+    append_graph_completion_samples_jsonl([record, record], str(output))
+
+    with pytest.raises(ValueError, match="duplicate completed task identity"):
+        load_completed_graph_completion_task_keys(str(output))
+
+
+def test_resume_main_preserves_existing_jsonl_and_appends_missing(
+    tmp_path,
+    monkeypatch,
+):
+    output = tmp_path / "resume.jsonl"
+    existing = {
+        "source_index": 1,
+        "variant_index": 0,
+        "mode": "prior_empty",
+        "generation_index": 1,
+        "raw_completion": "existing",
+    }
+    append_graph_completion_samples_jsonl([existing], str(output))
+    requested = Dataset.from_list(
+        [
+            make_row(1, "prior_empty"),
+            make_row(2, "extra_edges"),
+        ]
+    )
+
+    monkeypatch.setattr(
+        sample_graph_completion,
+        "sample_graph_completion_tasks",
+        lambda *args, **kwargs: requested,
+    )
+    monkeypatch.setattr(
+        sample_graph_completion,
+        "print_graph_completion_samples",
+        lambda *args, **kwargs: None,
+    )
+
+    def fake_generate(rows, *, batch_callback, **kwargs):
+        assert len(rows) == 1
+        record = {
+            "source_index": 2,
+            "variant_index": 0,
+            "mode": "extra_edges",
+            "generation_index": 1,
+            "raw_completion": "new",
+        }
+        batch_callback([record])
+        return [record]
+
+    monkeypatch.setattr(
+        sample_graph_completion,
+        "generate_graph_completion_samples",
+        fake_generate,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "sample_graph_completion.py",
+            "--num_tasks",
+            "2",
+            "--num_generations",
+            "1",
+            "--generation_batch_size",
+            "1",
+            "--stream_output_jsonl",
+            "--resume_output_jsonl",
+            "--view",
+            "raw",
+            "--output_jsonl",
+            str(output),
+        ],
+    )
+
+    sample_graph_completion.main()
+
+    records = [json.loads(line) for line in output.read_text().splitlines()]
+    assert [record["raw_completion"] for record in records] == ["existing", "new"]

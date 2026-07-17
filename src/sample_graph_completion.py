@@ -472,6 +472,74 @@ def append_graph_completion_samples_jsonl(
     return count
 
 
+def load_completed_graph_completion_task_keys(
+    output_file: str,
+) -> tuple[set[tuple[str, str, str]], int]:
+    """Read a single-generation streamed JSONL for safe resume."""
+
+    path = Path(output_file)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"--resume_output_jsonl requires an existing file: {path}"
+        )
+    completed: set[tuple[str, str, str]] = set()
+    rows = 0
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"{path}:{line_number}: invalid JSON; refusing unsafe resume: {exc}"
+                ) from exc
+            generation_index = record.get("generation_index", 1)
+            try:
+                generation_index = int(generation_index)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"{path}:{line_number}: invalid generation_index "
+                    f"{generation_index!r}"
+                ) from exc
+            if generation_index != 1:
+                raise ValueError(
+                    "--resume_output_jsonl currently supports exactly one "
+                    f"generation per task; found generation_index={generation_index}"
+                )
+            key = graph_completion_task_key(record)
+            if key in completed:
+                raise ValueError(
+                    f"{path}:{line_number}: duplicate completed task identity {key}"
+                )
+            completed.add(key)
+            rows += 1
+    return completed, rows
+
+
+def select_unfinished_graph_completion_tasks(
+    rows: Any,
+    completed_keys: set[tuple[str, str, str]],
+) -> Any:
+    """Select tasks absent from a validated streamed prediction JSONL."""
+
+    requested_keys = {graph_completion_task_key(row) for row in rows}
+    unexpected = completed_keys - requested_keys
+    if unexpected:
+        examples = sorted(unexpected)[:10]
+        raise ValueError(
+            "existing output contains task identities outside the requested "
+            f"dataset selection; count={len(unexpected)}, examples={examples}"
+        )
+    return rows.select(
+        [
+            index
+            for index, row in enumerate(rows)
+            if graph_completion_task_key(row) not in completed_keys
+        ]
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -497,6 +565,16 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Append and flush each completed generation batch to --output_jsonl. "
             "Requires --view raw and a positive --generation_batch_size."
+        ),
+    )
+    parser.add_argument(
+        "--resume_output_jsonl",
+        action="store_true",
+        help=(
+            "Resume a single-generation streamed dataset run: preserve the "
+            "existing --output_jsonl, validate its task identities, and append "
+            "only requested tasks not already present. Requires "
+            "--stream_output_jsonl."
         ),
     )
     parser.add_argument(
@@ -561,7 +639,20 @@ def main() -> None:
             )
         if args.view != "raw":
             raise ValueError("--stream_output_jsonl currently requires --view raw")
+    if args.resume_output_jsonl:
+        if not args.stream_output_jsonl:
+            raise ValueError(
+                "--resume_output_jsonl requires --stream_output_jsonl"
+            )
+        if args.num_generations != 1:
+            raise ValueError(
+                "--resume_output_jsonl currently requires --num_generations 1"
+            )
     manual_requested = bool(args.partial_graph_json or args.partial_graph_file)
+    if args.resume_output_jsonl and manual_requested:
+        raise ValueError(
+            "--resume_output_jsonl is supported only for dataset sampling"
+        )
     if manual_requested:
         if args.view == "scored":
             raise ValueError(
@@ -591,11 +682,30 @@ def main() -> None:
             invalid_pair_policy=args.invalid_pair_policy,
         )
     streamed_records = 0
+    if args.resume_output_jsonl:
+        completed_keys, streamed_records = load_completed_graph_completion_task_keys(
+            args.output_jsonl
+        )
+        requested_count = len(rows)
+        rows = select_unfinished_graph_completion_tasks(rows, completed_keys)
+        print(
+            "[graph-completion sampling] resume validated "
+            f"{streamed_records} existing response(s); "
+            f"remaining={len(rows)} of requested={requested_count}",
+            flush=True,
+        )
+        if not len(rows):
+            print(
+                "[graph-completion sampling] all requested tasks are already complete",
+                flush=True,
+            )
+            return
     batch_callback = None
     if args.stream_output_jsonl:
         output_path = Path(args.output_jsonl)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text("", encoding="utf-8")
+        if not args.resume_output_jsonl:
+            output_path.write_text("", encoding="utf-8")
 
         def stream_batch(batch: list[dict[str, Any]]) -> None:
             nonlocal streamed_records

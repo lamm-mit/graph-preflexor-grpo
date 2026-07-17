@@ -713,7 +713,266 @@ python -u src/merge_lora_adapter.py \
 Consult `python src/merge_lora_adapter.py --help` for the exact installed merge
 CLI and existing mistral.rs/Hub options.
 
-## Recover, merge, and publish the selected checkpoint
+## Complete workflow: checkpoint commit to benchmark figures
+
+This is the canonical copy-paste workflow for:
+
+```text
+Hub adapter checkpoint/commit
+    -> merged standalone Gemma 4 model
+    -> private Hub model
+    -> official-test prediction JSONL
+    -> deterministic metrics, tables, and publication figures
+```
+
+The commands below use checkpoint 1,350 and its known Hub commit. The paths are
+derived from `STEP`, so predictions and analyses from different checkpoints do
+not overwrite one another.
+
+### 1. Configure checkpoint 1,350
+
+```bash
+cd /home/mbuehler/LOCAL/graph-preflexor-grpo
+conda activate PyTorch
+
+export ADAPTER_REPO="lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis"
+export STEP="1350"
+export ADAPTER_REVISION="a398d8ba3cf021f3a588a74a9a028cbc16515ac6"
+
+export RUN_STEM="Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-${STEP}-vllm"
+export MERGED_LOCAL="models/${RUN_STEM}"
+export MERGED_REPO="lamm-mit/${RUN_STEM}"
+export PREDICTIONS="outputs/graph_completion/step-${STEP}-test-predictions.jsonl"
+export GENERATION_LOG="outputs/graph_completion/step-${STEP}-test-generation.log"
+export ANALYSIS_DIR="outputs/graph_completion/step-${STEP}-test-analysis"
+
+mkdir -p outputs/graph_completion
+```
+
+Authenticate with Hugging Face first if the Spark environment is not already
+logged in:
+
+```bash
+huggingface-cli login
+```
+
+### 2. Merge the Hub checkpoint commit and push it privately
+
+`merge_lora_adapter.py` downloads the exact adapter snapshot selected by
+`--adapter_revision`, merges it into the base model, materializes the Gemma 4
+tensors required by vLLM, saves it locally, and uploads the standalone model:
+
+```bash
+python -u src/merge_lora_adapter.py \
+  --adapter "${ADAPTER_REPO}" \
+  --adapter_revision "${ADAPTER_REVISION}" \
+  --base_model google/gemma-4-E4B-it \
+  --tokenizer_model google/gemma-4-E4B-it \
+  --processor_model google/gemma-4-E4B-it \
+  --output_dir "${MERGED_LOCAL}" \
+  --dtype bfloat16 \
+  --device_map auto \
+  --max_shard_size 4GB \
+  --mistralrs_compat_save \
+  --raw_tensor_source google/gemma-4-E4B-it \
+  --push_to_hub \
+  --hub_model_id "${MERGED_REPO}" \
+  --commit_message "Materialize Gemma 4 weights and merge GRPO checkpoint ${STEP}"
+```
+
+The destination is private because `--hub_public` is absent. Do not remove
+`--mistralrs_compat_save` for the vLLM export.
+
+If the adapter checkpoint exists locally instead, use the parent adapter
+directory and checkpoint number:
+
+```text
+--adapter models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis
+--checkpoint "${STEP}"
+```
+
+Those two flags replace `--adapter "${ADAPTER_REPO}"` and
+`--adapter_revision "${ADAPTER_REVISION}"`; the rest of the merge command is
+unchanged.
+
+### 3. Generate the official-test benchmark predictions
+
+This runs all 3,641 currently valid official-test tasks using deterministic
+decoding. vLLM processes each outer batch efficiently, while the sampler
+flushes every completed batch to the JSONL file:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model "${MERGED_REPO}" \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --invalid_pair_policy filter \
+  --num_tasks 3641 \
+  --num_generations 1 \
+  --generation_batch_size 64 \
+  --stream_output_jsonl \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --seed 42 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view raw \
+  --output_jsonl "${PREDICTIONS}" \
+  > "${GENERATION_LOG}" 2>&1
+```
+
+The JSONL is durable after each batch. Monitor it from another terminal using
+the literal path for the selected step:
+
+```bash
+watch -n 10 'wc -l outputs/graph_completion/step-1350-test-predictions.jsonl'
+tail -f outputs/graph_completion/step-1350-test-generation.log
+```
+
+The streaming command truncates its selected output JSONL at startup; it does
+not resume an interrupted run. It never touches prediction files belonging to
+other checkpoint steps.
+
+If a streamed run stopped early, or if it was generated using the obsolete
+3,637-row cap, preserve the existing JSONL and generate only missing task
+identities with `--resume_output_jsonl`. Always request the full 3,641-row
+selection when resuming:
+
+```bash
+python -u src/sample_graph_completion.py \
+  --model "${MERGED_REPO}" \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --invalid_pair_policy filter \
+  --num_tasks 3641 \
+  --num_generations 1 \
+  --generation_batch_size 64 \
+  --stream_output_jsonl \
+  --resume_output_jsonl \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --seed 42 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view raw \
+  --output_jsonl "${PREDICTIONS}" \
+  >> "${GENERATION_LOG}" 2>&1
+```
+
+Resume mode validates the existing JSONL, rejects duplicate task identities,
+does not truncate it, and appends only tasks that are absent. With the existing
+checkpoint-1,350 file containing 3,637 unique tasks, it generates four
+additional responses.
+
+### 4. Score the benchmark and make publication figures
+
+The analysis CLI does not load the model. It reloads only the official test
+references, verifies complete task coverage using
+`(source_index, variant_index, mode)`, computes metrics, and writes vector SVG
+and 450-DPI PNG figures:
+
+```bash
+python -u src/analyze_graph_completion_benchmark.py \
+  --predictions "${PREDICTIONS}" \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split test \
+  --validation_manifest outputs/graph_completion/full-validation-sources.json \
+  --validation_source_count 512 \
+  --invalid_pair_policy filter \
+  --seed 42 \
+  --max_completion_length 4096 \
+  --reward_stage shaped \
+  --aggregation_unit source \
+  --bootstrap_samples 2000 \
+  --bootstrap_seed 42 \
+  --confidence 0.95 \
+  --png_dpi 450 \
+  --label "Gemma 4 E4B GRPO, checkpoint ${STEP}" \
+  --output_dir "${ANALYSIS_DIR}"
+```
+
+The result directory contains row-level scores, JSON and CSV summaries, a
+compact generated report, and five figure pairs:
+
+```text
+scored_predictions.jsonl
+benchmark_summary.json
+end_to_end_metrics.csv
+conditional_graph_metrics.csv
+reward_components.csv
+generation_metrics.csv
+README.md
+benchmark_overall.{svg,png}
+benchmark_by_mode.{svg,png}
+benchmark_conditional_precision_recall.{svg,png}
+benchmark_reward_components.{svg,png}
+benchmark_generation_diagnostics.{svg,png}
+```
+
+For the current dataset revision, the integrity section in
+`benchmark_summary.json` must show:
+
+```text
+expected_unique_tasks: 3641
+predicted_unique_tasks: 3641
+predictions_scored: 3641
+predictions_without_reference: 0
+predictions_with_ambiguous_reference: 0
+missing_mode_rows: 0
+duplicate_task_generation_rows: 0
+missing_expected_tasks: 0
+unexpected_tasks: 0
+```
+
+### 5. Repeat for a different checkpoint
+
+First find the commit associated with the desired training step:
+
+```bash
+python - <<'PY'
+from huggingface_hub import HfApi
+
+repo = "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis"
+for commit in HfApi().list_repo_commits(repo):
+    print(commit.created_at, commit.commit_id, commit.title)
+PY
+```
+
+For example, to evaluate checkpoint 1,400, set its commit SHA and recompute
+every derived path:
+
+```bash
+export STEP="1400"
+export ADAPTER_REVISION="PASTE_STEP_1400_COMMIT_SHA"
+
+export RUN_STEM="Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-${STEP}-vllm"
+export MERGED_LOCAL="models/${RUN_STEM}"
+export MERGED_REPO="lamm-mit/${RUN_STEM}"
+export PREDICTIONS="outputs/graph_completion/step-${STEP}-test-predictions.jsonl"
+export GENERATION_LOG="outputs/graph_completion/step-${STEP}-test-generation.log"
+export ANALYSIS_DIR="outputs/graph_completion/step-${STEP}-test-analysis"
+```
+
+Then rerun steps 2, 3, and 4 unchanged. Because every artifact includes
+`${STEP}`, the checkpoint-1,400 model, predictions, logs, metrics, and figures
+remain separate from checkpoint 1,350.
+
+Do not run several checkpoints on the official test split and select the best
+test result. Use the fixed held-out validation workflow below for checkpoint
+selection, freeze the checkpoint and decoding settings, and run the official
+test workflow once for the final report.
+
+## Detailed checkpoint-selection and validation notes
+
+The canonical variable-driven workflow above is the recommended final-test
+procedure. This section keeps the longer checkpoint-1,400 example to show the
+held-out validation stage used when checkpoint selection is still open.
 
 For the conditioned token-TIS run documented above, training reward peaked
 around steps 1,350-1,400 and completion length began a sustained runaway after
@@ -827,7 +1086,7 @@ rows from the training manifest. It generates one deterministic response for a
 mode-balanced 512-row validation subset:
 
 ```bash
-export MERGED_MODEL="lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400"
+export MERGED_MODEL="lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm"
 export VAL_ROWS=512
 
 python -u - <<'PY'
@@ -918,9 +1177,9 @@ python -u src/sample_graph_completion.py \
   --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm \
   --dataset lamm-mit/graph-canvas-inpainting-121k \
   --split test \
-  --num_tasks 3637 \
+  --num_tasks 3641 \
   --num_generations 1 \
-  --generation_batch_size 8 \
+  --generation_batch_size 64 \
   --stream_output_jsonl \
   --temperature 0.0 \
   --top_p 1.0 \
@@ -934,7 +1193,7 @@ python -u src/sample_graph_completion.py \
 ```
 
 Chunking makes the outer `tqdm` report completed test tasks and flushes every
-eight completed responses to the JSONL file. Monitor durable progress from a
+64 completed responses to the JSONL file. Monitor durable progress from a
 second terminal with:
 
 ```bash
@@ -945,9 +1204,12 @@ The streaming command truncates its output JSONL when it starts; it does not
 resume an interrupted file. A crash or interruption preserves every fully
 written earlier batch, making diagnosis and partial scoring possible.
 
-The pair audit currently leaves 3,637 valid official-test rows after filtering
-the four impossible `wrong_relations` pairs. If the dataset revision changes,
-use the valid test-row count printed by the audit as `--num_tasks`.
+The current pair audit keeps all 3,641 official-test rows. Four
+`wrong_relations` rows previously treated as invalid are valid endpoint-repair
+tasks: several target relations can share one endpoint pair and collapse to
+one duplicated corrupted relation without changing that endpoint pair. If the
+dataset revision changes, use the valid test-row count printed by the audit as
+`--num_tasks`.
 
 Before scoring, confirm that all task identities are present. A task identity
 is the three-field tuple `(source_index, variant_index, mode)`, not merely the
@@ -966,18 +1228,18 @@ keys = {
 }
 print("responses:", len(rows))
 print("unique task identities:", len(keys))
-assert len(rows) == 3637
-assert len(keys) == 3637
+assert len(rows) == 3641
+assert len(keys) == 3641
 PY
 ```
 
 The sampler deliberately stops after generation. Analyze a saved prediction
 JSONL with the separate benchmark CLI; it does not load the model and can run
-on CPU. For the completed checkpoint-1,350 run:
+on CPU. Continuing the checkpoint-1,400 example:
 
 ```bash
 python -u src/analyze_graph_completion_benchmark.py \
-  --predictions outputs/graph_completion/step-1350-test-predictions.jsonl \
+  --predictions outputs/graph_completion/step-1400-test-predictions.jsonl \
   --dataset lamm-mit/graph-canvas-inpainting-121k \
   --split test \
   --validation_manifest outputs/graph_completion/full-validation-sources.json \
@@ -991,8 +1253,8 @@ python -u src/analyze_graph_completion_benchmark.py \
   --bootstrap_seed 42 \
   --confidence 0.95 \
   --png_dpi 450 \
-  --label "Gemma 4 E4B GRPO, checkpoint 1350" \
-  --output_dir outputs/graph_completion/step-1350-test-analysis
+  --label "Gemma 4 E4B GRPO, checkpoint 1400" \
+  --output_dir outputs/graph_completion/step-1400-test-analysis
 ```
 
 `source` is the publication-oriented default: it first averages the correlated
@@ -1026,9 +1288,9 @@ For the current official dataset revision, the
 `benchmark_summary.json["integrity"]` fields must report:
 
 ```text
-expected_unique_tasks: 3637
-predicted_unique_tasks: 3637
-predictions_scored: 3637
+expected_unique_tasks: 3641
+predicted_unique_tasks: 3641
+predictions_scored: 3641
 predictions_without_reference: 0
 predictions_with_ambiguous_reference: 0
 missing_mode_rows: 0
