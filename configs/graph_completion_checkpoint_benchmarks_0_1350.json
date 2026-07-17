@@ -1,0 +1,39 @@
+{
+  "checkpoints": [
+    {
+      "step": 0,
+      "label": "Gemma 4 E4B baseline",
+      "model": "google/gemma-4-E4B-it"
+    },
+    {
+      "step": 250,
+      "label": "GRPO checkpoint 250",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-250-vllm"
+    },
+    {
+      "step": 500,
+      "label": "GRPO checkpoint 500",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-500-vllm"
+    },
+    {
+      "step": 750,
+      "label": "GRPO checkpoint 750",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-750-vllm"
+    },
+    {
+      "step": 1000,
+      "label": "GRPO checkpoint 1000",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1000-vllm"
+    },
+    {
+      "step": 1250,
+      "label": "GRPO checkpoint 1250",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1250-vllm"
+    },
+    {
+      "step": 1350,
+      "label": "GRPO checkpoint 1350",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1350-vllm"
+    }
+  ]
+}
