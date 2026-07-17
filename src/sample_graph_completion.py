@@ -16,6 +16,7 @@ from graph_completion_data import (
     DEFAULT_DATASET,
     add_no_edit_baselines,
     audit_and_filter_pairs,
+    graph_completion_task_key,
     load_graph_completion_dataset,
 )
 from graph_completion_parsing import GRAPH_COMPLETION_MODES
@@ -366,13 +367,13 @@ def score_graph_completion_samples(
     if "no_edit_primary" not in rows.column_names:
         rows = add_no_edit_baselines(rows)
     lookup = {
-        (str(row["source_index"]), str(row["variant_index"])): row
+        graph_completion_task_key(row): row
         for row in rows
     }
     scored: list[dict[str, Any]] = []
     for source_record in records:
         record = dict(source_record)
-        key = (str(record["source_index"]), str(record["variant_index"]))
+        key = graph_completion_task_key(record)
         row = lookup.get(key)
         if row is None:
             raise ValueError(f"sample has no matching reference row: {key}")

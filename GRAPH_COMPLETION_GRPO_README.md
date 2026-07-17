@@ -19,6 +19,9 @@ transformer, EditFlow, or diffusion implementation is used.
 
 - `src/run_grpo_graph_completion.py`: standalone GRPO trainer.
 - `src/validate_graph_completion.py`: dataset audit and saved-completion scorer.
+- `src/analyze_graph_completion_benchmark.py`: strict benchmark coverage audit,
+  deterministic scorer, bootstrap tables, and publication-ready SVG/PNG
+  figures for a saved prediction JSONL.
 - `src/sample_graph_completion.py`: mode-balanced vLLM sampling with raw-rollout
   and scored-reference inspection views.
 - `src/graph_completion_data.py`: official-split loading, pair auditing, grouped
@@ -55,6 +58,7 @@ interfaces without loading a model:
 python -c "import transformers,trl,peft,datasets; print(transformers.__version__, trl.__version__, peft.__version__, datasets.__version__)"
 python src/run_grpo_graph_completion.py --help
 python src/validate_graph_completion.py --help
+python src/analyze_graph_completion_benchmark.py --help
 python src/sample_graph_completion.py --help
 ```
 
@@ -531,11 +535,14 @@ python -u src/run_grpo_graph_completion.py \
 
 ## Score saved completions
 
-Prediction JSONL rows must contain `source_index`, `variant_index`, and either
-`raw_completion` or `completion`:
+Prediction JSONL rows must contain `source_index`, `variant_index`, `mode`, and
+either `raw_completion` or `completion`. The mode is part of the task identity:
+the dataset intentionally reuses a source/variant pair across several
+corruption modes. For backward compatibility, `mode` may be omitted only when
+that source/variant pair has exactly one reference row.
 
 ```json
-{"source_index": 42, "variant_index": 3, "raw_completion": "...<answer>{...}</answer>"}
+{"source_index": 42, "variant_index": 3, "mode": "missing_edges", "completion_token_count": 812, "raw_completion": "...<answer>{...}</answer>"}
 ```
 
 The scorer accepts `train`, `validation`, or `test`. The example below scores
@@ -552,8 +559,16 @@ python -u src/validate_graph_completion.py \
   --reward_stage shaped
 ```
 
-The command writes row-level scores plus a `.summary.json` file with overall
-and per-mode means.
+The command writes row-level scores plus a `.summary.json` file with:
+
+- overall and per-mode shaped rewards;
+- unconditional component means, where invalid completions count as zero;
+- graph metrics conditional on a parsed, schema-valid graph;
+- valid-completion and graph-metric coverage rates;
+- completion-token, maximum-length, finish-reason, and stop-reason statistics.
+
+When `completion_token_count` is present, it is forwarded to the same reward
+function used during training.
 
 ## Inspect baseline model rollouts
 
@@ -934,27 +949,104 @@ The pair audit currently leaves 3,637 valid official-test rows after filtering
 the four impossible `wrong_relations` pairs. If the dataset revision changes,
 use the valid test-row count printed by the audit as `--num_tasks`.
 
-Score the saved raw completions against the official test references:
+Before scoring, confirm that all task identities are present. A task identity
+is the three-field tuple `(source_index, variant_index, mode)`, not merely the
+source/variant pair:
 
 ```bash
-python -u src/validate_graph_completion.py \
+python - <<'PY'
+import json
+from pathlib import Path
+
+p = Path("outputs/graph_completion/step-1400-test-predictions.jsonl")
+rows = [json.loads(line) for line in p.open() if line.strip()]
+keys = {
+    (str(row["source_index"]), str(row["variant_index"]), str(row["mode"]))
+    for row in rows
+}
+print("responses:", len(rows))
+print("unique task identities:", len(keys))
+assert len(rows) == 3637
+assert len(keys) == 3637
+PY
+```
+
+The sampler deliberately stops after generation. Analyze a saved prediction
+JSONL with the separate benchmark CLI; it does not load the model and can run
+on CPU. For the completed checkpoint-1,350 run:
+
+```bash
+python -u src/analyze_graph_completion_benchmark.py \
+  --predictions outputs/graph_completion/step-1350-test-predictions.jsonl \
   --dataset lamm-mit/graph-canvas-inpainting-121k \
   --split test \
   --validation_manifest outputs/graph_completion/full-validation-sources.json \
   --validation_source_count 512 \
   --invalid_pair_policy filter \
   --seed 42 \
-  --predictions outputs/graph_completion/step-1400-test-predictions.jsonl \
-  --output_file outputs/graph_completion/step-1400-test-scored.jsonl \
   --max_completion_length 4096 \
-  --reward_stage shaped
+  --reward_stage shaped \
+  --aggregation_unit source \
+  --bootstrap_samples 2000 \
+  --bootstrap_seed 42 \
+  --confidence 0.95 \
+  --png_dpi 450 \
+  --label "Gemma 4 E4B GRPO, checkpoint 1350" \
+  --output_dir outputs/graph_completion/step-1350-test-analysis
 ```
 
-The final overall and per-mode test metrics are written to:
+`source` is the publication-oriented default: it first averages the correlated
+variants and corruption modes derived from one original graph, then gives each
+source graph equal weight. Confidence intervals resample source graphs. Use
+`--aggregation_unit task` only when an explicitly task-weighted result is
+needed.
+
+The output directory contains:
 
 ```text
-outputs/graph_completion/step-1400-test-scored.jsonl.summary.json
+scored_predictions.jsonl
+benchmark_summary.json
+end_to_end_metrics.csv
+conditional_graph_metrics.csv
+reward_components.csv
+generation_metrics.csv
+README.md
+benchmark_overall.{svg,png}
+benchmark_by_mode.{svg,png}
+benchmark_conditional_precision_recall.{svg,png}
+benchmark_reward_components.{svg,png}
+benchmark_generation_diagnostics.{svg,png}
 ```
+
+The SVG files are vector figures; PNG files are written at 450 DPI by the
+command above. The generated `README.md` is a compact result report with the
+headline metrics and generation diagnostics.
+
+For the current official dataset revision, the
+`benchmark_summary.json["integrity"]` fields must report:
+
+```text
+expected_unique_tasks: 3637
+predicted_unique_tasks: 3637
+predictions_scored: 3637
+predictions_without_reference: 0
+predictions_with_ambiguous_reference: 0
+missing_mode_rows: 0
+duplicate_task_generation_rows: 0
+missing_expected_tasks: 0
+unexpected_tasks: 0
+```
+
+The identity check uses `(source_index, variant_index, mode)`. Repeated
+source/variant pairs across corruption modes are therefore distinct tasks.
+`end_to_end_metrics.csv` includes every response and assigns zero semantic
+component credit to invalid outputs. `conditional_graph_metrics.csv` reports
+node/edge precision, recall, and F1 only among outputs that produced a parsed,
+schema-valid graph; its `n` and `prediction_rows` columns make that conditioning
+explicit.
+
+`src/validate_graph_completion.py` remains available as the lighter
+JSONL-to-JSONL scorer when tables and figures are not required.
 
 Do not compare several checkpoints on this split and then report the best one;
 that would turn the test set into another validation set. If checkpoint choice
@@ -969,5 +1061,7 @@ pytest -q \
   tests/test_graph_completion_parsing.py \
   tests/test_graph_completion_metrics_rewards.py \
   tests/test_graph_completion_data_prompting.py \
-  tests/test_graph_completion_sampling.py
+  tests/test_graph_completion_sampling.py \
+  tests/test_graph_completion_validation.py \
+  tests/test_graph_completion_benchmark_analysis.py
 ```

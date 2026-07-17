@@ -33,6 +33,19 @@ REQUIRED_COLUMNS = {
 }
 
 
+def graph_completion_task_key(row: Mapping[str, Any]) -> tuple[str, str, str]:
+    """Return the unique dataset-row identity, including corruption mode."""
+
+    mode = row.get("mode")
+    if mode is None or not str(mode).strip():
+        raise ValueError("graph-completion task identity requires a non-empty mode")
+    return (
+        str(row.get("source_index")),
+        str(row.get("variant_index")),
+        str(mode),
+    )
+
+
 @dataclass
 class DatasetAudit:
     rows_before: int
@@ -263,6 +276,57 @@ def add_no_edit_baselines(dataset: Any) -> Any:
     return dataset.map(calculate, desc="Caching graph no-edit baselines")
 
 
+def prepare_graph_completion_reference_split(
+    dataset_name: str,
+    *,
+    split: str,
+    validation_manifest: str,
+    invalid_pair_policy: str = "filter",
+    seed: int = 42,
+    validation_source_count: int = 512,
+    modes: Optional[Iterable[str]] = None,
+    max_rows: Optional[int] = None,
+) -> Any:
+    """Prepare one scoring split without processing unrelated training rows."""
+
+    if split not in {"train", "validation", "test"}:
+        raise ValueError("split must be train, validation, or test")
+    dataset = load_graph_completion_dataset(dataset_name)
+    split_summary = audit_source_split(dataset["train"], dataset["test"])
+    print(f"[graph-completion data] official split audit: {split_summary}")
+    if split == "test":
+        selected, _ = audit_and_filter_pairs(
+            dataset["test"],
+            split_name="test",
+            invalid_pair_policy=invalid_pair_policy,
+        )
+    else:
+        train, _ = audit_and_filter_pairs(
+            dataset["train"],
+            split_name="train",
+            invalid_pair_policy=invalid_pair_policy,
+        )
+        validation_sources = create_or_load_validation_manifest(
+            train,
+            validation_manifest,
+            seed=seed,
+            source_count=validation_source_count,
+        )
+        selected = _select_sources(
+            train,
+            set(validation_sources),
+            include=split == "validation",
+        )
+    selected = _filter_modes(selected, modes)
+    cap_seed = seed + {"train": 0, "validation": 1, "test": 2}[split]
+    selected = mode_balanced_cap(selected, max_rows, cap_seed)
+    selected = add_no_edit_baselines(selected)
+    print(
+        f"[graph-completion data] prepared scoring split={split}, rows={len(selected)}"
+    )
+    return selected
+
+
 def prepare_graph_completion_datasets(
     dataset_name: str,
     *,
@@ -318,4 +382,3 @@ def prepare_graph_completion_datasets(
         train_audit=train_audit,
         test_audit=test_audit,
     )
-

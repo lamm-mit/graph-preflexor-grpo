@@ -204,6 +204,46 @@ def test_raw_render_preserves_completion_and_scored_view_uses_same_record():
     assert "TRAINING REWARD" in scored_stream.getvalue()
 
 
+def test_scoring_uses_mode_in_task_identity_for_repeated_source_variant():
+    rows = Dataset.from_list(
+        [
+            make_row(1, "prior_empty"),
+            make_row(1, "wrong_relations"),
+        ]
+    )
+    prior_target = json.dumps(TARGET, separators=(",", ":"))
+    relation_target = json.dumps(
+        {
+            "nodes": [{"id": "A"}, {"id": "B"}],
+            "edges": [{"source": "A", "relation": "activates", "target": "B"}],
+        },
+        separators=(",", ":"),
+    )
+    records = [
+        {
+            "source_index": 1,
+            "variant_index": 0,
+            "mode": "prior_empty",
+            "raw_completion": f"<answer>{prior_target}</answer>",
+            "completion_token_count": 12,
+        },
+        {
+            "source_index": 1,
+            "variant_index": 0,
+            "mode": "wrong_relations",
+            "raw_completion": f"<answer>{relation_target}</answer>",
+            "completion_token_count": 24,
+        },
+    ]
+
+    from graph_completion_rewards import RewardConfig
+
+    scored = score_graph_completion_samples(records, rows, RewardConfig())
+
+    assert [record["reward_components"]["exact_match"] for record in scored] == [1.0, 1.0]
+    assert scored[0]["reference_graph_json"] != scored[1]["reference_graph_json"]
+
+
 def test_vllm_023_prompt_truncation_is_not_a_sampling_parameter(monkeypatch):
     calls = {}
 

@@ -11,6 +11,7 @@ from graph_completion_data import (
     audit_source_split,
     create_or_load_validation_manifest,
     prepare_graph_completion_datasets,
+    prepare_graph_completion_reference_split,
 )
 from graph_completion_parsing import render_graph_canvas
 from graph_completion_prompting import apply_graph_completion_chat_template
@@ -277,3 +278,26 @@ def test_end_to_end_local_dataset_preparation(tmp_path):
         set(prepared.validation["source_index"])
     )
     assert "no_edit_primary" in prepared.train.column_names
+
+
+def test_reference_split_preparation_skips_irrelevant_validation_manifest(tmp_path):
+    dataset_path = tmp_path / "dataset"
+    DatasetDict(
+        {
+            "train": Dataset.from_list([make_row(index) for index in range(8)]),
+            "test": Dataset.from_list([make_row(index) for index in range(20, 23)]),
+        }
+    ).save_to_disk(str(dataset_path))
+    manifest = tmp_path / "must-not-be-created.json"
+
+    selected = prepare_graph_completion_reference_split(
+        str(dataset_path),
+        split="test",
+        validation_manifest=str(manifest),
+        validation_source_count=2,
+        max_rows=2,
+    )
+
+    assert len(selected) == 2
+    assert "no_edit_primary" in selected.column_names
+    assert not manifest.exists()
