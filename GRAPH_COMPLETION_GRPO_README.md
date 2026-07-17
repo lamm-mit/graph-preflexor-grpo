@@ -645,7 +645,7 @@ python -u src/sample_graph_completion.py \
   --top_p 1.0 \
   --seed 11 \
   --max_prompt_length 4096 \
-  --max_completion_length 1500 \
+  --max_completion_length 4096 \
   --dtype bfloat16 \
   --vllm_gpu_memory_utilization 0.45 \
   --chat_template_enable_thinking true \
@@ -744,13 +744,15 @@ python -u src/merge_lora_adapter.py \
   --base_model google/gemma-4-E4B-it \
   --tokenizer_model google/gemma-4-E4B-it \
   --processor_model google/gemma-4-E4B-it \
-  --output_dir models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --output_dir models/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm \
   --dtype bfloat16 \
   --device_map auto \
   --max_shard_size 4GB \
+  --mistralrs_compat_save \
+  --raw_tensor_source google/gemma-4-E4B-it \
   --push_to_hub \
-  --hub_model_id lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
-  --commit_message "Merge graph-completion GRPO checkpoint 1400"
+  --hub_model_id lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm \
+  --commit_message "Materialize Gemma 4 weights and merge GRPO checkpoint 1400"
 ```
 
 If the local checkpoint directory survived, replace the Hub adapter and
@@ -763,8 +765,10 @@ revision arguments above with:
 
 The merge CLI pushes by default; `--push_to_hub` is included above to make that
 side effect explicit. The destination repository is private because
-`--hub_public` is absent. `--mistralrs_compat_save` is unnecessary for normal
-Transformers or vLLM inference.
+`--hub_public` is absent. Keep `--mistralrs_compat_save` for Gemma 4 vLLM
+exports: Transformers can reconstruct some aliased attention-normalization
+weights, but vLLM requires tensors such as the later-layer `k_norm.weight`
+values to be materialized explicitly in the safetensors checkpoint.
 
 ### Smoke-test raw and scored generations
 
@@ -772,10 +776,10 @@ Inspect a small, mode-balanced sample before starting a longer benchmark:
 
 ```bash
 python -u src/sample_graph_completion.py \
-  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm \
   --dataset lamm-mit/graph-canvas-inpainting-121k \
   --split train \
-  --modes missing_edges,missing_nodes,wrong_relations,extra_edges,partial_subgraph,prior_empty \
+  --modes fixed_nodes_only,missing_edges,wrong_relations,extra_edges,partial_subgraph,prior_empty \
   --num_tasks 12 \
   --num_generations 1 \
   --temperature 0.0 \
@@ -896,11 +900,13 @@ response for every valid official-test row:
 
 ```bash
 python -u src/sample_graph_completion.py \
-  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400 \
+  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm \
   --dataset lamm-mit/graph-canvas-inpainting-121k \
   --split test \
   --num_tasks 3637 \
   --num_generations 1 \
+  --generation_batch_size 8 \
+  --stream_output_jsonl \
   --temperature 0.0 \
   --top_p 1.0 \
   --max_prompt_length 4096 \
@@ -911,6 +917,18 @@ python -u src/sample_graph_completion.py \
   --view raw \
   --output_jsonl outputs/graph_completion/step-1400-test-predictions.jsonl
 ```
+
+Chunking makes the outer `tqdm` report completed test tasks and flushes every
+eight completed responses to the JSONL file. Monitor durable progress from a
+second terminal with:
+
+```bash
+watch -n 10 'wc -l outputs/graph_completion/step-1400-test-predictions.jsonl'
+```
+
+The streaming command truncates its output JSONL when it starts; it does not
+resume an interrupted file. A crash or interruption preserves every fully
+written earlier batch, making diagnosis and partial scoring possible.
 
 The pair audit currently leaves 3,637 valid official-test rows after filtering
 the four impossible `wrong_relations` pairs. If the dataset revision changes,

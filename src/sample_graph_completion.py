@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Optional, TextIO
+from typing import Any, Callable, Iterable, Mapping, Optional, TextIO
 
 from transformers import AutoTokenizer
 
@@ -210,6 +210,9 @@ def generate_graph_completion_samples(
     enable_thinking: Optional[bool] = True,
     use_cuda_graphs: bool = False,
     enable_prefix_caching: bool = True,
+    generation_batch_size: int = 0,
+    show_progress: bool = False,
+    batch_callback: Optional[Callable[[list[dict[str, Any]]], None]] = None,
 ) -> list[dict[str, Any]]:
     """Generate vLLM rollouts and retain each decoded completion unchanged.
 
@@ -223,6 +226,8 @@ def generate_graph_completion_samples(
         raise ValueError("prompt and completion lengths must be positive")
     if num_generations <= 0:
         raise ValueError("num_generations must be positive")
+    if generation_batch_size < 0:
+        raise ValueError("generation_batch_size must be non-negative")
 
     try:
         from vllm import LLM, SamplingParams
@@ -232,10 +237,14 @@ def generate_graph_completion_samples(
             "vLLM version used by the training environment."
         ) from error
 
+    row_list = list(rows)
+    if not row_list:
+        return []
+
     tokenizer_source = tokenizer_model or model
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_source, revision=revision)
     prompts = build_graph_completion_sample_prompts(
-        rows,
+        row_list,
         tokenizer,
         enable_thinking=enable_thinking,
     )
@@ -266,52 +275,84 @@ def generate_graph_completion_samples(
         skip_special_tokens=True,
     )
     engine = LLM(**engine_kwargs)
-    request_outputs = engine.generate(
-        prompts,
-        sampling,
-        tokenization_kwargs={
-            "truncation": True,
-            "max_length": max_prompt_length,
-        },
-    )
-
     records: list[dict[str, Any]] = []
-    for task_index, (row, requested_prompt, request_output) in enumerate(
-        zip(rows, prompts, request_outputs),
-        start=1,
-    ):
-        prompt_token_ids = list(getattr(request_output, "prompt_token_ids", []) or [])
-        effective_prompt = (
-            tokenizer.decode(prompt_token_ids, skip_special_tokens=False)
-            if prompt_token_ids
-            else requested_prompt
+    batch_size = generation_batch_size or len(row_list)
+    progress = None
+    if show_progress:
+        from tqdm.auto import tqdm
+
+        progress = tqdm(
+            total=len(row_list),
+            desc="Graph-completion tasks",
+            unit="task",
+            dynamic_ncols=True,
         )
-        for generation_index, completion in enumerate(request_output.outputs, start=1):
-            token_ids = list(completion.token_ids)
-            records.append(
-                {
-                    "task_index": task_index,
-                    "generation_index": generation_index,
-                    "source_index": row["source_index"],
-                    "variant_index": row["variant_index"],
-                    "mode": str(row["mode"]),
-                    "condition": row.get("condition"),
-                    "x0": row["x0"],
-                    "prompt": effective_prompt,
-                    "prompt_token_count": len(prompt_token_ids),
-                    # This is deliberately not parsed, stripped, repaired, or
-                    # reduced to its <answer> block.
-                    "raw_completion": completion.text,
-                    "completion_token_count": len(token_ids),
-                    "completion_token_ids": token_ids,
-                    "finish_reason": (
-                        str(completion.finish_reason)
-                        if completion.finish_reason is not None
-                        else None
-                    ),
-                    "stop_reason": completion.stop_reason,
-                }
+
+    try:
+        for batch_start in range(0, len(row_list), batch_size):
+            batch_end = min(len(row_list), batch_start + batch_size)
+            batch_rows = row_list[batch_start:batch_end]
+            batch_prompts = prompts[batch_start:batch_end]
+            request_outputs = engine.generate(
+                batch_prompts,
+                sampling,
+                use_tqdm=False,
+                tokenization_kwargs={
+                    "truncation": True,
+                    "max_length": max_prompt_length,
+                },
             )
+
+            batch_records: list[dict[str, Any]] = []
+            for local_index, (row, requested_prompt, request_output) in enumerate(
+                zip(batch_rows, batch_prompts, request_outputs),
+                start=1,
+            ):
+                task_index = batch_start + local_index
+                prompt_token_ids = list(
+                    getattr(request_output, "prompt_token_ids", []) or []
+                )
+                effective_prompt = (
+                    tokenizer.decode(prompt_token_ids, skip_special_tokens=False)
+                    if prompt_token_ids
+                    else requested_prompt
+                )
+                for generation_index, completion in enumerate(
+                    request_output.outputs, start=1
+                ):
+                    token_ids = list(completion.token_ids)
+                    batch_records.append(
+                        {
+                            "task_index": task_index,
+                            "generation_index": generation_index,
+                            "source_index": row["source_index"],
+                            "variant_index": row["variant_index"],
+                            "mode": str(row["mode"]),
+                            "condition": row.get("condition"),
+                            "x0": row["x0"],
+                            "prompt": effective_prompt,
+                            "prompt_token_count": len(prompt_token_ids),
+                            # This is deliberately not parsed, stripped,
+                            # repaired, or reduced to its <answer> block.
+                            "raw_completion": completion.text,
+                            "completion_token_count": len(token_ids),
+                            "completion_token_ids": token_ids,
+                            "finish_reason": (
+                                str(completion.finish_reason)
+                                if completion.finish_reason is not None
+                                else None
+                            ),
+                            "stop_reason": completion.stop_reason,
+                        }
+                    )
+            records.extend(batch_records)
+            if batch_callback is not None:
+                batch_callback(batch_records)
+            if progress is not None:
+                progress.update(len(batch_rows))
+    finally:
+        if progress is not None:
+            progress.close()
     return records
 
 
@@ -413,6 +454,23 @@ def write_graph_completion_samples_jsonl(
             handle.write(json.dumps(dict(record), ensure_ascii=False) + "\n")
 
 
+def append_graph_completion_samples_jsonl(
+    records: Iterable[Mapping[str, Any]],
+    output_file: str,
+) -> int:
+    """Append and flush one generated batch, returning the record count."""
+
+    path = Path(output_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    count = 0
+    with path.open("a", encoding="utf-8") as handle:
+        for record in records:
+            handle.write(json.dumps(dict(record), ensure_ascii=False) + "\n")
+            count += 1
+        handle.flush()
+    return count
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -423,6 +481,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--modes", default=None, help="Optional comma-separated mode subset.")
     parser.add_argument("--num_tasks", type=int, default=3)
     parser.add_argument("--num_generations", type=int, default=1)
+    parser.add_argument(
+        "--generation_batch_size",
+        type=int,
+        default=0,
+        help=(
+            "Generate this many tasks per vLLM call and show task-level tqdm "
+            "progress. Zero keeps the original all-at-once behavior."
+        ),
+    )
+    parser.add_argument(
+        "--stream_output_jsonl",
+        action="store_true",
+        help=(
+            "Append and flush each completed generation batch to --output_jsonl. "
+            "Requires --view raw and a positive --generation_batch_size."
+        ),
+    )
     parser.add_argument(
         "--condition",
         default=None,
@@ -476,6 +551,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    if args.stream_output_jsonl:
+        if not args.output_jsonl:
+            raise ValueError("--stream_output_jsonl requires --output_jsonl")
+        if args.generation_batch_size <= 0:
+            raise ValueError(
+                "--stream_output_jsonl requires a positive --generation_batch_size"
+            )
+        if args.view != "raw":
+            raise ValueError("--stream_output_jsonl currently requires --view raw")
     manual_requested = bool(args.partial_graph_json or args.partial_graph_file)
     if manual_requested:
         if args.view == "scored":
@@ -505,6 +589,27 @@ def main() -> None:
             seed=args.seed,
             invalid_pair_policy=args.invalid_pair_policy,
         )
+    streamed_records = 0
+    batch_callback = None
+    if args.stream_output_jsonl:
+        output_path = Path(args.output_jsonl)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("", encoding="utf-8")
+
+        def stream_batch(batch: list[dict[str, Any]]) -> None:
+            nonlocal streamed_records
+            streamed_records += append_graph_completion_samples_jsonl(
+                batch, args.output_jsonl
+            )
+            print(
+                "[graph-completion sampling] "
+                f"wrote {streamed_records} intermediate response(s) to "
+                f"{args.output_jsonl}",
+                flush=True,
+            )
+
+        batch_callback = stream_batch
+
     records = generate_graph_completion_samples(
         rows,
         model=args.model,
@@ -524,6 +629,9 @@ def main() -> None:
         ),
         use_cuda_graphs=args.use_cuda_graphs,
         enable_prefix_caching=not args.no_prefix_caching,
+        generation_batch_size=args.generation_batch_size,
+        show_progress=args.generation_batch_size > 0,
+        batch_callback=batch_callback,
     )
     if args.view == "scored":
         records = score_graph_completion_samples(
@@ -537,7 +645,7 @@ def main() -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as handle:
             print_graph_completion_samples(records, view=args.view, stream=handle)
-    if args.output_jsonl:
+    if args.output_jsonl and not args.stream_output_jsonl:
         write_graph_completion_samples_jsonl(records, args.output_jsonl)
 
 

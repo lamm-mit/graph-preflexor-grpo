@@ -8,6 +8,7 @@ from datasets import Dataset, DatasetDict
 
 from graph_completion_parsing import render_graph_canvas
 from sample_graph_completion import (
+    append_graph_completion_samples_jsonl,
     build_manual_graph_completion_task,
     build_graph_completion_sample_prompts,
     build_parser,
@@ -78,6 +79,8 @@ def test_sample_cli_defaults_match_training_rollouts():
     assert args.chat_template_enable_thinking == "true"
     assert args.manual_mode == "partial_subgraph"
     assert args.manual_fixed_policy == "all"
+    assert args.generation_batch_size == 0
+    assert not args.stream_output_jsonl
 
 
 def test_parse_modes_rejects_unknown_mode():
@@ -255,3 +258,70 @@ def test_vllm_023_prompt_truncation_is_not_a_sampling_parameter(monkeypatch):
     assert calls["engine"]["max_model_len"] == 168
     assert records[0]["prompt"] == "EFFECTIVE PROMPT"
     assert records[0]["raw_completion"] == "RAW"
+
+
+def test_generation_batches_preserve_task_indices_and_call_callback(monkeypatch):
+    calls = {"batch_sizes": []}
+
+    class FakeSamplingParams:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    class FakeLLM:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def generate(self, prompts, sampling, **kwargs):
+            calls["batch_sizes"].append(len(prompts))
+            return [
+                SimpleNamespace(
+                    prompt_token_ids=[index + 1],
+                    outputs=[
+                        SimpleNamespace(
+                            text=f"RAW-{prompt}",
+                            token_ids=[4, 5],
+                            finish_reason="stop",
+                            stop_reason=None,
+                        )
+                    ],
+                )
+                for index, prompt in enumerate(prompts)
+            ]
+
+    tokenizer = MockTokenizer()
+    tokenizer.decode = lambda token_ids, **kwargs: f"PROMPT-{token_ids[0]}"
+    monkeypatch.setitem(
+        sys.modules,
+        "vllm",
+        SimpleNamespace(LLM=FakeLLM, SamplingParams=FakeSamplingParams),
+    )
+    monkeypatch.setattr(
+        sample_graph_completion.AutoTokenizer,
+        "from_pretrained",
+        lambda *args, **kwargs: tokenizer,
+    )
+    rows = Dataset.from_list(
+        [make_row(1, "prior_empty"), make_row(2, "prior_empty"), make_row(3, "prior_empty")]
+    )
+    callback_sizes = []
+    records = sample_graph_completion.generate_graph_completion_samples(
+        rows,
+        generation_batch_size=2,
+        batch_callback=lambda batch: callback_sizes.append(len(batch)),
+    )
+
+    assert calls["batch_sizes"] == [2, 1]
+    assert callback_sizes == [2, 1]
+    assert [record["task_index"] for record in records] == [1, 2, 3]
+    assert [record["source_index"] for record in records] == [1, 2, 3]
+
+
+def test_append_jsonl_keeps_completed_batches(tmp_path):
+    output = tmp_path / "intermediate.jsonl"
+    first = [{"task_index": 1}, {"task_index": 2}]
+    second = [{"task_index": 3}]
+
+    assert append_graph_completion_samples_jsonl(first, str(output)) == 2
+    assert append_graph_completion_samples_jsonl(second, str(output)) == 1
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert [row["task_index"] for row in rows] == [1, 2, 3]
