@@ -18,6 +18,7 @@ from graph_completion_data import (
     audit_and_filter_pairs,
     graph_completion_task_key,
     load_graph_completion_dataset,
+    prepare_graph_completion_reference_split,
 )
 from graph_completion_parsing import GRAPH_COMPLETION_MODES
 from graph_completion_parsing import (
@@ -59,11 +60,15 @@ def sample_graph_completion_tasks(
     num_tasks: int = 3,
     seed: int = 42,
     invalid_pair_policy: str = "filter",
+    validation_manifest: str = (
+        "outputs/graph_completion/validation_source_indices.json"
+    ),
+    validation_source_count: int = 512,
 ) -> Any:
     """Select valid, deterministic, mode-balanced graph-completion rows."""
 
-    if split not in {"train", "test"}:
-        raise ValueError("sampling split must be the official train or test split")
+    if split not in {"train", "validation", "test"}:
+        raise ValueError("sampling split must be train, validation, or test")
     if num_tasks <= 0:
         raise ValueError("num_tasks must be positive")
     selected_modes = list(modes) if modes else None
@@ -71,6 +76,20 @@ def sample_graph_completion_tasks(
         unknown = set(selected_modes) - set(GRAPH_COMPLETION_MODES)
         if unknown:
             raise ValueError(f"unknown graph-completion modes: {sorted(unknown)}")
+
+    if split == "validation":
+        # Use the exact same deterministic cap as the analysis CLI so
+        # multi-checkpoint comparisons score identical withheld task rows.
+        return prepare_graph_completion_reference_split(
+            dataset_name,
+            split="validation",
+            validation_manifest=validation_manifest,
+            validation_source_count=validation_source_count,
+            invalid_pair_policy=invalid_pair_policy,
+            seed=seed,
+            modes=selected_modes,
+            max_rows=num_tasks,
+        )
 
     dataset = load_graph_completion_dataset(dataset_name)[split]
     dataset, _ = audit_and_filter_pairs(
@@ -546,7 +565,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tokenizer_model", default=None)
     parser.add_argument("--revision", default=None)
     parser.add_argument("--dataset", default=DEFAULT_DATASET)
-    parser.add_argument("--split", choices=["train", "test"], default="test")
+    parser.add_argument(
+        "--split",
+        choices=["train", "validation", "test"],
+        default="test",
+    )
+    parser.add_argument(
+        "--validation_manifest",
+        default="outputs/graph_completion/validation_source_indices.json",
+    )
+    parser.add_argument("--validation_source_count", type=int, default=512)
     parser.add_argument("--modes", default=None, help="Optional comma-separated mode subset.")
     parser.add_argument("--num_tasks", type=int, default=3)
     parser.add_argument("--num_generations", type=int, default=1)
@@ -680,6 +708,8 @@ def main() -> None:
             num_tasks=args.num_tasks,
             seed=args.seed,
             invalid_pair_policy=args.invalid_pair_policy,
+            validation_manifest=args.validation_manifest,
+            validation_source_count=args.validation_source_count,
         )
     streamed_records = 0
     if args.resume_output_jsonl:

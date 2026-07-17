@@ -22,8 +22,13 @@ transformer, EditFlow, or diffusion implementation is used.
 - `src/analyze_graph_completion_benchmark.py`: strict benchmark coverage audit,
   deterministic scorer, bootstrap tables, and publication-ready SVG/PNG
   figures for a saved prediction JSONL.
+- `src/run_graph_completion_checkpoint_benchmarks.py`: sequential,
+  manifest-driven sampling and analysis for multiple labeled checkpoints,
+  followed by combined checkpoint-trend tables and figures.
 - `src/sample_graph_completion.py`: mode-balanced vLLM sampling with raw-rollout
   and scored-reference inspection views.
+- `configs/graph_completion_checkpoint_benchmarks.example.json`: editable
+  multi-checkpoint manifest example.
 - `src/graph_completion_data.py`: official-split loading, pair auditing, grouped
   validation manifests, caps, and balanced sampling.
 - `src/graph_completion_prompting.py`: complete-graph prompt and native-thinking
@@ -59,6 +64,7 @@ python -c "import transformers,trl,peft,datasets; print(transformers.__version__
 python src/run_grpo_graph_completion.py --help
 python src/validate_graph_completion.py --help
 python src/analyze_graph_completion_benchmark.py --help
+python src/run_graph_completion_checkpoint_benchmarks.py --help
 python src/sample_graph_completion.py --help
 ```
 
@@ -968,6 +974,139 @@ test result. Use the fixed held-out validation workflow below for checkpoint
 selection, freeze the checkpoint and decoding settings, and run the official
 test workflow once for the final report.
 
+## Run and plot a labeled checkpoint series
+
+Use `run_graph_completion_checkpoint_benchmarks.py` to benchmark several
+inference-ready full or merged models sequentially on one GPU. The runner
+builds directly on the existing sampler and analyzer:
+
+```text
+checkpoint manifest
+    -> sample_graph_completion.py for each model
+    -> analyze_graph_completion_benchmark.py for each prediction JSONL
+    -> combined CSV/JSON
+    -> checkpoint metric-over-step SVG/PNG figures
+```
+
+The runner defaults to the fixed held-out `validation` split because a
+checkpoint curve is a model-selection artifact. It refuses a multi-checkpoint
+official-test sweep unless `--allow_test_checkpoint_sweep` is supplied
+explicitly.
+
+Each manifest entry requires a numeric checkpoint step, a plot label, and a
+vLLM-loadable full or merged model:
+
+```json
+{
+  "checkpoints": [
+    {
+      "step": 0,
+      "label": "Gemma 4 E4B baseline",
+      "model": "google/gemma-4-E4B-it"
+    },
+    {
+      "step": 1350,
+      "label": "GRPO checkpoint 1350",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1350-vllm"
+    },
+    {
+      "step": 1400,
+      "label": "GRPO checkpoint 1400",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm"
+    }
+  ]
+}
+```
+
+An editable copy is provided at:
+
+```text
+configs/graph_completion_checkpoint_benchmarks.example.json
+```
+
+LoRA-only adapters must first be merged using the checkpoint/commit workflow
+above. Optional manifest fields are `id`, `revision`, `tokenizer_model`,
+`predictions`, and `analysis_dir`. Supplying `predictions` reuses a prediction
+JSONL at that path.
+
+Run a deterministic 512-task validation comparison:
+
+```bash
+python -u src/run_graph_completion_checkpoint_benchmarks.py \
+  --manifest configs/graph_completion_checkpoint_benchmarks.example.json \
+  --output_dir outputs/graph_completion/checkpoint-comparison \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split validation \
+  --validation_manifest outputs/graph_completion/full-validation-sources.json \
+  --validation_source_count 512 \
+  --num_tasks 512 \
+  --num_generations 1 \
+  --generation_batch_size 64 \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --seed 42 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --reward_stage shaped \
+  --aggregation_unit source \
+  --bootstrap_samples 2000 \
+  --bootstrap_seed 42 \
+  --confidence 0.95 \
+  --primary_metric reward \
+  --metrics reward,valid_completion,exact_match,fixed_contract,node,edge,mode_primary \
+  --png_dpi 450
+```
+
+Models run sequentially. Every checkpoint gets an isolated directory under
+`checkpoints/`, containing its prediction JSONL, generation log, analysis log,
+and complete single-model analysis. Existing managed prediction JSONLs are
+validated and resumed automatically; use `--force_generation` only when an
+intentional full regeneration should truncate them.
+
+The comparison directory contains:
+
+```text
+resolved_manifest.json
+checkpoint_metrics.csv
+checkpoint_comparison.json
+README.md
+checkpoint_reward_over_steps.{svg,png}
+checkpoint_metrics_over_steps.{svg,png}
+checkpoints/
+```
+
+Use `--primary_metric exact_match`, for example, to make the focused plot show
+exact-match performance instead of reward. The selected primary metric is
+automatically added to `--metrics` when necessary.
+
+Useful restart and replot modes are:
+
+```bash
+# Re-run deterministic analysis from existing prediction JSONLs.
+python -u src/run_graph_completion_checkpoint_benchmarks.py \
+  --manifest configs/graph_completion_checkpoint_benchmarks.example.json \
+  --output_dir outputs/graph_completion/checkpoint-comparison \
+  --split validation \
+  --analysis_only
+
+# Rebuild only combined tables and figures from existing benchmark summaries.
+python -u src/run_graph_completion_checkpoint_benchmarks.py \
+  --manifest configs/graph_completion_checkpoint_benchmarks.example.json \
+  --output_dir outputs/graph_completion/checkpoint-comparison \
+  --split validation \
+  --plot_only
+```
+
+The script can technically run a full 3,641-task curve on the official test
+split, but this should not be used to choose a checkpoint:
+
+```text
+--split test --num_tasks 3641 --allow_test_checkpoint_sweep
+```
+
 ## Detailed checkpoint-selection and validation notes
 
 The canonical variable-driven workflow above is the recommended final-test
@@ -1078,67 +1217,37 @@ recovery and merge procedure for checkpoint 1,350.
 
 ### Generate the held-out validation predictions
 
-`validate_graph_completion.py` is a deterministic scorer: it does not load a
-model or generate predictions. The dataset sampler currently exposes official
-`train` and `test` rows, so the following driver uses the existing preparation
-and generation functions directly to select the exact withheld `validation`
-rows from the training manifest. It generates one deterministic response for a
-mode-balanced 512-row validation subset:
+`sample_graph_completion.py` supports the deterministic withheld `validation`
+split directly. It uses the same manifest and mode-balanced row cap as the
+analysis CLI. Generate one response for each of 512 validation tasks:
 
 ```bash
-export MERGED_MODEL="lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm"
-export VAL_ROWS=512
-
-python -u - <<'PY'
-import os
-import sys
-
-sys.path.insert(0, "src")
-
-from graph_completion_data import prepare_graph_completion_datasets
-from sample_graph_completion import (
-    generate_graph_completion_samples,
-    write_graph_completion_samples_jsonl,
-)
-
-model = os.environ["MERGED_MODEL"]
-num_rows = int(os.environ["VAL_ROWS"])
-manifest = "outputs/graph_completion/full-validation-sources.json"
-output = "outputs/graph_completion/step-1400-validation-512.jsonl"
-
-prepared = prepare_graph_completion_datasets(
-    "lamm-mit/graph-canvas-inpainting-121k",
-    validation_manifest=manifest,
-    validation_source_count=512,
-    invalid_pair_policy="filter",
-    seed=42,
-    max_eval_rows=num_rows,
-)
-
-records = generate_graph_completion_samples(
-    prepared.validation,
-    model=model,
-    tokenizer_model=model,
-    dtype="bfloat16",
-    tensor_parallel_size=1,
-    gpu_memory_utilization=0.45,
-    max_prompt_length=4096,
-    max_completion_length=4096,
-    num_generations=1,
-    temperature=0.0,
-    top_p=1.0,
-    seed=42,
-    enable_thinking=True,
-    use_cuda_graphs=False,
-    enable_prefix_caching=True,
-)
-
-write_graph_completion_samples_jsonl(records, output)
-print(f"Wrote {len(records)} validation predictions to {output}")
-PY
+python -u src/sample_graph_completion.py \
+  --model lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm \
+  --dataset lamm-mit/graph-canvas-inpainting-121k \
+  --split validation \
+  --validation_manifest outputs/graph_completion/full-validation-sources.json \
+  --validation_source_count 512 \
+  --invalid_pair_policy filter \
+  --num_tasks 512 \
+  --num_generations 1 \
+  --generation_batch_size 64 \
+  --stream_output_jsonl \
+  --temperature 0.0 \
+  --top_p 1.0 \
+  --seed 42 \
+  --max_prompt_length 4096 \
+  --max_completion_length 4096 \
+  --dtype bfloat16 \
+  --vllm_gpu_memory_utilization 0.45 \
+  --chat_template_enable_thinking true \
+  --view raw \
+  --output_jsonl outputs/graph_completion/step-1400-validation-512.jsonl
 ```
 
-Score those predictions against the same 512 withheld validation rows:
+`validate_graph_completion.py` remains a deterministic lightweight scorer; it
+does not load a model. Score those predictions against the same 512 withheld
+validation rows:
 
 ```bash
 python -u src/validate_graph_completion.py \
@@ -1325,5 +1434,6 @@ pytest -q \
   tests/test_graph_completion_data_prompting.py \
   tests/test_graph_completion_sampling.py \
   tests/test_graph_completion_validation.py \
-  tests/test_graph_completion_benchmark_analysis.py
+  tests/test_graph_completion_benchmark_analysis.py \
+  tests/test_graph_completion_checkpoint_benchmarks.py
 ```

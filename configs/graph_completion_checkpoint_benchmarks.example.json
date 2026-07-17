@@ -1,0 +1,19 @@
+{
+  "checkpoints": [
+    {
+      "step": 0,
+      "label": "Gemma 4 E4B baseline",
+      "model": "google/gemma-4-E4B-it"
+    },
+    {
+      "step": 1350,
+      "label": "GRPO checkpoint 1350",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1350-vllm"
+    },
+    {
+      "step": 1400,
+      "label": "GRPO checkpoint 1400",
+      "model": "lamm-mit/Gemma4-E4B-graph-completion-conditioned-grpo-token-tis-merged-step-1400-vllm"
+    }
+  ]
+}

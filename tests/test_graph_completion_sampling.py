@@ -123,6 +123,34 @@ def test_task_sampling_is_mode_balanced_and_prompt_matches_training(tmp_path):
     assert all("Condition:\nA condition" in prompt for prompt in prompts)
 
 
+def test_validation_sampling_matches_deterministic_analysis_cap(tmp_path):
+    path = tmp_path / "dataset"
+    DatasetDict(
+        {
+            "train": Dataset.from_list(
+                [make_row(index, "prior_empty") for index in range(8)]
+            ),
+            "test": Dataset.from_list(
+                [make_row(index, "prior_empty") for index in range(20, 23)]
+            ),
+        }
+    ).save_to_disk(str(path))
+    manifest = tmp_path / "validation.json"
+
+    sampled = sample_graph_completion_tasks(
+        str(path),
+        split="validation",
+        num_tasks=2,
+        seed=42,
+        validation_manifest=str(manifest),
+        validation_source_count=3,
+    )
+
+    assert len(sampled) == 2
+    assert manifest.exists()
+    assert "no_edit_primary" in sampled.column_names
+
+
 def test_manual_partial_graph_is_rendered_fixed_and_conditioned(tmp_path):
     graph = {
         "nodes": [{"id": "Humidity"}, {"id": "WaterUptake"}],
