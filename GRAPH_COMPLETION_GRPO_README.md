@@ -29,6 +29,12 @@ transformer, EditFlow, or diffusion implementation is used.
   and scored-reference inspection views.
 - `configs/graph_completion_checkpoint_benchmarks.example.json`: editable
   multi-checkpoint manifest example.
+- `model_cards/Graph-PRefLexOR-4B-Inpainting/README.md`: public Hugging Face
+  model card with installation, six-mode manual inference examples, and the
+  reproducible official-test benchmark workflow.
+- `Notebooks/Graph_PRefLexOR_4B_Inpainting_Colab.ipynb`: standalone Colab that
+  defines its own prompt, graph-canvas, generation, parsing, exact-scoring, and
+  visualization functions and runs all six trained corruption modes.
 - `src/graph_completion_data.py`: official-split loading, pair auditing, grouped
   validation manifests, caps, and balanced sampling.
 - `src/graph_completion_prompting.py`: complete-graph prompt and native-thinking
